@@ -31,7 +31,7 @@ The basis is [`deploy/compose.yml`](../deploy/compose.yml): a container `roedy-m
    chmod 600 .env
    ```
 
-   It lists every variable of `compose.yml`; the minimum is:
+   It lists every variable of `compose.yml`. Replace `webmail.example.com` with your own public host name; the minimum is:
 
    ```sh
    ROEDY_PUBLIC_URL=https://webmail.example.com
