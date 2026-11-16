@@ -142,8 +142,10 @@ function urlArgument(css: string, start: number): { raw: string; end: number } {
   while (isSpace(css[i])) i++;
   const quote = css[i] === '"' || css[i] === "'" ? css[i]! : '';
   if (quote) {
-    const close = css.indexOf(quote, i + 1);
-    if (close < 0) return { raw: css.slice(i + 1), end: css.length };
+    // The first quote that no backslash escapes (CSS strings allow `\"`).
+    let close = i + 1;
+    while (close < css.length && css[close] !== quote) close += css[close] === '\\' ? 2 : 1;
+    if (close >= css.length) return { raw: css.slice(i + 1), end: css.length };
     let end = close + 1;
     while (isSpace(css[end])) end++;
     return { raw: css.slice(i + 1, close), end: css[end] === ')' ? end + 1 : close + 1 };

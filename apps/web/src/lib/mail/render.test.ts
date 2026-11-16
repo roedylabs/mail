@@ -264,6 +264,12 @@ describe('renderMail – external content', () => {
     expect(doc.head.querySelectorAll('style')[1]?.textContent).toBe('.a { background: none } .b { background: none');
   });
 
+  it('ends a quoted url() at the first unescaped quote', () => {
+    const { blocked, doc } = render('<style>a{background:url("https://t.example/a\\"b.png");color:red}</style>');
+    expect(blocked).toBe(1);
+    expect(doc.head.querySelectorAll('style')[1]?.textContent).toBe('a{background:none;color:red}');
+  });
+
   it('does not join the text around a removed @import into a new comment', () => {
     const { doc } = render('<style>.a { x: 1 */@import ;*/ } .b { background: url(https://t.example/b.png) }</style>');
     expect(doc.head.querySelectorAll('style')[1]?.textContent).toBe('.a { x: 1 */ */ } .b { background: none }');
