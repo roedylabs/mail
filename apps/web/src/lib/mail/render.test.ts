@@ -275,6 +275,11 @@ describe('renderMail – external content', () => {
     expect(doc.head.querySelectorAll('style')[1]?.textContent).toBe('.a { x: 1 */ */ } .b { background: none }');
   });
 
+  it('trims a rewritten style attribute like every other attribute value', () => {
+    const { body } = render('<p style="@import ">a</p><p style=" color: red; @import x; ">b</p>');
+    expect([...body.querySelectorAll('p')].map((p) => p.getAttribute('style'))).toEqual(['', 'color: red;']);
+  });
+
   it('does not join the characters around a CSS comment into a new comment', () => {
     const { doc } = render(
       '<style>.a { width: calc(4//**/*2px) } .b { background: url(https://t.example/b.png) }</style>',

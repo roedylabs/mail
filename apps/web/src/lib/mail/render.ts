@@ -275,7 +275,10 @@ function rewriteElement(el: Element, p: Pass): void {
     else el.setAttribute('background', t.url);
   }
   const style = el.getAttribute('style');
-  if (style !== null && /url\(|@import|@font-face|vh\b/i.test(style)) el.setAttribute('style', rewriteCss(style, p));
+  // Trimmed like every attribute value DOMPurify keeps; otherwise `@import ` would leave `" "`, which the next pass trims.
+  if (style !== null && /url\(|@import|@font-face|vh\b/i.test(style)) {
+    el.setAttribute('style', rewriteCss(style, p).trim());
+  }
   if ((tag === 'a' || tag === 'area') && el.hasAttribute('href')) {
     if ((el.getAttribute('href') ?? '').startsWith('#')) el.removeAttribute('target');
     else {
