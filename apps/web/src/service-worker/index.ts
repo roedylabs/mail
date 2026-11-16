@@ -58,6 +58,8 @@ if (shell) {
 }
 
 sw.addEventListener('message', (event) => {
+  // Only pages of this app may ask for a refill.
+  if (event.origin !== sw.location.origin) return;
   const data: unknown = event.data;
   if (shell && data && typeof data === 'object' && (data as Record<string, unknown>).type === REFILL_MESSAGE) {
     event.waitUntil(shell.refill());

@@ -190,7 +190,7 @@ describe('Organization page', () => {
 
   it('fields on mobile without transition, the red ring applies in both layouts', () => {
     const rule = (selector: string) =>
-      new RegExp(`^ {2}${selector.replace(/[.]/g, '\\.')} \\{([^}]*)\\}`, 'm').exec(SOURCE)?.[1] ?? '';
+      new RegExp(`^ {2}${selector.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')} \\{([^}]*)\\}`, 'm').exec(SOURCE)?.[1] ?? '';
     expect(rule('.mobile input')).toMatch(/transition: none;/);
     expect(rule('input')).toMatch(/transition: box-shadow var\(--dur, 220ms\);/);
     expect(rule('input.bad')).toMatch(/box-shadow: 0 0 0 2px var\(--danger\);/);

@@ -127,7 +127,7 @@ function encodeValue(value: string): string {
  */
 function absoluteTemplate(template: unknown, base: string): string {
   if (typeof template !== 'string' || template === '') return '';
-  resolveSameOrigin(template.replace(/\{[^}]*\}/g, 'x'), base);
+  resolveSameOrigin(template.replace(/\{[^{}]*\}/g, 'x'), base);
   if (/^[a-z][a-z\d+.-]*:/i.test(template)) return template;
   if (template.startsWith('//')) return new URL(base).protocol + template;
   if (template.startsWith('/')) return new URL(base).origin + template;

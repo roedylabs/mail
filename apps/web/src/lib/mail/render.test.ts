@@ -99,6 +99,23 @@ describe('renderMail – sanitizing', () => {
     expect(body.querySelector('rm-mail')?.firstElementChild?.matches('p.x')).toBe(true);
   });
 
+  it('removes comment markers that a single pass would join together', () => {
+    const { doc } = render('<html><head><style><<!---->!-- .x { color: red } --!></style></head><body></body></html>');
+    const style = doc.head.querySelectorAll('style')[1];
+    expect(style?.textContent).toContain('.x { color: red }');
+    expect(style?.textContent).not.toContain('<!--');
+    expect(style?.textContent).not.toContain('--!>');
+  });
+
+  it('strips deeply nested comment markers in linear time', () => {
+    const n = 100_000;
+    const css = '<!'.repeat(n) + '--'.repeat(n) + ' .x { color: red }';
+    const { doc } = render(`<html><head><style>${css}</style></head><body></body></html>`);
+    const style = doc.head.querySelectorAll('style')[1];
+    expect(style?.textContent).toContain('.x { color: red }');
+    expect(style?.textContent).not.toContain('<!');
+  });
+
   it('builds a document of its own with a CSP without scripts and with the message colours', () => {
     const { doc } = render('<p>Hello</p>', { theme: readTheme(true, false) });
     const csp = doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content');
@@ -139,7 +156,7 @@ describe('renderMail – external content', () => {
     expect(free?.className).toBe('f');
     expect(free?.querySelector('img, rm-label')).toBeNull();
     expect(free?.querySelector('rm-name')?.textContent).toBe('logo.png');
-    expect(body.innerHTML).not.toMatch(/cdn\.example\.com\/title/);
+    expect(body.innerHTML).not.toContain('cdn.example.com/title');
   });
 
   it('removes tracking pixels but still counts them', () => {
