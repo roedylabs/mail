@@ -1,12 +1,15 @@
 version: 2
 
-# Weekly grouped updates per ecosystem; a cooldown lets fresh releases settle
-# before they are proposed.
+# Weekly grouped minor and patch updates per ecosystem; major updates arrive as
+# separate pull requests so that one breaking release does not block the rest.
+# A cooldown lets fresh releases settle before they are proposed.
 updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
       interval: weekly
+    # Room for separate major-update PRs next to the grouped minor/patch PR.
+    open-pull-requests-limit: 10
     cooldown:
       default-days: 7
     commit-message:
@@ -14,11 +17,14 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: /
     schedule:
       interval: weekly
+    # Room for separate major-update PRs next to the grouped minor/patch PR.
+    open-pull-requests-limit: 10
     cooldown:
       default-days: 7
     commit-message:
@@ -30,11 +36,14 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    # Room for separate major-update PRs next to the grouped minor/patch PR.
+    open-pull-requests-limit: 10
     cooldown:
       default-days: 7
     commit-message:
@@ -42,11 +51,14 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: docker
     directory: /
     schedule:
       interval: weekly
+    # Room for separate major-update PRs next to the grouped minor/patch PR.
+    open-pull-requests-limit: 10
     cooldown:
       default-days: 7
     commit-message:
@@ -54,3 +66,4 @@ updates:
     groups:
       docker:
         patterns: ["*"]
+        update-types: ["minor", "patch"]

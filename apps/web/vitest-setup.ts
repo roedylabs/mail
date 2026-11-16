@@ -1,6 +1,39 @@
 import '@testing-library/jest-dom/vitest';
-import { beforeEach } from 'vitest';
+import { beforeEach, expect } from 'vitest';
 import { network } from '#lib/state/network.svelte.ts';
+
+declare module 'vitest' {
+  // The type parameters must match the declaration in vitest.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  interface Matchers<R extends void | Promise<void> = void | Promise<void>, T = unknown> {
+    /**
+     * Checks the inline styles as the component sets them. `toHaveStyle` reads
+     * the computed style, in which jsdom resolves `var()` and drops values it
+     * does not support (e.g. `cqmin`).
+     */
+    toHaveInlineStyle(expected: Record<string, string>): R;
+  }
+}
+
+const kebab = (prop: string) => (prop.startsWith('--') ? prop : prop.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`));
+
+expect.extend({
+  toHaveInlineStyle(received: Element | null, expected: Record<string, string>) {
+    const style = (received as HTMLElement | null)?.style;
+    const actual = Object.fromEntries(
+      Object.keys(expected).map((prop) => [prop, style?.getPropertyValue(kebab(prop)) ?? '']),
+    );
+    const pass = this.equals(actual, expected);
+    return {
+      pass,
+      actual,
+      expected,
+      message: () =>
+        `expected element ${pass ? 'not ' : ''}to have inline style ${this.utils.printExpected(expected)}, ` +
+        `received ${this.utils.printReceived(actual)}`,
+    };
+  },
+});
 
 // The tests check the English texts (device language, `#lib/locale.ts`).
 if (typeof navigator !== 'undefined') {

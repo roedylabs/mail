@@ -193,11 +193,11 @@ describe('Banner page', () => {
 
   it('selects colour and icon and discards the changes', async () => {
     await renderPage();
-    expect(preview().firstElementChild).toHaveStyle({ color: 'var(--accink)' });
+    expect(preview().firstElementChild).toHaveInlineStyle({ color: 'var(--accink)' });
     await fireEvent.click(radio('Color', 'Dark'));
     expect(radio('Color', 'Dark')).toHaveAttribute('aria-checked', 'true');
     expect(radio('Color', 'Accent color')).toHaveAttribute('aria-checked', 'false');
-    expect(preview().firstElementChild).toHaveStyle({ color: 'var(--inkfg)' });
+    expect(preview().firstElementChild).toHaveInlineStyle({ color: 'var(--inkfg)' });
     await fireEvent.click(radio('Icon', 'Heart'));
     expect(radio('Icon', 'Heart')).toHaveAttribute('aria-checked', 'true');
     expect(radio('Icon', 'Megaphone')).toHaveAttribute('aria-checked', 'false');

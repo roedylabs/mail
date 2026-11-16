@@ -41,5 +41,7 @@ describe('onForget and forgetRegistered', () => {
     const spies = [vi.spyOn(identities, 'reset'), vi.spyOn(rules, 'reset'), vi.spyOn(vacations, 'reset')];
     for (const reset of registered) reset();
     for (const spy of spies) expect(spy).toHaveBeenCalledOnce();
-  });
+    // Imports five large modules without cache; under a full parallel run that
+    // can take longer than the default 5 s.
+  }, 20_000);
 });
