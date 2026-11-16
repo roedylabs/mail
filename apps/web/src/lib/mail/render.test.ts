@@ -107,6 +107,15 @@ describe('renderMail – sanitizing', () => {
     expect(style?.textContent).not.toContain('--!>');
   });
 
+  it('strips deeply nested comment markers in linear time', () => {
+    const n = 100_000;
+    const css = '<!'.repeat(n) + '--'.repeat(n) + ' .x { color: red }';
+    const { doc } = render(`<html><head><style>${css}</style></head><body></body></html>`);
+    const style = doc.head.querySelectorAll('style')[1];
+    expect(style?.textContent).toContain('.x { color: red }');
+    expect(style?.textContent).not.toContain('<!');
+  });
+
   it('builds a document of its own with a CSP without scripts and with the message colours', () => {
     const { doc } = render('<p>Hello</p>', { theme: readTheme(true, false) });
     const csp = doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content');

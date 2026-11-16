@@ -225,14 +225,25 @@ function rewriteElement(el: Element, p: Pass): void {
   }
 }
 
-/** Removes `<!--` and `-->`/`--!>` until none are left (one pass can join `<<!---->!--` into a new `<!--`). */
+const COMMENT_MARKERS = ['<!--', '-->', '--!>'] as const;
+
+/**
+ * Removes `<!--`, `-->` and `--!>` until none are left, in linear time: a removal can join
+ * its neighbours into a new marker (`<<!---->!--`), which always ends at the top of the stack.
+ */
 function stripCommentMarkers(css: string): string {
-  let prev: string;
-  do {
-    prev = css;
-    css = css.replace(/<!--|--!?>/g, '');
-  } while (css !== prev);
-  return css;
+  const out: string[] = [];
+  for (let i = 0; i < css.length; i++) {
+    out.push(css.charAt(i));
+    for (const marker of COMMENT_MARKERS) {
+      const start = out.length - marker.length;
+      if (start >= 0 && out.slice(start).join('') === marker) {
+        out.length = start;
+        break;
+      }
+    }
+  }
+  return out.join('');
 }
 
 function instance(): ReturnType<typeof DOMPurify> {
