@@ -19,7 +19,7 @@ pre-commit:
       run: git diff --cached --check
     - name: rust-format
       glob: "**/*.rs"
-      run: cargo fmt --all -- --check
+      run: cargo fmt --all -- --check && cargo fmt --manifest-path fuzz/Cargo.toml -- --check
     - name: web-eslint
       glob: "**/*.{js,mjs,cjs,ts,svelte}"
       run: pnpm --filter @roedy/web sync && pnpm exec eslint --no-warn-ignored {staged_files}
@@ -40,6 +40,6 @@ pre-push:
     - name: web-lint
       run: pnpm lint
     - name: rust
-      run: cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+      run: cargo fmt --all -- --check && cargo fmt --manifest-path fuzz/Cargo.toml -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
     - name: web
       run: pnpm check && pnpm test

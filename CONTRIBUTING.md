@@ -49,6 +49,15 @@ pnpm test             # Vitest and script tests
 
 While iterating, run single test files: `pnpm --filter @roedy/web exec vitest run <file>` or `cargo test -p roedy-mail-server <filter>`.
 
+### Fuzzing and property-based tests
+
+Code that reads untrusted input gets randomized tests as well as hand-written ones:
+
+- **Web:** property-based tests with [fast-check](https://fast-check.dev) next to the unit tests (`*.property.test.ts`), e.g. for the mail renderer and the EventSource parser. They run with `pnpm test`; a failure prints the counterexample and the seed to replay it.
+- **Server:** [cargo-fuzz](https://rust-fuzz.github.io/book/cargo-fuzz.html) targets in [`fuzz/`](fuzz/README.md) for addresses, JMAP responses and headers. ClusterFuzzLite runs them on pull requests that change Rust code and every night ([`fuzz.yml`](.github/workflows/fuzz.yml)). Locally with nightly Rust and `cargo install cargo-fuzz`: `just fuzz <target> -max_total_time=60`.
+
+New parsers of external input should get a property or a fuzz target; a bug found that way also gets a regular regression test.
+
 ## Project layout
 
 | Path | Content |
@@ -58,6 +67,7 @@ While iterating, run single test files: `pnpm --filter @roedy/web exec vitest ru
 | `apps/web` | Web app (Svelte 5, SvelteKit as an SPA) |
 | `packages/jmap` | JMAP layer for the browser (TypeScript) |
 | `packages/tokens` | Design tokens as CSS and TypeScript constants |
+| `fuzz/` | Fuzz targets for the backend (cargo-fuzz, outside the workspace) |
 | `docs/` | Operator documentation |
 | `scripts/` | Git hooks, release, E2E, load test and developer tooling |
 

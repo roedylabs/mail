@@ -31,6 +31,14 @@ describe('EventStreamParser', () => {
     ]);
   });
 
+  it('keeps CR and LF together across an empty chunk', () => {
+    // `TextDecoder` returns an empty chunk for a read with only part of a character.
+    const parser = new EventStreamParser();
+    expect(['data: x\r', '', '\n', 'data: y\n\n'].flatMap((chunk) => parser.push(chunk))).toEqual([
+      { event: 'message', data: 'x\ny', id: '' },
+    ]);
+  });
+
   it('handles CR as line end, id, retry and events without data', () => {
     const parser = new EventStreamParser();
     expect(parser.push('id: 7\rretry: 5000\revent: ping\r\rdata\r\r')).toEqual([

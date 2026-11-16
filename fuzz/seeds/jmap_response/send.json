@@ -1,0 +1,1 @@
+{"methodResponses":[["Email/set",{"accountId":"a","created":{"m":{"id":"e1","blobId":"b1","threadId":"t1","size":512}}},"0"],["EmailSubmission/set",{"accountId":"a","created":{"s":{"id":"es1"}}},"1"],["Email/set",{"accountId":"a","updated":{"e1":null},"notUpdated":{}},"1"]],"sessionState":"1"}
