@@ -1,0 +1,12 @@
+# Build context of .clusterfuzzlite/Dockerfile: BuildKit reads this file
+# instead of the root .dockerignore, which only lets the release binaries in.
+# The fuzz build needs the sources; build output and dependencies stay out.
+**/node_modules
+target/
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+apps/web/build/
+apps/web/.svelte-kit/
+dist/
+data/
