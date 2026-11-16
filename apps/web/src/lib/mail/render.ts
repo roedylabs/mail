@@ -225,12 +225,12 @@ function rewriteElement(el: Element, p: Pass): void {
   }
 }
 
-/** Removes `<!--` and `-->` until none are left (one pass can join `<<!---->!--` into a new `<!--`). */
+/** Removes `<!--` and `-->`/`--!>` until none are left (one pass can join `<<!---->!--` into a new `<!--`). */
 function stripCommentMarkers(css: string): string {
   let prev: string;
   do {
     prev = css;
-    css = css.replace(/<!--|-->/g, '');
+    css = css.replace(/<!--|--!?>/g, '');
   } while (css !== prev);
   return css;
 }

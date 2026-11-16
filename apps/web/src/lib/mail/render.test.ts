@@ -100,10 +100,11 @@ describe('renderMail – sanitizing', () => {
   });
 
   it('removes comment markers that a single pass would join together', () => {
-    const { doc } = render('<html><head><style><<!---->!-- .x { color: red } --></style></head><body></body></html>');
+    const { doc } = render('<html><head><style><<!---->!-- .x { color: red } --!></style></head><body></body></html>');
     const style = doc.head.querySelectorAll('style')[1];
     expect(style?.textContent).toContain('.x { color: red }');
     expect(style?.textContent).not.toContain('<!--');
+    expect(style?.textContent).not.toContain('--!>');
   });
 
   it('builds a document of its own with a CSP without scripts and with the message colours', () => {
