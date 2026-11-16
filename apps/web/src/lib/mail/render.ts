@@ -126,32 +126,73 @@ function stripCssComments(css: string): string {
   return out + css.slice(i);
 }
 
+/** Whitespace as in `\s` of the regular expressions before. */
+function isSpace(c: string | undefined): boolean {
+  return c !== undefined && /\s/.test(c);
+}
+
 /**
- * Rewrite addresses in `url(…)`, also unterminated at the end (CSS closes it
- * there, and the browser would load it); blocked ones become `none`. Comments,
+ * Argument of `url(` from `start` (behind the parenthesis) and the end of the
+ * call: quoted up to the closing quote, otherwise up to `)`, unterminated up
+ * to the end (CSS closes it there, and the browser would load it). Linear:
+ * no position is scanned twice, not even in long runs of whitespace.
+ */
+function urlArgument(css: string, start: number): { raw: string; end: number } {
+  let i = start;
+  while (isSpace(css[i])) i++;
+  const quote = css[i] === '"' || css[i] === "'" ? css[i]! : '';
+  if (quote) {
+    const close = css.indexOf(quote, i + 1);
+    if (close < 0) return { raw: css.slice(i + 1), end: css.length };
+    let end = close + 1;
+    while (isSpace(css[end])) end++;
+    return { raw: css.slice(i + 1, close), end: css[end] === ')' ? end + 1 : close + 1 };
+  }
+  const close = css.indexOf(')', i);
+  let rawEnd = close < 0 ? css.length : close;
+  while (rawEnd > i && isSpace(css[rawEnd - 1])) rawEnd--;
+  return { raw: css.slice(i, rawEnd), end: close < 0 ? css.length : close + 1 };
+}
+
+/**
+ * Rewrite addresses in `url(…)` (`urlArgument`); blocked ones become `none`. Comments,
  * `@import` and `@font-face` are dropped (the CSP blocks external fonts and
  * stylesheets anyway, even after permission), so that the banner only
- * counts images. Viewport heights (`vh`, `svh`, `lvh`, `dvh`) become pixels
+ * counts images; a space stays in their place, so that the text around them
+ * cannot join into a new comment or `url(`. Viewport heights (`vh`, `svh`, `lvh`, `dvh`) become pixels
  * (`VH_PX`); addresses in `url(…)` stay untouched.
  */
 function rewriteCss(css: string, p: Pass): string {
-  return stripCssComments(css)
-    .replace(/@import[^;]*;?/gi, '')
-    .replace(/@font-face\s*\{[^}]*\}?/gi, '')
-    .replace(
-      /url\(\s*(["']?)(.*?)(?:\1\s*\)|\1?\s*$)|(?<![\w.])(\d*\.?\d+)[sdl]?vh\b/gis,
-      (match, _q, raw?: string, vh?: string) => {
-        if (vh !== undefined) return `${+(Number(vh) * VH_PX).toFixed(2)}px`;
-        if (raw === undefined) return match;
-        const t = target(raw, p.cids);
-        if (t.kind === 'drop') return 'none';
-        if (t.kind === 'remote' && !p.remote) {
-          p.blocked.add(t.url);
-          return 'none';
-        }
-        return `url("${t.url.replace(/["\\\n]/g, (c) => encodeURIComponent(c))}")`;
-      },
-    );
+  const text = stripCssComments(css)
+    .replace(/@import[^;]*;?/gi, ' ')
+    .replace(/@font-face\s*\{[^}]*\}?/gi, ' ');
+  const tokens = /url\(|(?<![\w.])(\d*\.?\d+)[sdl]?vh\b/gi;
+  let out = '';
+  let last = 0;
+  for (let match = tokens.exec(text); match; match = tokens.exec(text)) {
+    out += text.slice(last, match.index);
+    const vh = match[1];
+    if (vh !== undefined) {
+      out += `${+(Number(vh) * VH_PX).toFixed(2)}px`;
+      last = tokens.lastIndex;
+      continue;
+    }
+    const { raw, end } = urlArgument(text, tokens.lastIndex);
+    out += rewriteUrl(raw, p);
+    last = tokens.lastIndex = end;
+  }
+  return out + text.slice(last);
+}
+
+/** `url("…")` with the target of `raw`, or `none`. */
+function rewriteUrl(raw: string, p: Pass): string {
+  const t = target(raw, p.cids);
+  if (t.kind === 'drop') return 'none';
+  if (t.kind === 'remote' && !p.remote) {
+    p.blocked.add(t.url);
+    return 'none';
+  }
+  return `url("${t.url.replace(/["\\\n]/g, (c) => encodeURIComponent(c))}")`;
 }
 
 /** Candidates of `srcset` (HTML, "parse a srcset attribute", simplified): address and descriptor. */

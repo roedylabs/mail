@@ -255,6 +255,20 @@ describe('renderMail – external content', () => {
     expect(body.querySelector('p')?.getAttribute('style')).toBe('background: none');
   });
 
+  it('rewrites url() in linear time, also after long runs of whitespace', () => {
+    const spaces = ' '.repeat(200_000);
+    const { blocked, doc } = render(
+      `<style>.a { background: url(${spaces}https://t.example/a.png${spaces}) } .b { background: url(${spaces}</style>`,
+    );
+    expect(blocked).toBe(1);
+    expect(doc.head.querySelectorAll('style')[1]?.textContent).toBe('.a { background: none } .b { background: none');
+  });
+
+  it('does not join the text around a removed @import into a new comment', () => {
+    const { doc } = render('<style>.a { x: 1 */@import ;*/ } .b { background: url(https://t.example/b.png) }</style>');
+    expect(doc.head.querySelectorAll('style')[1]?.textContent).toBe('.a { x: 1 */ */ } .b { background: none }');
+  });
+
   it('does not join the characters around a CSS comment into a new comment', () => {
     const { doc } = render(
       '<style>.a { width: calc(4//**/*2px) } .b { background: url(https://t.example/b.png) }</style>',

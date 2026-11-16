@@ -307,7 +307,10 @@ describe('renderMail – properties', () => {
           // `src` and `srcset` load only on images (media and frames do not get through at all).
           for (const name of el.localName === 'img' ? ['src', 'srcset', 'background'] : ['background']) {
             const value = el.getAttribute(name);
-            if (value !== null) expect(value, name).toMatch(/^(data:image\/|blob:)/i);
+            if (value === null) continue;
+            // Every candidate of `srcset`, not only the first.
+            const addresses = name === 'srcset' ? srcsetCandidates(value).map((c) => c.url) : [value];
+            for (const address of addresses) expect(address, name).toMatch(/^(data:image\/|blob:)/i);
           }
         }
         const styles = [
