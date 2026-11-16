@@ -1,7 +1,8 @@
 version: 2
 
-# Weekly grouped updates per ecosystem; a cooldown lets fresh releases settle
-# before they are proposed.
+# Weekly grouped minor and patch updates per ecosystem; major updates arrive as
+# separate pull requests so that one breaking release does not block the rest.
+# A cooldown lets fresh releases settle before they are proposed.
 updates:
   - package-ecosystem: cargo
     directory: /
@@ -14,6 +15,7 @@ updates:
     groups:
       cargo:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: npm
     directory: /
@@ -30,6 +32,7 @@ updates:
     groups:
       npm:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: /
@@ -42,6 +45,7 @@ updates:
     groups:
       actions:
         patterns: ["*"]
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: docker
     directory: /
@@ -54,3 +58,4 @@ updates:
     groups:
       docker:
         patterns: ["*"]
+        update-types: ["minor", "patch"]

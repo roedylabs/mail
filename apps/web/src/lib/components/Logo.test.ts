@@ -16,7 +16,7 @@ describe('Logo', () => {
 
   it('shows the initial in the given size', () => {
     const { getByText, container } = render(Logo, { logo: { isInit: true, text: 'RM', fs: '47cqmin' } });
-    expect(getByText('RM')).toHaveStyle({ fontSize: '47cqmin' });
+    expect(getByText('RM')).toHaveInlineStyle({ fontSize: '47cqmin' });
     expect(container.querySelector('svg')).toBeNull();
   });
 

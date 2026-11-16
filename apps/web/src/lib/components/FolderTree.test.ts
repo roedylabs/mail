@@ -48,7 +48,7 @@ describe('folder tree', () => {
     expect(getByText('Customers')).toBeInTheDocument();
     expect(queryByText('Alpha')).toBeNull();
     expect(getByLabelText('2 unread of 5')).toBeInTheDocument();
-    expect(container.querySelector('.tree')).toHaveStyle({ '--lbl-op': '1', '--sb-bg': 'var(--cnv)' });
+    expect(container.querySelector('.tree')).toHaveInlineStyle({ '--lbl-op': '1', '--sb-bg': 'var(--cnv)' });
     expect(getByText('Projects').closest('.item')).toHaveClass('sel');
     await fireEvent.click(getByText('Customers'));
     expect(select).toHaveBeenCalledWith('m1', 'k');
@@ -71,7 +71,7 @@ describe('folder tree', () => {
       ...folderRows(input({ full: false, select, toggle }), TEXTS),
       sbBg: 'var(--pop)',
     });
-    expect(container.querySelector('.tree')).toHaveStyle({ '--lbl-op': '0', '--sb-bg': 'var(--pop)' });
+    expect(container.querySelector('.tree')).toHaveInlineStyle({ '--lbl-op': '0', '--sb-bg': 'var(--pop)' });
     const tile = getByRole('button', { name: 'Customers' });
     expect(tile).not.toHaveAttribute('aria-expanded');
     expect(tile.querySelector('.dot')).toHaveClass('on');

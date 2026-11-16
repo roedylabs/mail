@@ -538,7 +538,7 @@ describe('reading view', () => {
     const { view, onToggle } = setup({ rd: values({ folds: { e1: true } }) });
     const open = view.container.querySelectorAll('section.open');
     expect(open).toHaveLength(2);
-    expect(open[0]).toHaveStyle({ padding: '20px 22px 22px', boxShadow: 'inset 0 0 0 1.5px var(--bd)' });
+    expect(open[0]).toHaveInlineStyle({ padding: '20px 22px 22px', boxShadow: 'inset 0 0 0 1.5px var(--bd)' });
     const head = view.getByRole('button', { expanded: true });
     expect(head).toHaveAttribute('tabindex', '0');
     expect(head).toHaveStyle({ cursor: 'pointer' });

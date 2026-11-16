@@ -314,7 +314,7 @@ describe('tag list', () => {
     );
     expect(getByText('Important')).toBeInTheDocument();
     expect(getByLabelText('1 unread of 2')).toBeInTheDocument();
-    expect(container.querySelector('.tags')).toHaveStyle({ '--lbl-op': '1', '--sb-bg': 'var(--cnv)' });
+    expect(container.querySelector('.tags')).toHaveInlineStyle({ '--lbl-op': '1', '--sb-bg': 'var(--cnv)' });
     const personal = getByText('Personal').closest('.item');
     expect(personal).toHaveClass('sel');
     expect(personal).toHaveStyle({ '--tag-c': '#f097ad', '--tag-ink': '#4a0f20' });
@@ -351,7 +351,7 @@ describe('tag list', () => {
       ...tagRows(input({ full: false, select, toggle }), TEXTS),
       sbBg: 'var(--pop)',
     });
-    expect(container.querySelector('.tags')).toHaveStyle({ '--lbl-op': '0', '--sb-bg': 'var(--pop)' });
+    expect(container.querySelector('.tags')).toHaveInlineStyle({ '--lbl-op': '0', '--sb-bg': 'var(--pop)' });
     const tile = getAllByRole('button', { name: 'Important' }).find((b) => b.classList.contains('tile'))!;
     expect(tile).not.toHaveAttribute('aria-expanded');
     await fireEvent.click(tile);
@@ -385,7 +385,7 @@ describe('tag list', () => {
     expect(fix).toHaveAttribute('aria-haspopup', 'dialog');
     expect(fix).toHaveTextContent('Fix tags 4');
     expect(fix.querySelector('.fix-n')).toHaveAttribute('aria-hidden', 'true');
-    expect(fix).toHaveStyle({ height: 'var(--rowh, 46px)', 'border-radius': '17px', 'font-size': '14.5px' });
+    expect(fix).toHaveInlineStyle({ height: 'var(--rowh, 46px)', 'border-radius': '17px', 'font-size': '14.5px' });
     await fireEvent.click(fix);
     expect(openFix).toHaveBeenCalledOnce();
   });
