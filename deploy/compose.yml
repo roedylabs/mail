@@ -4,9 +4,9 @@
 #   docker compose -f deploy/compose.yml up -d
 #   docker logs roedy-mail 2>&1 | grep Setup-Token    # token for the initial setup
 #
-# Settings come from environment variables or a .env file next to this file,
-# e.g. ROEDY_PUBLIC_URL=https://webmail.example.com (all variables: docs/ops.md
-# › Configuration). Empty values count as unset.
+# Settings come from environment variables or a .env file next to this file;
+# deploy/.env.example is the template (all variables: docs/ops.md ›
+# Configuration). Empty values count as unset.
 
 name: roedy-mail
 
