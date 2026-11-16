@@ -225,13 +225,23 @@ function rewriteElement(el: Element, p: Pass): void {
   }
 }
 
+/** Removes `<!--` and `-->` until none are left (one pass can join `<<!---->!--` into a new `<!--`). */
+function stripCommentMarkers(css: string): string {
+  let prev: string;
+  do {
+    prev = css;
+    css = css.replace(/<!--|-->/g, '');
+  } while (css !== prev);
+  return css;
+}
+
 function instance(): ReturnType<typeof DOMPurify> {
   if (purifier) return purifier;
   const p = DOMPurify(window);
   p.addHook('uponSanitizeElement', (node, data) => {
     if (data.tagName !== 'style' || !pass) return;
     // `<!-- … -->` around old stylesheets: meaningless for CSS, but would look like markup to DOMPurify.
-    node.textContent = rewriteCss((node.textContent ?? '').replace(/<!--|-->/g, ''), pass);
+    node.textContent = rewriteCss(stripCommentMarkers(node.textContent ?? ''), pass);
   });
   p.addHook('afterSanitizeAttributes', (node) => {
     if (pass && node.nodeType === 1) rewriteElement(node, pass);

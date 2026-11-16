@@ -9,7 +9,7 @@ const swipe = { animations: false, hold: () => {}, away: () => {}, back: () => {
 
 // Colors of pill and "Undo" from the component's source (`SOURCE`)
 function rule(selector: string): string {
-  const escaped = selector.replace(/[.:]/g, '\\$&');
+  const escaped = selector.replace(/[\\^$.*+?()[\]{}|:]/g, '\\$&');
   const body = new RegExp(`^ {2}${escaped} \\{([^}]*)\\}`, 'm').exec(SOURCE)?.[1];
   if (body === undefined) throw new Error(`Rule ${selector} missing in Toast.svelte`);
   return body;

@@ -8,7 +8,7 @@
 # code of the target platform.
 
 # File system for scratch: CA certificates, /data for USER 65532, /tmp for SQLite.
-FROM --platform=$BUILDPLATFORM alpine:3.24 AS rootfs
+FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS rootfs
 RUN apk add --no-cache ca-certificates \
  && mkdir -p /rootfs/etc/ssl/certs /rootfs/data /rootfs/tmp \
  && cp /etc/ssl/certs/ca-certificates.crt /rootfs/etc/ssl/certs/ \

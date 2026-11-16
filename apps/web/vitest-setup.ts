@@ -29,6 +29,10 @@ if (typeof window !== 'undefined' && typeof window.matchMedia !== 'function') {
 // jsdom lacks ResizeObserver; `bind:clientWidth` needs it (setup page).
 if (typeof window !== 'undefined' && typeof window.ResizeObserver !== 'function') {
   window.ResizeObserver = class {
+    readonly callback: ResizeObserverCallback;
+    constructor(callback: ResizeObserverCallback) {
+      this.callback = callback;
+    }
     observe() {}
     unobserve() {}
     disconnect() {}
