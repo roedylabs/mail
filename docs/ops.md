@@ -24,7 +24,14 @@ Browser ──HTTPS──► reverse proxy ──HTTP──► roedy-mail (127.0
 
 The basis is [`deploy/compose.yml`](../deploy/compose.yml): a container `roedy-mail`, port `8080` only on `127.0.0.1` for the proxy, a named volume `roedy-data` for `/data`, a read-only file system except for `/data` and `/tmp`, no capabilities.
 
-1. Put `compose.yml` into its own directory, such as `/opt/roedy-mail/compose.yml`, and create a `.env` file next to it from [`deploy/.env.example`](../deploy/.env.example) (`cp .env.example .env && chmod 600 .env`). It lists every variable of `compose.yml`; the minimum is:
+1. Put `compose.yml` into its own directory, such as `/opt/roedy-mail/compose.yml`, and create a `.env` file next to it from the template [`deploy/.env.example`](../deploy/.env.example):
+
+   ```sh
+   curl -fsSL -o .env https://raw.githubusercontent.com/roedylabs/mail/main/deploy/.env.example
+   chmod 600 .env
+   ```
+
+   It lists every variable of `compose.yml`; the minimum is:
 
    ```sh
    ROEDY_PUBLIC_URL=https://webmail.example.com
