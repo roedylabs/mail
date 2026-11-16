@@ -1,0 +1,57 @@
+# Fuzz targets for the parsers that read external input (cargo-fuzz,
+# libFuzzer). Outside the workspace with a lock file of its own: the
+# server build, its license list and `cargo deny` stay free of libFuzzer.
+# Run: `cargo +nightly fuzz run <target>` in the repository root (fuzz/README.md).
+[package]
+name = "roedy-mail-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+axum = "0.8.9"
+arbitrary = { version = "1.5.0", features = ["derive"] }
+libfuzzer-sys = "0.4.13"
+roedy-jmap = { path = "../crates/jmap" }
+roedy-mail-server = { path = "../crates/server" }
+serde_json = "1.0.154"
+url = "2.5.8"
+
+# Separate workspace: `cargo fuzz` builds here with its own flags.
+[workspace]
+
+[lints.rust]
+unsafe_code = "forbid"
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(fuzzing)"] }
+
+[[bin]]
+name = "email_address"
+path = "fuzz_targets/email_address.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jmap_response"
+path = "fuzz_targets/jmap_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "mail_headers"
+path = "fuzz_targets/mail_headers.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "request_headers"
+path = "fuzz_targets/request_headers.rs"
+test = false
+doc = false
+bench = false

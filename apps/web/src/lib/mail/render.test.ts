@@ -245,6 +245,24 @@ describe('renderMail – external content', () => {
     expect(body.querySelector('td')?.getAttribute('style')).toBe('background-image: none');
   });
 
+  it('blocks an unterminated url() at the end of a stylesheet or style attribute', () => {
+    const { body, blocked, doc } = render(
+      '<style>.h { color: red } .i { background: url("https://t.example/h.jpg</style>' +
+        '<p style="background: url(//t.example/p.png">x</p>',
+    );
+    expect(blocked).toBe(2);
+    expect(doc.head.querySelectorAll('style')[1]?.textContent).toBe('.h { color: red } .i { background: none');
+    expect(body.querySelector('p')?.getAttribute('style')).toBe('background: none');
+  });
+
+  it('does not join the characters around a CSS comment into a new comment', () => {
+    const { doc } = render(
+      '<style>.a { width: calc(4//**/*2px) } .b { background: url(https://t.example/b.png) }</style>',
+    );
+    const sheet = doc.head.querySelectorAll('style')[1]?.textContent;
+    expect(sheet).toBe('.a { width: calc(4/ *2px) } .b { background: none }');
+  });
+
   it('converts viewport heights into pixels, addresses stay', () => {
     const { body, doc } = render(
       '<style>.hero { min-height: 100vh; height: calc(50dvh - 10px); width: 50vw } ' +

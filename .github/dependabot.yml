@@ -5,7 +5,8 @@ version: 2
 # A cooldown lets fresh releases settle before they are proposed.
 updates:
   - package-ecosystem: cargo
-    directory: /
+    # fuzz/ has a lock file of its own (outside the workspace).
+    directories: ["/", "/fuzz"]
     schedule:
       interval: weekly
     # Room for separate major-update PRs next to the grouped minor/patch PR.
@@ -54,7 +55,8 @@ updates:
         update-types: ["minor", "patch"]
 
   - package-ecosystem: docker
-    directory: /
+    # .clusterfuzzlite/: build image of the fuzz targets.
+    directories: ["/", "/.clusterfuzzlite"]
     schedule:
       interval: weekly
     # Room for separate major-update PRs next to the grouped minor/patch PR.

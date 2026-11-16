@@ -303,6 +303,63 @@ fn header_text(text: &str) -> String {
     one_line(text, usize::MAX)
 }
 
+/// Entry points for the fuzz targets in `fuzz/`, only with `--cfg fuzzing`
+/// (`cargo fuzz` sets it): reading the responses of [`Client::outbox`] and
+/// [`Client::send`], and the draft with its headers.
+#[cfg(fuzzing)]
+pub mod fuzzing {
+    use super::*;
+    use crate::Response;
+
+    /// Reads `response` as `outbox` and `send` do (both send two calls, IDs
+    /// `0` and `1`) and returns the errors.
+    pub fn read(response: &Response, identity_id: Option<&str>) -> Vec<Error> {
+        let mut request = Request::new(USING);
+        let first = request.call("", Value::Null);
+        let second = request.call("", Value::Null);
+        let mut errors = Vec::new();
+        match response.get::<List<Identity>>(&first, "Identity/get") {
+            Ok(identities) => {
+                if let Some(identity) = pick_identity(identities.list, identity_id) {
+                    assert!(!identity.is_wildcard());
+                    assert!(identity_id.is_none_or(|id| identity.id == id));
+                }
+            }
+            Err(error) => errors.push(error),
+        }
+        if let Err(error) = response.get::<List<Mailbox>>(&second, "Mailbox/get") {
+            errors.push(error);
+        }
+        for (call, method, key) in [
+            (&first, "Email/set", EMAIL),
+            (&second, "EmailSubmission/set", SUBMIT),
+            (&second, "Email/set", EMAIL),
+        ] {
+            match response.get::<SetResponse>(call, method) {
+                Ok(set) => {
+                    let _ = set.failed();
+                    if let Err(error) = set.created(key) {
+                        errors.push(error);
+                    }
+                }
+                Err(error) => errors.push(error),
+            }
+        }
+        errors
+    }
+
+    /// The draft that `send` creates for `message` from `identity`.
+    pub fn draft(identity: Identity, message: &Message<'_>) -> Value {
+        let outbox = Outbox {
+            account_id: "a".into(),
+            identity,
+            drafts: "d".into(),
+            sent: None,
+        };
+        email(&outbox, message)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

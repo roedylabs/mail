@@ -1,0 +1,74 @@
+name: Fuzzing
+
+# ClusterFuzzLite runs the cargo-fuzz targets in fuzz/ with libFuzzer and
+# AddressSanitizer: for five minutes on pull requests that change Rust code
+# (only the targets the change reaches) and for an hour every night, which
+# also grows the corpus the pull requests start from. A crash fails the run
+# and leaves the input as an artifact. The web app's renderer and parsers
+# have property-based tests with fast-check in the normal test suite instead.
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "fuzz/**"
+      - "Cargo.lock"
+      - ".clusterfuzzlite/**"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "41 1 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fuzz-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pull-request:
+    name: Fuzz pull request
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      actions: read # corpus and builds of earlier runs
+    steps:
+      - name: Build fuzz targets
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: address
+      - name: Run fuzz targets
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 300
+          mode: code-change
+          sanitizer: address
+
+  batch:
+    name: Fuzz main
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: read # corpus of earlier runs
+    steps:
+      - name: Build fuzz targets
+        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          language: rust
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          sanitizer: address
+      - name: Run fuzz targets
+        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          fuzz-seconds: 3600
+          mode: batch
+          sanitizer: address

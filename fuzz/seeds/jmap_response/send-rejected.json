@@ -1,0 +1,1 @@
+{"methodResponses":[["Email/set",{"accountId":"a","notCreated":{"m":{"type":"invalidEmail","description":"Line 1\nline 2"}}},"0"],["error",{"type":"urn:ietf:params:jmap:error:forbidden"},"1"],["EmailSubmission/set",{"accountId":"a","notCreated":{"s":{"type":"forbiddenToSend"}}},"1"]],"sessionState":"1"}

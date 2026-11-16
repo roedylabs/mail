@@ -14,11 +14,27 @@ default:
 # All checks as in the pre-push hook
 check:
     cargo fmt --all -- --check
+    cargo fmt --manifest-path fuzz/Cargo.toml -- --check
     cargo clippy --workspace --all-targets -- -D warnings
     cargo test --workspace
     pnpm lint
     pnpm check
     pnpm test
+
+# Run a fuzz target from fuzz/ (needs nightly Rust and cargo-fuzz; arguments go to libFuzzer, e.g. -max_total_time=60)
+[positional-arguments]
+fuzz target *args:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="$1"
+    shift
+    # New inputs go to fuzz/corpus/ (not in Git), fuzz/seeds/ stays as it is.
+    mkdir -p "fuzz/corpus/$target"
+    dict=()
+    if [ -f "fuzz/dict/$target.dict" ]; then dict=("-dict=fuzz/dict/$target.dict"); fi
+    seeds=()
+    if [ -d "fuzz/seeds/$target" ]; then seeds=("fuzz/seeds/$target"); fi
+    cargo +nightly fuzz run "$target" "fuzz/corpus/$target" "${seeds[@]}" -- "${dict[@]}" "$@"
 
 # E2E suite against a fresh Stalwart v1 (builds web app and binary; arguments go to playwright test)
 [positional-arguments]

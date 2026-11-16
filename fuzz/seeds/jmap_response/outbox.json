@@ -1,0 +1,1 @@
+{"methodResponses":[["Identity/get",{"accountId":"a","state":"1","list":[{"id":"i0","name":"","email":"*@example.com"},{"id":"i1","name":"Example Ltd","email":"noreply@example.com"}],"notFound":[]},"0"],["Mailbox/get",{"accountId":"a","state":"1","list":[{"id":"d","role":"drafts"},{"id":"s","role":"sent"},{"id":"x","role":null}],"notFound":[]},"1"]],"sessionState":"1"}

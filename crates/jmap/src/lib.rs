@@ -20,6 +20,9 @@ mod session;
 
 pub use client::{Auth, Client, read_json, same_origin};
 pub use error::Error;
+#[cfg(fuzzing)]
+#[doc(hidden)]
+pub use mail::fuzzing;
 pub use mail::{Identity, Message, Outbox, Sent};
 pub use quota::{QUOTA, Storage};
 pub use request::{CallId, Request, Response};

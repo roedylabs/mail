@@ -110,19 +110,36 @@ function target(raw: string, cids: ReadonlyMap<string, string>): Target {
 const VH_PX = 8;
 
 /**
- * Rewrite addresses in `url(…)`; blocked ones become `none`. Comments,
+ * Removes `/* … *\/` (unterminated up to the end) in linear time. A comment separates
+ * tokens: if `/` before it and `*` after it met, they would open a new comment
+ * the browser sees but the rewriting does not, so a space stays between them.
+ */
+function stripCssComments(css: string): string {
+  let out = '';
+  let i = 0;
+  for (let start = css.indexOf('/*'); start >= 0; start = css.indexOf('/*', i)) {
+    out += css.slice(i, start);
+    const end = css.indexOf('*/', start + 2);
+    i = end < 0 ? css.length : end + 2;
+    if (out.endsWith('/') && css[i] === '*') out += ' ';
+  }
+  return out + css.slice(i);
+}
+
+/**
+ * Rewrite addresses in `url(…)`, also unterminated at the end (CSS closes it
+ * there, and the browser would load it); blocked ones become `none`. Comments,
  * `@import` and `@font-face` are dropped (the CSP blocks external fonts and
  * stylesheets anyway, even after permission), so that the banner only
  * counts images. Viewport heights (`vh`, `svh`, `lvh`, `dvh`) become pixels
  * (`VH_PX`); addresses in `url(…)` stay untouched.
  */
 function rewriteCss(css: string, p: Pass): string {
-  return css
-    .replace(/\/\*[\s\S]*?(\*\/|$)/g, '')
+  return stripCssComments(css)
     .replace(/@import[^;]*;?/gi, '')
     .replace(/@font-face\s*\{[^}]*\}?/gi, '')
     .replace(
-      /url\(\s*(["']?)(.*?)\1\s*\)|(?<![\w.])(\d*\.?\d+)[sdl]?vh\b/gis,
+      /url\(\s*(["']?)(.*?)(?:\1\s*\)|\1?\s*$)|(?<![\w.])(\d*\.?\d+)[sdl]?vh\b/gis,
       (match, _q, raw?: string, vh?: string) => {
         if (vh !== undefined) return `${+(Number(vh) * VH_PX).toFixed(2)}px`;
         if (raw === undefined) return match;
@@ -231,7 +248,7 @@ const COMMENT_MARKERS = ['<!--', '-->', '--!>'] as const;
  * Removes `<!--`, `-->` and `--!>` until none are left, in linear time: a removal can join
  * its neighbours into a new marker (`<<!---->!--`), which always ends at the top of the stack.
  */
-function stripCommentMarkers(css: string): string {
+export function stripCommentMarkers(css: string): string {
   const out: string[] = [];
   for (let i = 0; i < css.length; i++) {
     out.push(css.charAt(i));

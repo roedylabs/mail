@@ -205,6 +205,9 @@ export class EventStreamParser {
 
   push(chunk: string): ServerEvent[] {
     const events: ServerEvent[] = [];
+    // An empty chunk (part of a UTF-8 character, an empty read) changes nothing; it must not
+    // separate a `\r` from its `\n`.
+    if (chunk === '') return events;
     let text = chunk;
     if (this.#afterCR && text.startsWith('\n')) text = text.slice(1);
     this.#afterCR = false;
