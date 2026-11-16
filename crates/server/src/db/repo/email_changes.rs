@@ -24,24 +24,13 @@ const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 /// Whether `email` is taken for a change by `user_id`: it belongs
 /// to another user, whatever their status, or is in an open invitation,
 /// compared ignoring case.
+///
+/// An open change does not take its address the other way round: inviting
+/// it stays possible, and the invitation makes the link invalid (the
+/// confirmation checks `taken` again). Otherwise a user could keep an
+/// address from being invited by resending a link they cannot confirm.
 pub fn taken(conn: &Connection, email: &str, user_id: &str) -> rusqlite::Result<bool> {
     Ok(users::email_taken(conn, email, user_id, false)? || invitations::exists_for(conn, email)?)
-}
-
-/// Whether a sent, unconfirmed and unexpired link names `email` as a user's
-/// new address – then it cannot be invited (invitations check open changes
-/// the other way round). Reserved links do not count; [`taken`]
-/// checks their confirmation anyway.
-pub fn pending_for(conn: &Connection, email: &str) -> rusqlite::Result<bool> {
-    conn.query_row(
-        &format!(
-            "SELECT EXISTS (SELECT 1 FROM email_changes WHERE new_email = ?1 \
-                            AND sent_at IS NOT NULL AND confirmed_at IS NULL \
-                            AND expires_at > {NOW})"
-        ),
-        [email.trim()],
-        |row| row.get(0),
-    )
 }
 
 /// Reserves a new link (not valid yet) and returns its ID. Leftover reserved
@@ -355,18 +344,17 @@ mod tests {
     }
 
     #[test]
-    fn invitations_and_changes_exclude_each_other() {
+    fn invitations_invalidate_open_changes() {
         let conn = conn();
         let id = add(&conn, "max", "max@example.com", Role::User);
         let anna = add(&conn, "anna", "anna@example.com", Role::Admin);
         let link = reserve(&conn, &id, "New@Example.com", &[1; 32]).unwrap();
-        // Reserved does not count, sent does.
-        assert!(!pending_for(&conn, "new@example.com").unwrap());
         release(&conn, &link).unwrap();
-        assert!(pending_for(&conn, " NEW@example.com").unwrap());
-        assert!(!pending_for(&conn, "max@example.com").unwrap());
+        assert_eq!(state(&conn, 1), Some(State::Valid));
+        assert!(!taken(&conn, "new@example.com", &id).unwrap());
 
-        // If the address is now in an invitation, the link is not valid.
+        // The open change does not stop an invitation to the address; the
+        // invitation makes the link invalid.
         invitations::insert(
             &conn,
             &invitations::NewInvitation {
@@ -382,14 +370,6 @@ mod tests {
         .unwrap();
         assert!(taken(&conn, "NEW@example.com", &id).unwrap());
         assert_eq!(state(&conn, 1), Some(State::Invalid));
-
-        // Once confirmed or expired, the address is free again.
-        conn.execute(
-            "UPDATE email_changes SET expires_at = '2000-01-01T00:00:00.000Z'",
-            [],
-        )
-        .unwrap();
-        assert!(!pending_for(&conn, "new@example.com").unwrap());
     }
 
     #[test]

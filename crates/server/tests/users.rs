@@ -554,7 +554,8 @@ async fn taken_addresses_and_form_errors() {
         .await;
     env.sql(move |conn| {
         conn.execute("UPDATE users SET status = 'locked' WHERE id = ?1", [&max])?;
-        // Eva changes her address; the link has been sent.
+        // Eva changes her address; the link has been sent. That does not
+        // take the new address (an invitation makes the link invalid).
         let link = email_changes::reserve(conn, &eva, "new@example.com", &[7; 32]).unwrap();
         email_changes::release(conn, &link)?;
         Ok(())
@@ -597,10 +598,9 @@ async fn taken_addresses_and_form_errors() {
         json!({
             "emails.0": { "code": "taken" },
             "emails.1": { "code": "taken" },
-            "emails.2": { "code": "taken" },
         })
     );
-    // Nothing created, not even the free address.
+    // Nothing created, not even the free addresses.
     assert_eq!(env.users(&admin).await.len(), 4);
 
     let reply = env
@@ -1361,6 +1361,43 @@ async fn invited_addresses_are_taken_for_email_changes() {
         reply.body
     );
     assert_eq!(reply.error(), "email_taken");
+}
+
+#[tokio::test]
+async fn open_email_changes_do_not_block_invitations() {
+    let (env, server) = env_with_mail().await;
+    env.add("anna", "Anna Becker", Role::Admin).await;
+    env.add("max", "Max Mustermann", Role::User).await;
+    let admin = env.session("anna").await;
+    let user = env.session("max").await;
+    let reply = env
+        .request(
+            Method::PATCH,
+            "/auth/me",
+            Some(json!({ "email": "jonas@example.com", "password": PASSWORD })),
+            Some(&user),
+        )
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    let sent = mails(&server, 2).await;
+    assert_eq!(to(&sent[1]), "jonas@example.com");
+    let prefix = "https://app.example.com/confirm-email/";
+    let text = text(&sent[1]);
+    let start = text.find(prefix).unwrap() + prefix.len();
+    let token = text[start..start + 64].to_owned();
+
+    env.invite_one(&admin, "Jonas@example.com", json!({ "role": "user" }))
+        .await;
+    // The invitation makes the link invalid, and resending stops.
+    let check = env
+        .post("/auth/email/check", json!({ "token": token }), None)
+        .await;
+    assert_eq!(check.json()["state"], "invalid", "{}", check.body);
+    let resend = env
+        .request(Method::POST, "/auth/me/email/resend", None, Some(&user))
+        .await;
+    assert_eq!(resend.error(), "email_taken");
+    mails(&server, 3).await;
 }
 
 #[tokio::test]
