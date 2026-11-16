@@ -1,0 +1,11 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+A new password was requested for your {{ f.app }} account.
+
+Set a new password:
+{{ v.link }}
+
+The link is valid for 60 minutes and works only once. If you didn’t request this, your password stays the same.
+{%- endblock %}

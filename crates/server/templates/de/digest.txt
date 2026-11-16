@@ -1,0 +1,22 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+seit der letzten Zusammenfassung gibt es {{ v.count }}.
+{%- for d in v.rows %}
+
+* {{ d.title }} ({{ d.time }})
+{%- if !d.text.is_empty() %}
+  {{ d.text }}
+{%- endif %}
+{%- endfor %}
+{%- if let Some(more) = v.more %}
+
+{{ more }}
+{%- endif %}
+
+Alle Benachrichtigungen ansehen:
+{{ v.link }}
+
+Die Häufigkeit ändern Sie unter Einstellungen > Benachrichtigungen.
+{%- endblock %}

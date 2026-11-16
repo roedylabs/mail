@@ -1,0 +1,97 @@
+[package]
+name = "roedy-mail-server"
+description = "Roedy Mail backend: axum, SQLite, token broker"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "roedy-mail"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1.0.104"
+argon2 = "0.6.0"
+# Mail templates in templates/ (default directory; without `config`, which
+# would bring in the unmaintained basic-toml).
+askama = { version = "0.16.1", default-features = false, features = ["derive", "std"] }
+base64 = "0.23.1"
+chacha20poly1305 = { version = "0.11.0", default-features = false, features = ["alloc"] }
+axum = "0.8.9"
+clap = { version = "4.6.7", features = ["derive"] }
+figment = { version = "0.10.19", features = ["env"] }
+# Downloading backups in chunks; already comes with axum.
+futures-util = { version = "0.3.32", default-features = false }
+getrandom = "0.4.3"
+# Identifiers of known devices, encrypted with the instance key;
+# totp-rs brings the same version.
+hmac = "0.13.0"
+# Tag names in NFC (mailbox names are Net-Unicode); already comes
+# with url/idna.
+icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+# Times in mails in the recipient's time zone. The image
+# (`scratch`) has no time zone database, so it is embedded.
+jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }
+mimalloc = "0.1.52"
+percent-encoding = "2.3.2"
+# Outgoing requests to mail servers (diagnostics, DCR, token broker):
+# rustls with ring instead of aws-lc-rs (cross-compile without C
+# tools), root certificates from the system (ca-certificates in the image).
+reqwest = { version = "0.13.5", default-features = false, features = ["json", "rustls-no-provider"] }
+# Web Push (RFC 8291/8292): ECDH P-256, ES256, HKDF and
+# AES-128-GCM; rustls brings the same version, `web-push` would bring OpenSSL.
+ring = { version = "0.17.14", default-features = false, features = ["alloc"] }
+roedy-jmap = { path = "../jmap" }
+rusqlite = { version = "0.41.1", features = ["backup", "bundled"] }
+rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
+rust-embed = { version = "8.13.0", features = ["debug-embed", "deterministic-timestamps"], optional = true }
+# Comparing versions of the GitHub releases; already comes with
+# the build.
+semver = "1.0.28"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.154"
+sha2 = "0.11.1"
+tokio = { version = "1.54.1", features = ["fs", "io-util", "macros", "net", "rt-multi-thread", "signal", "sync", "time"] }
+tower-http = { version = "0.7.1", features = ["set-header", "trace"] }
+tracing = "0.1.44"
+tracing-subscriber = { version = "0.3.23", features = ["env-filter", "json"] }
+# Backups as `.tar.zst`. zstd without the assembler parts, so that
+# `cargo zigbuild` only compiles plain C as for SQLite and mimalloc.
+tar = { version = "0.4.46", default-features = false }
+zstd = { version = "0.14.3", default-features = false, features = ["no_asm"] }
+# Without `std`, which `rand` brings in; randomness comes from getrandom (db::new_id).
+ulid = { version = "3.0.0", default-features = false }
+url = { version = "2.5.8", features = ["serde"] }
+totp-rs = { version = "6.0.0", default-features = false, features = ["otpauth"] }
+maxminddb = "0.32.0"
+# Branding logo: resvg renders the mail logo and push icon,
+# without text, system fonts and SVGZ – letters come as paths from Young
+# Serif via skrifa (ttf-parser is unmaintained, RUSTSEC-2026-0192). usvg
+# rewrites uploaded SVGs sanitized (`writer`); roxmltree, imagesize and the
+# decoders are the same versions resvg brings (checking the upload like
+# rendering).
+resvg = { version = "0.49.0", default-features = false, features = ["raster-images"] }
+usvg = { version = "0.49.0", default-features = false, features = ["writer"] }
+roxmltree = "0.21.2"
+imagesize = "0.15.0"
+zune-jpeg = "0.5.15"
+image-webp = "0.2.4"
+skrifa = { version = "0.49.0", default-features = false, features = ["std"] }
+
+[dev-dependencies]
+figment = { version = "0.10.19", features = ["env", "test"] }
+http-body-util = "0.1"
+tempfile = "3.27.0"
+tokio = { version = "1.54.1", features = ["test-util"] }
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true
+
+[features]
+# Embed the web app from apps/web/build into the binary (image, `just dist`);
+# requires `pnpm build`. Without the feature the server only serves the web
+# app with ROEDY_WEB_DIR (development: otherwise `pnpm dev`).
+embed-web = ["dep:rust-embed"]

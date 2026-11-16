@@ -1,0 +1,6 @@
+{% extends "en/layout.html" %}
+{% block card %}
+        <tr><td style="padding:30px 32px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:{{ f.fg }};overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto">Test email</td></tr>
+        <tr><td style="padding:14px 32px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:16px;line-height:1.6;color:{{ f.fg }}">Sending system emails from {{ f.app }} is working.</td></tr>
+        <tr><td style="padding:18px 32px 30px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:{{ f.mfg }}">This message was requested in Administration under Email › Test. You don’t need to do anything else.</td></tr>
+{%- endblock %}

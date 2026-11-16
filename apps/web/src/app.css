@@ -1,0 +1,113 @@
+/*
+ * Base styles of the app, taken from the <style> of the shell in the design.
+ * Colours, fonts and keyframes come from @roedy/tokens.
+ */
+@import '@roedy/tokens/tokens.css';
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  min-height: 100%;
+  overscroll-behavior: none;
+}
+
+body {
+  background: var(--cnv);
+  color: var(--fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  transition:
+    background-color 300ms,
+    color 300ms;
+}
+
+button {
+  border: 0;
+  background: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+
+/* Dialogs take the focus themselves (focus trap), without a ring around the whole dialog. */
+[aria-modal='true']:focus {
+  outline: none;
+}
+
+input,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+input::placeholder,
+textarea::placeholder {
+  color: var(--mfg);
+  opacity: 1;
+}
+
+a {
+  color: var(--deep);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track,
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background-color: var(--bdhi);
+  border: 3px solid transparent;
+  border-radius: 9999px;
+  background-clip: padding-box;
+}
+
+/* Break long words in the mobile page titles instead of overflowing, e.g.
+   "Notifications" at 320 px (zoom 400 %, WCAG 1.4.10); applies only
+   when a word does not fit on the line. */
+h1.m-title {
+  overflow-wrap: anywhere;
+  hyphens: auto;
+}
+
+/* Screen readers only: headings and names without visible text. */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* `data-sa` / `data-ns` in the design */
+.no-scrollbar {
+  scrollbar-width: none;
+}
+
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}

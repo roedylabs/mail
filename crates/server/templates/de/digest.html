@@ -1,0 +1,15 @@
+{% extends "de/layout.html" %}
+{% block card %}
+        <tr><td style="padding:30px 32px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:{{ f.fg }};overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto">Ihre Zusammenfassung</td></tr>
+        <tr><td style="padding:14px 32px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:16px;line-height:1.6;color:{{ f.fg }}">Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},<br>seit der letzten Zusammenfassung gibt es {{ v.count }}.</td></tr>
+        <tr><td style="padding:12px 32px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif">
+          {% for d in v.rows %}<div style="padding:14px 0;border-top:1px solid {{ f.bd }}"><div style="font-size:15px;font-weight:800;color:{{ f.fg }}">{{ d.title }} <span style="font-size:13px;font-weight:600;color:{{ f.mfg }}">· {{ d.time }}</span></div>{% if !d.text.is_empty() %}<div style="margin-top:3px;font-size:14px;line-height:1.55;color:{{ f.mfg }}">{{ d.text }}</div>{% endif %}</div>{% endfor %}{% if let Some(more) = v.more %}<div style="padding:14px 0 0;border-top:1px solid {{ f.bd }};font-size:14px;font-weight:700;line-height:1.55;color:{{ f.mfg }}">{{ more }}</div>{% endif %}
+        </td></tr>
+        <tr><td style="padding:26px 32px 0">
+          <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:separate"><tbody><tr>
+            <td style="border-radius:9999px;background:{{ f.acc }}"><a href="{{ v.link }}" style="display:inline-block;padding:14px 26px;border-radius:9999px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:15px;font-weight:800;color:{{ f.acc_ink }};text-decoration:none">Alle ansehen</a></td>
+          </tr></tbody></table>
+        </td></tr>
+        <tr><td style="padding:18px 32px 30px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:{{ f.mfg }}">Die Häufigkeit ändern Sie in {{ f.app }} unter Einstellungen › Benachrichtigungen.</td></tr>
+{%- endblock %}
+{% block note %}Sie erhalten diese Zusammenfassung, weil Sie E-Mail-Benachrichtigungen eingeschaltet haben.{% endblock %}

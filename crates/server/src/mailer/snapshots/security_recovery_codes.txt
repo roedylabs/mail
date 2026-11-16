@@ -1,0 +1,17 @@
+Hi Max,
+
+New recovery codes were generated for your account max@example.net. Your previous codes no longer work.
+
+Time: Today, 15:57
+Device: Safari on iPhone
+Location: Hamburg, Germany
+
+Wasn’t this you? Change your password right away, sign out all other devices, check your authenticator apps under Account > Security, and generate new codes:
+https://app.example.com/account/security
+
+You receive this message whenever your multi-factor authentication changes.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

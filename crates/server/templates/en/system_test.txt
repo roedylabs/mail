@@ -1,0 +1,6 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Sending system emails from {{ f.app }} is working.
+
+This message was requested in Administration under Email > Test. You don’t need to do anything else.
+{%- endblock %}

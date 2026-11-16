@@ -1,0 +1,11 @@
+Hi Max,
+
+Roedy Mail is now running version 0.2.0. Previously, version 0.1.0 was installed.
+
+View release notes:
+https://app.example.com/admin/updates
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

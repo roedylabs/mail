@@ -1,0 +1,10 @@
+{% block body %}{% endblock %}
+
+--
+{{ f.org }}{% if let Some(support) = f.support %} · {{ support }}{% endif %}
+{%- if let Some(imprint) = f.imprint %}
+Impressum: {{ imprint }}
+{%- endif %}
+{%- if let Some(privacy) = f.privacy %}
+Datenschutz: {{ privacy }}
+{%- endif -%}

@@ -1,0 +1,15 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+{{ v.title }}
+{%- if !v.text.is_empty() %}
+{{ v.text }}
+{%- endif %}
+{{ v.when }}
+
+Ansehen:
+{{ v.link }}
+
+Sie erhalten jede Benachrichtigung als eigene E-Mail. Die Häufigkeit ändern Sie unter Einstellungen > Benachrichtigungen.
+{%- endblock %}

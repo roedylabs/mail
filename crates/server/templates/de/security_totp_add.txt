@@ -1,0 +1,30 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+zu Ihrem Konto {{ f.to }} wurde eine Authenticator-App hinzugefügt. Ihre Codes gelten ab jetzt für die Anmeldung.
+{%- if t.first_app %}
+
+Das ist Ihre erste App: Die Multi-Faktor-Authentifizierung ist damit eingeschaltet.
+{%- endif %}
+
+App: {{ t.app }}
+Zeitpunkt: {{ v.when }}
+Gerät: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+{% if t.first_app -%}
+{% if t.sole_admin -%}
+Waren Sie das nicht? Dann kennt jemand Ihr Passwort und hat eine eigene App eingerichtet. Sie sind der einzige Administrator, deshalb kann niemand in {{ f.app }} Ihr Konto sperren. Setzen Sie sofort über „Passwort vergessen“ ein neues Passwort – das meldet das fremde Gerät ab – und bitten Sie den Betreiber des Servers, Ihren Zugang mit dem Befehl roedy-mail reset-admin zurückzusetzen. Das vergibt ein neues Passwort und entfernt alle Authenticator-Apps.
+{%- else -%}
+Waren Sie das nicht? Dann kennt jemand Ihr Passwort und hat eine eigene App eingerichtet. Wenden Sie sich sofort an Ihre Administration: Sie kann Ihr Konto sperren – das meldet auch das fremde Gerät ab – und die Multi-Faktor-Authentifizierung zurücksetzen. Setzen Sie außerdem über „Passwort vergessen“ ein neues Passwort. Bis die Administration zurücksetzt, verlangt die Anmeldung einen Code aus der fremden App.
+{%- endif %}
+
+Passwort zurücksetzen:
+{%- else -%}
+Waren Sie das nicht? Entfernen Sie die App, ändern Sie Ihr Passwort und melden Sie alle anderen Geräte ab:
+{%- endif %}
+{{ v.link }}
+
+Diese Nachricht erhalten Sie bei jeder Änderung an der Multi-Faktor-Authentifizierung.
+{%- endblock %}

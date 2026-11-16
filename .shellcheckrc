@@ -1,0 +1,3 @@
+# shellcheck for scripts/ and the workflows (actionlint). Typographic quotes
+# in messages are allowed.
+disable=SC1111

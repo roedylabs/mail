@@ -1,0 +1,58 @@
+name: Bug report
+description: Something does not work as expected.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please report security vulnerabilities privately instead, see [SECURITY.md](https://github.com/roedylabs/mail/blob/main/SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click on …
+        3. See …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Roedy Mail version
+      description: Shown under Settings › About.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: input
+    id: stalwart
+    attributes:
+      label: Stalwart version
+      placeholder: "1.1.0"
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and operating system
+      placeholder: Firefox 150 on Linux, Safari on iOS 27, …
+  - type: dropdown
+    id: install
+    attributes:
+      label: Installation
+      options:
+        - Docker / Compose
+        - Binary
+        - Built from source
+        - Other
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant server log lines or browser console output. Remove tokens, passwords and addresses first.
+      render: text

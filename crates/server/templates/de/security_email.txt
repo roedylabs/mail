@@ -1,0 +1,19 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+für Ihr Konto bei {{ f.app }} wurde eine neue E-Mail-Adresse eingetragen.
+
+Bisherige Adresse: {{ t.to }}
+Neue Adresse: {{ t.new_email }}
+Zeitpunkt: {{ v.when }}
+Gerät: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+Ihre bisherige Adresse bleibt gültig, bis die neue Adresse über den Link in der Bestätigungsmail bestätigt wird. Der Link ist 24 Stunden gültig.
+
+Waren Sie das nicht? Melden Sie alle anderen Geräte ab, ändern Sie Ihr Passwort und verwerfen Sie die Änderung unter Konto > Profil:
+{{ v.link }}
+
+Waren Sie es selbst, müssen Sie nichts tun.
+{%- endblock %}

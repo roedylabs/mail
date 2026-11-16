@@ -1,0 +1,19 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+A new email address was entered for your {{ f.app }} account.
+
+Current address: {{ t.to }}
+New address: {{ t.new_email }}
+Time: {{ v.when }}
+Device: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+Your current address stays valid until the new address is confirmed with the link in the confirmation email. The link is valid for 24 hours.
+
+Wasn’t this you? Sign out all other devices, change your password, and discard the change under Account > Profile:
+{{ v.link }}
+
+If this was you, you don’t need to do anything.
+{%- endblock %}

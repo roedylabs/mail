@@ -1,0 +1,9 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+{{ t.by }} reset multi-factor authentication for your {{ f.app }} account on {{ t.when }}. You now sign in with just your password. Set up an authenticator app again under Account > Security:
+{{ v.link }}
+
+Didn’t you ask for this? Change your password and contact your administrator.
+{%- endblock %}

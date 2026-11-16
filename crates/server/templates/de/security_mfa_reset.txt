@@ -1,0 +1,9 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+{{ t.by }} hat am {{ t.when }} die Multi-Faktor-Authentifizierung Ihres Kontos bei {{ f.app }} zurückgesetzt. Sie melden sich jetzt nur mit Ihrem Passwort an. Richten Sie unter Konto > Sicherheit wieder eine Authenticator-App ein:
+{{ v.link }}
+
+Haben Sie das nicht veranlasst? Ändern Sie Ihr Passwort und wenden Sie sich an Ihren Administrator.
+{%- endblock %}

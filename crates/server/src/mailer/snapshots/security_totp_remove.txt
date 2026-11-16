@@ -1,0 +1,18 @@
+Hi Max,
+
+The authenticator app “Max’s iPhone” was removed from your account max@example.net.
+
+App: Max’s iPhone
+Time: Today, 15:57
+Device: Safari on iPhone
+Location: Hamburg, Germany
+
+Wasn’t this you? Change your password right away, sign out all other devices, and set up your authenticator app again:
+https://app.example.com/account/security
+
+You receive this message whenever your multi-factor authentication changes.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

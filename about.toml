@@ -1,0 +1,19 @@
+# License list of the Rust dependencies for licenses.json (cargo about).
+# Only free licenses compatible with AGPL-3.0
+# are accepted; a new license makes the generation fail and
+# must be added here deliberately.
+accepted = [
+  "Apache-2.0",
+  "BSD-2-Clause",
+  "BSD-3-Clause",
+  "ISC",
+  "MIT",
+  "Unicode-3.0",
+  "Zlib",
+]
+# Only what ends up in the binary: no build and dev dependencies, not our own
+# crates (publish = false), target platforms of the image.
+ignore-build-dependencies = true
+ignore-dev-dependencies = true
+private = { ignore = true }
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl"]

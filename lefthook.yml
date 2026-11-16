@@ -1,0 +1,45 @@
+# Local Git hooks: the same checks as CI, run before commit and push. Installation: `pnpm install` (script "prepare").
+# Skip in an emergency: LEFTHOOK=0 git …
+min_version: 2.2.0
+# Globs as in Git and ESLint: `*` stays within one directory, `**/` matches
+# any number of them.
+glob_matcher: doublestar
+
+commit-msg:
+  jobs:
+    - name: conventional-commits
+      run: sh scripts/hooks/commit-msg.sh {1}
+
+# Commits stay fast: ESLint and Prettier only for the staged files,
+# with the same scope as `pnpm lint` (about 5 s instead of a minute).
+pre-commit:
+  parallel: true
+  jobs:
+    - name: whitespace-and-conflict-markers
+      run: git diff --cached --check
+    - name: rust-format
+      glob: "**/*.rs"
+      run: cargo fmt --all -- --check
+    - name: web-eslint
+      glob: "**/*.{js,mjs,cjs,ts,svelte}"
+      run: pnpm --filter @roedy/web sync && pnpm exec eslint --no-warn-ignored {staged_files}
+    - name: web-prettier
+      glob:
+        - "{apps,packages,scripts}/**"
+        - "*.{js,json}"
+      run: pnpm exec prettier --check --ignore-unknown {staged_files}
+
+# Before the push everything as in CI, the full `pnpm lint` first (fails
+# early): type-aware rules can fire in a file the commit did not touch.
+pre-push:
+  piped: true
+  jobs:
+    - name: no-push-to-main
+      run: sh scripts/hooks/pre-push-main.sh
+      use_stdin: true
+    - name: web-lint
+      run: pnpm lint
+    - name: rust
+      run: cargo fmt --all -- --check && cargo clippy --workspace --all-targets -- -D warnings && cargo test --workspace
+    - name: web
+      run: pnpm check && pnpm test

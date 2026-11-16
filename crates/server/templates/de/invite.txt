@@ -1,0 +1,11 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(invitee) = v.invitee %} {{ invitee }}{% endif %},
+
+{{ v.inviter }} hat Sie zu {{ f.app }} eingeladen. Ihre Rolle: {{ v.role }}.
+
+Einladung annehmen:
+{{ v.link }}
+
+Der Link ist bis {{ v.until }} gültig. Wenn Sie keine Einladung erwartet haben, ignorieren Sie diese E-Mail.
+{%- endblock %}

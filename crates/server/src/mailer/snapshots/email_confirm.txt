@@ -1,0 +1,13 @@
+Hi Max,
+
+You entered a new email address for your Roedy Mail account: max.mustermann@example.com.
+
+Confirm email address:
+https://app.example.com/confirm-email/b3Xr8kQ2vN
+
+The link is valid for 24 hours. The new address is used only after you confirm it. If you didn’t make this change, you can ignore this email.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

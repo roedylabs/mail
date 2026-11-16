@@ -1,0 +1,26 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+A recovery code was used to sign in to your account instead of your authenticator app. That code can’t be used again.
+{%- if t.new_device %}
+
+The sign-in came from a new device.
+{%- endif %}
+
+Device: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+Time: {{ v.when }}
+Unused: {{ t.remaining }} of {{ t.total }}
+
+{% if t.remaining == 0 -%}
+You have no unused recovery codes left. Generate new codes under Account > Security.
+{%- else -%}
+You can generate new codes under Account > Security.
+{%- endif %}
+
+Wasn’t this you? Change your password right away, sign out all other devices, and generate new recovery codes:
+{{ v.link }}
+
+Lost your authenticator app? Set up a new one under Account > Security.
+{%- endblock %}

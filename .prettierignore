@@ -1,0 +1,19 @@
+# Prettier only formats code of the pnpm workspace; docs, YAML and Rust stay as
+# they are (tables and lists are aligned by hand).
+*.md
+*.yml
+*.yaml
+*.toml
+pnpm-lock.yaml
+Cargo.lock
+crates/
+docs/
+target/
+.pnpm-store/
+
+# Generated files
+**/build/
+**/.svelte-kit/
+apps/web/src/lib/paraglide/
+apps/web/project.inlang/
+packages/tokens/tokens.css

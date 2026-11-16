@@ -1,0 +1,13 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+A new device was used to sign in to your account.
+
+Device: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+Time: {{ v.when }}
+
+Wasn’t this you? Sign out the device and change your password:
+{{ v.link }}
+{%- endblock %}

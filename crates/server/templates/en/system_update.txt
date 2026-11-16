@@ -1,0 +1,9 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+{{ f.app }} is now running version {{ v.version }}. Previously, version {{ v.previous }} was installed.
+
+View release notes:
+{{ v.link }}
+{%- endblock %}

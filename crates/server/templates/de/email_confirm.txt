@@ -1,0 +1,11 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+Sie haben für Ihr Konto bei {{ f.app }} eine neue E-Mail-Adresse eingetragen: {{ f.to }}.
+
+E-Mail-Adresse bestätigen:
+{{ v.link }}
+
+Der Link ist 24 Stunden gültig. Erst nach der Bestätigung wird die neue Adresse verwendet. Falls Sie die Änderung nicht veranlasst haben, können Sie diese E-Mail ignorieren.
+{%- endblock %}

@@ -1,0 +1,15 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+für Ihr Konto {{ f.to }} wurden neue Wiederherstellungscodes erzeugt. Ihre bisherigen Codes gelten nicht mehr.
+
+Zeitpunkt: {{ v.when }}
+Gerät: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+Waren Sie das nicht? Ändern Sie sofort Ihr Passwort, melden Sie alle anderen Geräte ab, prüfen Sie Ihre Authenticator-Apps unter Konto > Sicherheit und erzeugen Sie neue Codes:
+{{ v.link }}
+
+Diese Nachricht erhalten Sie bei jeder Änderung an der Multi-Faktor-Authentifizierung.
+{%- endblock %}

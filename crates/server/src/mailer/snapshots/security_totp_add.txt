@@ -1,0 +1,18 @@
+Hi Max,
+
+An authenticator app was added to your account max@example.net. Its codes now work for signing in.
+
+App: Authenticator app
+Time: Today, 15:57
+Device: Safari on iPhone
+Location: Hamburg, Germany
+
+Wasn’t this you? Remove the app, change your password, and sign out all other devices:
+https://app.example.com/account/security
+
+You receive this message whenever your multi-factor authentication changes.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

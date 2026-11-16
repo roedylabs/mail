@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ f.subject }}</title>
+</head>
+<body style="margin:0;padding:0;background:{{ f.page }}">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:collapse;background:{{ f.page }}">
+  <tbody><tr><td align="center" style="padding:28px 12px 4px">
+    <!--[if mso]><table role="presentation" width="600" align="center" cellpadding="0" cellspacing="0"><tr><td><![endif]-->
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:separate;border-spacing:0;background:{{ f.card }};border:1px solid {{ f.bd }};border-radius:16px;text-align:left">
+      <tbody>
+        <tr><td style="padding:28px 32px 0">
+          <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:collapse"><tbody><tr>
+            <td width="40" height="40" bgcolor="{{ f.logo_bg }}" aria-hidden="true" style="width:40px;height:40px;padding:0;border-radius:12px;background:{{ f.logo_bg }};vertical-align:middle">{% if let Some(src) = f.logo_src %}<img src="{{ src }}" width="40" height="40" alt="" style="display:block;width:40px;height:40px;border:0;border-radius:12px">{% endif %}</td>
+            <td style="padding-left:12px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:17px;font-weight:700;color:{{ f.fg }};vertical-align:middle">{{ f.app }}</td>
+          </tr></tbody></table>
+        </td></tr>{% block card %}{% endblock %}
+      </tbody>
+    </table>
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;max-width:600px;border-collapse:collapse">
+      <tbody><tr><td align="center" style="padding:18px 32px 28px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:12.5px;line-height:1.7;color:{{ f.mfg }};text-align:center">
+        {{ f.org }}{% if let Some(support) = f.support %} · <a href="mailto:{{ support }}" style="color:{{ f.mfg }};text-decoration:underline">{{ support }}</a>{% endif %}<br>
+        {% if let Some(imprint) = f.imprint %}<a href="{{ imprint }}" style="color:{{ f.mfg }};text-decoration:underline">Impressum</a>{% endif %}{% if f.legal_sep() %} · {% endif %}{% if let Some(privacy) = f.privacy %}<a href="{{ privacy }}" style="color:{{ f.mfg }};text-decoration:underline">Datenschutz</a>{% endif %}<br>
+        {% block note %}Diese E-Mail wurde an {{ f.to }} gesendet.{% endblock %}
+      </td></tr></tbody>
+    </table>
+    <!--[if mso]></td></tr></table><![endif]-->
+  </td></tr></tbody>
+</table>
+</body>
+</html>

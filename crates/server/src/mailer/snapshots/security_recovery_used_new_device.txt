@@ -1,0 +1,22 @@
+Hi Max,
+
+A recovery code was used to sign in to your account instead of your authenticator app. That code can’t be used again.
+
+The sign-in came from a new device.
+
+Device: Safari on iPhone
+Location: Hamburg, Germany
+Time: Today, 15:57
+Unused: 9 of 10
+
+You can generate new codes under Account > Security.
+
+Wasn’t this you? Change your password right away, sign out all other devices, and generate new recovery codes:
+https://app.example.com/account/security
+
+Lost your authenticator app? Set up a new one under Account > Security.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

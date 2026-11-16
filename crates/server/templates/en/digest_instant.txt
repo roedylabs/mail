@@ -1,0 +1,15 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+{{ v.title }}
+{%- if !v.text.is_empty() %}
+{{ v.text }}
+{%- endif %}
+{{ v.when }}
+
+View:
+{{ v.link }}
+
+You receive each notification as a separate email. To change the frequency, go to Settings > Notifications.
+{%- endblock %}

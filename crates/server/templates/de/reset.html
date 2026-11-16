@@ -1,0 +1,12 @@
+{% extends "de/layout.html" %}
+{% block card %}
+        <tr><td style="padding:30px 32px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:{{ f.fg }};overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto">Neues Passwort festlegen</td></tr>
+        <tr><td style="padding:14px 32px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:16px;line-height:1.6;color:{{ f.fg }}">Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},<br>für Ihr Konto bei {{ f.app }} wurde ein neues Passwort angefordert.</td></tr>
+        <tr><td style="padding:26px 32px 0">
+          <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:separate"><tbody><tr>
+            <td style="border-radius:9999px;background:{{ f.acc }}"><a href="{{ v.link }}" style="display:inline-block;padding:14px 26px;border-radius:9999px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:15px;font-weight:800;color:{{ f.acc_ink }};text-decoration:none">Passwort festlegen</a></td>
+          </tr></tbody></table>
+        </td></tr>
+        <tr><td style="padding:22px 32px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:{{ f.mfg }}">Falls der Button nicht funktioniert, öffnen Sie diesen Link:<br><a href="{{ v.link }}" style="color:{{ f.fg }};text-decoration:underline;word-break:break-all">{{ v.link }}</a></td></tr>
+        <tr><td style="padding:18px 32px 30px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:{{ f.mfg }}">Der Link ist 60 Minuten gültig und funktioniert nur einmal. Haben Sie nichts angefordert, bleibt Ihr Passwort unverändert.</td></tr>
+{%- endblock %}

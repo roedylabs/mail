@@ -1,0 +1,15 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+New recovery codes were generated for your account {{ f.to }}. Your previous codes no longer work.
+
+Time: {{ v.when }}
+Device: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+Wasn’t this you? Change your password right away, sign out all other devices, check your authenticator apps under Account > Security, and generate new codes:
+{{ v.link }}
+
+You receive this message whenever your multi-factor authentication changes.
+{%- endblock %}

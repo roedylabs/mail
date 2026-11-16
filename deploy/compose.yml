@@ -1,0 +1,57 @@
+# Roedy Mail with Docker Compose – a minimal production setup. A reverse
+# proxy (Caddy, Traefik, nginx …) in front of 127.0.0.1:8080 terminates TLS.
+#
+#   docker compose -f deploy/compose.yml up -d
+#   docker logs roedy-mail 2>&1 | grep Setup-Token    # token for the initial setup
+#
+# Settings come from environment variables or a .env file next to this file,
+# e.g. ROEDY_PUBLIC_URL=https://webmail.example.com (all variables: docs/ops.md
+# › Configuration). Empty values count as unset.
+
+name: roedy-mail
+
+services:
+  roedy-mail:
+    # For predictable updates pin a version, e.g. ROEDY_IMAGE_TAG=0.1 in .env
+    # (docs/ops.md › Updates).
+    image: ghcr.io/roedylabs/mail:${ROEDY_IMAGE_TAG:-latest}
+    container_name: roedy-mail
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      ROEDY_PUBLIC_URL: ${ROEDY_PUBLIC_URL:-}
+      ROEDY_LOG: ${ROEDY_LOG:-}
+      ROEDY_LOG_FORMAT: ${ROEDY_LOG_FORMAT:-}
+      # The port is only open locally for the reverse proxy; without this
+      # setting the server would only see the Docker gateway as the client IP.
+      # The proxy must append X-Forwarded-For (Caddy, Traefik by themselves;
+      # nginx: proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for).
+      # Only when the variable is missing does true apply; set to empty means off.
+      ROEDY_TRUST_PROXY: ${ROEDY_TRUST_PROXY-true}
+      # If unset, the first start creates /data/secret.key (docs/ops.md ›
+      # Instance key); ROEDY_SECRET_KEY_FILE e.g. for a Docker secret.
+      ROEDY_SECRET_KEY: ${ROEDY_SECRET_KEY:-}
+      ROEDY_SECRET_KEY_FILE: ${ROEDY_SECRET_KEY_FILE:-}
+      # Optional: GeoIP database (MaxMind DB format) for the location in sessions
+      # and security emails, e.g. /geoip/GeoLite2-City.mmdb with the volume
+      # below. It is held in memory (docs/ops.md › Configuration).
+      ROEDY_GEOIP_DB: ${ROEDY_GEOIP_DB:-}
+    volumes:
+      # Named volume: Docker takes owner 65532 from the image. With a bind
+      # mount the directory must belong to 65532:65532.
+      - roedy-data:/data
+      # - ./geoip:/geoip:ro
+    # The image needs no privileges: only /data and /tmp are writable.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    # The server finishes running requests within 8 s.
+    stop_grace_period: 10s
+
+volumes:
+  roedy-data:

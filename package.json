@@ -1,0 +1,38 @@
+{
+  "name": "roedy-mail",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Lightweight JMAP webmailer for Stalwart",
+  "license": "AGPL-3.0-only",
+  "repository": "github:roedylabs/mail",
+  "type": "module",
+  "packageManager": "pnpm@12.15.0",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "prepare": "lefthook install || echo 'Note: Git hooks not installed, please run: pnpm exec lefthook install' >&2",
+    "dev": "pnpm --filter @roedy/web dev",
+    "check": "pnpm -r --if-present run check",
+    "lint": "pnpm --filter @roedy/web sync && eslint . && prettier --check apps packages scripts *.js *.json",
+    "format": "pnpm --filter @roedy/web sync && prettier --write apps packages scripts *.js *.json && eslint --fix .",
+    "test": "pnpm -r --if-present run test && node --test scripts/",
+    "build": "pnpm -r --if-present run build",
+    "licenses:server": "mkdir -p target && cargo about generate --format json --locked --features roedy-mail-server/embed-web -o target/licenses-server.json"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "eslint": "10.13.0",
+    "eslint-config-prettier": "10.1.8",
+    "eslint-plugin-svelte": "3.23.1",
+    "git-cliff": "2.14.2",
+    "globals": "17.13.0",
+    "lefthook": "2.2.2",
+    "prettier": "3.9.10",
+    "prettier-plugin-svelte": "4.1.1",
+    "rust-just": "1.59.0",
+    "svelte": "5.57.2",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.0"
+  }
+}

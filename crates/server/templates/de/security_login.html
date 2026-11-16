@@ -1,0 +1,18 @@
+{% extends "de/layout.html" %}
+{% block card %}
+        <tr><td style="padding:30px 32px 0;font-family:Georgia,'Times New Roman',serif;font-size:26px;line-height:1.25;color:{{ f.fg }};overflow-wrap:anywhere;-webkit-hyphens:auto;hyphens:auto">Neue Anmeldung bei {{ f.app }}</td></tr>
+        <tr><td style="padding:14px 32px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:16px;line-height:1.6;color:{{ f.fg }}">Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},<br>Ihr Konto wurde auf einem neuen Gerät angemeldet.</td></tr>
+        <tr><td style="padding:20px 32px 0"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="width:100%;border-collapse:separate;border-spacing:0;background:{{ f.soft }};border-radius:12px"><tbody>
+          <tr><td style="width:140px;padding:14px 0 0px 16px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;font-weight:700;color:{{ f.mfg }};vertical-align:top">Gerät</td><td style="padding:14px 16px 0px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:14px;font-weight:700;color:{{ f.fg }};vertical-align:top;overflow-wrap:anywhere">{{ v.device }}</td></tr>
+          <tr><td style="width:140px;padding:6px 0 0px 16px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;font-weight:700;color:{{ f.mfg }};vertical-align:top">{{ v.loc_key }}</td><td style="padding:6px 16px 0px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:14px;font-weight:700;color:{{ f.fg }};vertical-align:top;overflow-wrap:anywhere">{{ v.loc_value }}</td></tr>
+          <tr><td style="width:140px;padding:6px 0 14px 16px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;font-weight:700;color:{{ f.mfg }};vertical-align:top">Zeitpunkt</td><td style="padding:6px 16px 14px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:14px;font-weight:700;color:{{ f.fg }};vertical-align:top;overflow-wrap:anywhere">{{ v.when }}</td></tr>
+          </tbody></table></td></tr>
+        <tr><td style="padding:14px 32px 0;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:16px;line-height:1.6;color:{{ f.fg }}">Waren Sie das nicht? Melden Sie das Gerät ab und ändern Sie Ihr Passwort.</td></tr>
+        <tr><td style="padding:26px 32px 0">
+          <table role="presentation" cellpadding="0" cellspacing="0" style="border-collapse:separate"><tbody><tr>
+            <td style="border-radius:9999px;background:{{ f.acc }}"><a href="{{ v.link }}" style="display:inline-block;padding:14px 26px;border-radius:9999px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:15px;font-weight:800;color:{{ f.acc_ink }};text-decoration:none">Geräte prüfen</a></td>
+          </tr></tbody></table>
+        </td></tr>
+        <tr><td style="padding:18px 32px 30px;font-family:'Nunito Sans',-apple-system,'Segoe UI',Helvetica,sans-serif;font-size:13.5px;line-height:1.6;color:{{ f.mfg }}">Waren Sie es selbst, müssen Sie nichts tun.</td></tr>
+{%- endblock %}
+{% block note %}Sicherheitshinweise an {{ f.to }} lassen sich nicht abbestellen.{% endblock %}

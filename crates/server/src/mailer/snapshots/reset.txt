@@ -1,0 +1,13 @@
+Hi Max,
+
+A new password was requested for your Roedy Mail account.
+
+Set a new password:
+https://app.example.com/password/reset/Zm4pT1
+
+The link is valid for 60 minutes and works only once. If you didn’t request this, your password stays the same.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

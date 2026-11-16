@@ -1,0 +1,249 @@
+/*
+ * Roedy Mail design tokens – generated from packages/tokens/src/tokens.ts.
+ * Do not edit by hand: pnpm --filter @roedy/tokens build
+ *
+ * Controlled by attributes on <html>:
+ *   data-mode       light | dark | system   (no attribute: dark)
+ *   data-accent     apricot | sage | lavender | sky | rose   (none: apricot)
+ *   data-density    compact | normal | comfortable   (none: normal)
+ *   data-font-size  small | medium | large   (none: browser default)
+ *   data-animations off   (also prefers-reduced-motion: reduce)
+ */
+
+:root {
+  --font-sans: 'Nunito Sans Variable', 'Nunito Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-serif: 'Young Serif', Georgia, serif;
+  --rowh: 46px;
+  --dur: 220ms;
+  --shim: snShim 1.5s ease-in-out infinite;
+  --spin: snSpin 800ms linear infinite;
+}
+
+:root,
+:root[data-mode='dark'] {
+  --cnv: #181411;
+  --surface: #221d19;
+  --surface2: #2a241f;
+  --sunken: #141110;
+  --pop: #322b25;
+  --bd: rgba(255,240,220,0.07);
+  --bdhi: rgba(255,240,220,0.14);
+  --fg: #f4ece2;
+  --mfg: #b3a597;
+  --dim: #807366;
+  --ink: #f4ece2;
+  --inkfg: #221d19;
+  --hov: rgba(255,240,220,0.055);
+  --scrim: rgba(0,0,0,0.45);
+  --danger: #f0a594;
+  --warn: #eec27c;
+  --sh1: 0 1px 2px rgba(0,0,0,0.3), 0 4px 12px -2px rgba(0,0,0,0.25);
+  --sh2: 0 2px 4px rgba(0,0,0,0.25), 0 24px 56px -16px rgba(0,0,0,0.55);
+  --sh3: 0 2px 6px rgba(0,0,0,0.3), 0 40px 90px -24px rgba(0,0,0,0.7);
+  --accsoft: color-mix(in oklab, var(--acc) 22%, var(--surface));
+  --deep: color-mix(in oklab, var(--acc) 80%, white);
+  --toastacc: color-mix(in oklab, var(--acc) 45%, #2b1405);
+  color-scheme: dark;
+}
+
+:root[data-mode='light'] {
+  --cnv: #f3eee7;
+  --surface: #fffdfa;
+  --surface2: #f8f3ec;
+  --sunken: #efe7dc;
+  --pop: #fffdfa;
+  --bd: rgba(70,45,20,0.09);
+  --bdhi: rgba(70,45,20,0.17);
+  --fg: #2b221c;
+  --mfg: #74665a;
+  --dim: #918375;
+  --ink: #2b221c;
+  --inkfg: #fffaf3;
+  --hov: rgba(70,45,20,0.055);
+  --scrim: rgba(43,34,28,0.26);
+  --danger: #b3412e;
+  --warn: #9a5d0a;
+  --sh1: 0 1px 2px rgba(60,35,10,0.06), 0 4px 12px -2px rgba(60,35,10,0.07);
+  --sh2: 0 2px 4px rgba(60,35,10,0.04), 0 24px 56px -16px rgba(60,35,10,0.2);
+  --sh3: 0 2px 6px rgba(60,35,10,0.06), 0 40px 90px -24px rgba(60,35,10,0.38);
+  --accsoft: color-mix(in oklab, var(--acc) 26%, var(--surface));
+  --deep: color-mix(in oklab, var(--acc) 55%, #2b1405);
+  --toastacc: var(--acc);
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: light) {
+  :root[data-mode='system'] {
+    --cnv: #f3eee7;
+    --surface: #fffdfa;
+    --surface2: #f8f3ec;
+    --sunken: #efe7dc;
+    --pop: #fffdfa;
+    --bd: rgba(70,45,20,0.09);
+    --bdhi: rgba(70,45,20,0.17);
+    --fg: #2b221c;
+    --mfg: #74665a;
+    --dim: #918375;
+    --ink: #2b221c;
+    --inkfg: #fffaf3;
+    --hov: rgba(70,45,20,0.055);
+    --scrim: rgba(43,34,28,0.26);
+    --danger: #b3412e;
+    --warn: #9a5d0a;
+    --sh1: 0 1px 2px rgba(60,35,10,0.06), 0 4px 12px -2px rgba(60,35,10,0.07);
+    --sh2: 0 2px 4px rgba(60,35,10,0.04), 0 24px 56px -16px rgba(60,35,10,0.2);
+    --sh3: 0 2px 6px rgba(60,35,10,0.06), 0 40px 90px -24px rgba(60,35,10,0.38);
+    --accsoft: color-mix(in oklab, var(--acc) 26%, var(--surface));
+    --deep: color-mix(in oklab, var(--acc) 55%, #2b1405);
+    --toastacc: var(--acc);
+    color-scheme: light;
+  }
+}
+
+:root,
+:root[data-accent='apricot'] {
+  --acc: #f5a06e;
+  --accink: #3a1b06;
+}
+
+:root[data-accent='sage'] {
+  --acc: #94c48d;
+  --accink: #13300f;
+}
+
+:root[data-accent='lavender'] {
+  --acc: #b0a2f2;
+  --accink: #21134d;
+}
+
+:root[data-accent='sky'] {
+  --acc: #82bbec;
+  --accink: #0b2a47;
+}
+
+:root[data-accent='rose'] {
+  --acc: #f097ad;
+  --accink: #4a0f20;
+}
+
+:root[data-density='compact'] {
+  --rowh: 40px;
+}
+
+:root[data-density='comfortable'] {
+  --rowh: 52px;
+}
+
+:root[data-font-size='small'] {
+  font-size: 14px;
+}
+
+:root[data-font-size='medium'] {
+  font-size: 16px;
+}
+
+:root[data-font-size='large'] {
+  font-size: 18px;
+}
+
+:root[data-animations='off'] {
+  --dur: 0ms;
+  --shim: none;
+  --spin: none;
+}
+
+:root[data-animations='off'],
+:root[data-animations='off'] *,
+:root[data-animations='off'] *::before,
+:root[data-animations='off'] *::after {
+  animation: none !important;
+  transition: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur: 0ms;
+    --shim: none;
+    --spin: none;
+  }
+
+  :root,
+  :root *,
+  :root *::before,
+  :root *::after {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+@keyframes snFloat {
+  0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}
+}
+
+@keyframes snPop {
+  from{opacity:0;transform:translateY(-8px) scale(.96)}to{opacity:1;transform:none}
+}
+
+@keyframes snDlg {
+  from{opacity:0;transform:translateY(16px) scale(.97)}to{opacity:1;transform:none}
+}
+
+@keyframes snFade {
+  from{opacity:0}to{opacity:1}
+}
+
+@keyframes snToast {
+  from{opacity:0;transform:translate(-50%,20px) scale(.9)}to{opacity:1;transform:translate(-50%,0) scale(1)}
+}
+
+@keyframes snWave {
+  0%,100%{transform:rotate(0)}20%{transform:rotate(14deg)}40%{transform:rotate(-8deg)}60%{transform:rotate(10deg)}80%{transform:rotate(-4deg)}
+}
+
+@keyframes snSheet {
+  from{transform:translateY(110%)}to{transform:none}
+}
+
+@keyframes snTipT {
+  from{opacity:0;transform:translateY(5px) scale(.9)}to{opacity:1;transform:none}
+}
+
+@keyframes snTipB {
+  from{opacity:0;transform:translateY(-5px) scale(.9)}to{opacity:1;transform:none}
+}
+
+@keyframes snTipL {
+  from{opacity:0;transform:translateX(5px) scale(.9)}to{opacity:1;transform:none}
+}
+
+@keyframes snTipR {
+  from{opacity:0;transform:translateX(-5px) scale(.9)}to{opacity:1;transform:none}
+}
+
+@keyframes snDrawer {
+  from{transform:translateX(-105%)}to{transform:none}
+}
+
+@keyframes snRdIn {
+  from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}
+}
+
+@keyframes snFromL {
+  from{opacity:0;transform:translateX(48px)}to{opacity:1;transform:none}
+}
+
+@keyframes snRise {
+  from{opacity:0;transform:translateY(36px) scale(.97)}to{opacity:1;transform:none}
+}
+
+@keyframes snShim {
+  0%,100%{opacity:.5}50%{opacity:1}
+}
+
+@keyframes snSpin {
+  to{transform:rotate(360deg)}
+}
+
+@keyframes snBar {
+  0%{transform:translateX(-110%)}100%{transform:translateX(260%)}
+}

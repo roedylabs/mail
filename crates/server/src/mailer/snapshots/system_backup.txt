@@ -1,0 +1,15 @@
+Hi Max,
+
+The automatic backup is complete.
+
+Time: 27 October 2026, 05:13
+Size: 1.2 GB
+Retention: 30 days
+
+Manage backups:
+https://app.example.com/admin/maintenance
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

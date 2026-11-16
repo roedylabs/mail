@@ -1,0 +1,22 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+You have {{ v.count }} since your last digest.
+{%- for d in v.rows %}
+
+* {{ d.title }} ({{ d.time }})
+{%- if !d.text.is_empty() %}
+  {{ d.text }}
+{%- endif %}
+{%- endfor %}
+{%- if let Some(more) = v.more %}
+
+{{ more }}
+{%- endif %}
+
+View all notifications:
+{{ v.link }}
+
+To change the frequency, go to Settings > Notifications.
+{%- endblock %}

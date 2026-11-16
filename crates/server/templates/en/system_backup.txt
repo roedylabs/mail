@@ -1,0 +1,13 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+The automatic backup is complete.
+
+Time: {{ v.when }}
+Size: {{ v.size }}
+Retention: {{ v.keep }}
+
+Manage backups:
+{{ v.link }}
+{%- endblock %}

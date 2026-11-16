@@ -1,0 +1,7 @@
+{
+  "extends": ["../../../../tsconfig.base.json", "$app/tsconfig/service-worker"],
+  "compilerOptions": {
+    "checkJs": false
+  },
+  "include": ["./**/*.ts"]
+}

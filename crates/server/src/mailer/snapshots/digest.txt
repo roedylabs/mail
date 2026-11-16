@@ -1,0 +1,22 @@
+Hi Max,
+
+You have 3 new notifications since your last digest.
+
+* Invitation accepted (5 hours ago)
+  Sophie Hoffmann now has access.
+
+* Backup created (9 hours ago)
+  The automatic backup is complete (1.2 GB).
+
+* Welcome (8 days ago)
+  In Settings, you can adjust the appearance, language, and more.
+
+View all notifications:
+https://app.example.com
+
+To change the frequency, go to Settings > Notifications.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

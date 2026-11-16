@@ -1,0 +1,28 @@
+# cargo deny: RustSec advisories, duplicate or banned crates
+# and sources. Runs in CI only when Cargo.lock or this file changes. Licenses
+# are checked by cargo about against about.toml.
+# https://embarkstudios.github.io/cargo-deny/
+
+[graph]
+# Target platforms of the image and of development
+targets = [
+  "x86_64-unknown-linux-musl",
+  "aarch64-unknown-linux-musl",
+  "x86_64-unknown-linux-gnu",
+]
+all-features = true
+
+[advisories]
+# Exceptions only with a reason, e.g.
+# { id = "RUSTSEC-0000-0000", reason = "not reachable: …" }
+ignore = []
+
+[bans]
+# Duplicate versions come in via dependencies and are not an error.
+multiple-versions = "allow"
+wildcards = "deny"
+allow-wildcard-paths = true
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"

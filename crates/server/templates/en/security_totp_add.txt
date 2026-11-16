@@ -1,0 +1,30 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+An authenticator app was added to your account {{ f.to }}. Its codes now work for signing in.
+{%- if t.first_app %}
+
+This is your first app, so multi-factor authentication is now turned on.
+{%- endif %}
+
+App: {{ t.app }}
+Time: {{ v.when }}
+Device: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+{% if t.first_app -%}
+{% if t.sole_admin -%}
+Wasn’t this you? Then someone knows your password and has set up their own app. You’re the only administrator, so no one in {{ f.app }} can suspend your account. Set a new password right away with “Forgot password” – this signs out the other person’s device – and ask the server operator to reset your access with the command roedy-mail reset-admin. This sets a new password and removes all authenticator apps.
+{%- else -%}
+Wasn’t this you? Then someone knows your password and has set up their own app. Contact your administrator right away: they can suspend your account – which also signs out the other person’s device – and reset multi-factor authentication. Also use “Forgot password” to set a new password. Until your administrator resets it, signing in requires a code from the other person’s app.
+{%- endif %}
+
+Reset password:
+{%- else -%}
+Wasn’t this you? Remove the app, change your password, and sign out all other devices:
+{%- endif %}
+{{ v.link }}
+
+You receive this message whenever your multi-factor authentication changes.
+{%- endblock %}

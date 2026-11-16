@@ -1,0 +1,20 @@
+{% extends "en/layout.txt" %}
+{%- block body -%}
+Hi{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+The authenticator app “{{ t.app }}” was removed from your account {{ f.to }}.
+{%- if t.last %}
+
+That was your last app. Multi-factor authentication is now turned off, and your recovery codes no longer work.
+{%- endif %}
+
+App: {{ t.app }}
+Time: {{ v.when }}
+Device: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+Wasn’t this you? Change your password right away, sign out all other devices, and set up your authenticator app again:
+{{ v.link }}
+
+You receive this message whenever your multi-factor authentication changes.
+{%- endblock %}

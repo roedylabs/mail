@@ -1,0 +1,5 @@
+# The image only needs the prebuilt binaries and the license (Dockerfile).
+*
+!dist/amd64/roedy-mail
+!dist/arm64/roedy-mail
+!LICENSE

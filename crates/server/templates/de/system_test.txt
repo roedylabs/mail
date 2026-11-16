@@ -1,0 +1,6 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Der Versand von System-E-Mails über {{ f.app }} funktioniert.
+
+Diese Nachricht wurde in der Administration unter E-Mail > Test angefordert. Sie müssen nichts weiter tun.
+{%- endblock %}

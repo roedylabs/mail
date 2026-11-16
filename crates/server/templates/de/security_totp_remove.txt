@@ -1,0 +1,20 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+von Ihrem Konto {{ f.to }} wurde die Authenticator-App „{{ t.app }}“ entfernt.
+{%- if t.last %}
+
+Das war Ihre letzte App. Die Multi-Faktor-Authentifizierung ist damit ausgeschaltet, und Ihre Wiederherstellungscodes gelten nicht mehr.
+{%- endif %}
+
+App: {{ t.app }}
+Zeitpunkt: {{ v.when }}
+Gerät: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+
+Waren Sie das nicht? Ändern Sie sofort Ihr Passwort, melden Sie alle anderen Geräte ab und richten Sie Ihre Authenticator-App neu ein:
+{{ v.link }}
+
+Diese Nachricht erhalten Sie bei jeder Änderung an der Multi-Faktor-Authentifizierung.
+{%- endblock %}

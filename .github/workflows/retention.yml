@@ -1,0 +1,38 @@
+name: Retention
+
+# Remove untagged, orphaned and partial image versions from ghcr.io. Released
+# (tagged) versions always stay available. The action understands multi-arch
+# images, attestations and cosign signatures and deletes nothing a tagged
+# image still needs.
+
+on:
+  schedule:
+    - cron: "17 4 1 * *" # monthly on the 1st at 04:17 UTC
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Only show what would be deleted
+        type: boolean
+        default: true
+
+permissions: {}
+
+jobs:
+  cleanup:
+    name: Delete untagged images
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      packages: write
+    steps:
+      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          package: mail
+          delete-untagged: true
+          delete-ghost-images: true
+          delete-partial-images: true
+          delete-orphaned-images: true
+          validate: true
+          # Schedule: delete for real; manual runs only show by default.
+          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}

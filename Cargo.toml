@@ -1,0 +1,44 @@
+[workspace]
+resolver = "3"
+members = ["crates/server", "crates/jmap"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+license = "AGPL-3.0-only"
+repository = "https://github.com/roedylabs/mail"
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+
+[workspace.lints.clippy]
+dbg_macro = "warn"
+todo = "warn"
+
+# Goal: small binary and little memory.
+[profile.release]
+opt-level = "s"
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
+
+# Only line tables for our own crates, no debug info for dependencies:
+# backtraces still name file and line, but test binaries and `target/` are
+# less than half the size, and linking is faster (measured against line
+# tables for all crates: rebuild after a change to the server 43 instead of
+# 60 s).
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+
+# Without optimization Argon2 is so slow that tests and `cargo run` wait
+# noticeably while hashing (19 MiB per password).
+[profile.dev.package.argon2]
+opt-level = 3
+
+[profile.dev.package.blake2]
+opt-level = 3

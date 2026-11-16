@@ -1,0 +1,22 @@
+Hi Max,
+
+An authenticator app was added to your account max@example.net. Its codes now work for signing in.
+
+This is your first app, so multi-factor authentication is now turned on.
+
+App: Authenticator app
+Time: Today, 15:57
+Device: Safari on iPhone
+Location: Hamburg, Germany
+
+Wasn’t this you? Then someone knows your password and has set up their own app. Contact your administrator right away: they can suspend your account – which also signs out the other person’s device – and reset multi-factor authentication. Also use “Forgot password” to set a new password. Until your administrator resets it, signing in requires a code from the other person’s app.
+
+Reset password:
+https://app.example.com/password/forgot
+
+You receive this message whenever your multi-factor authentication changes.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

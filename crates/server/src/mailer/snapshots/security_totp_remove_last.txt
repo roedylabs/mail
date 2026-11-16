@@ -1,0 +1,20 @@
+Hi Max,
+
+The authenticator app “Authenticator app” was removed from your account max@example.net.
+
+That was your last app. Multi-factor authentication is now turned off, and your recovery codes no longer work.
+
+App: Authenticator app
+Time: Today, 15:57
+Device: Safari on iPhone
+Location: Hamburg, Germany
+
+Wasn’t this you? Change your password right away, sign out all other devices, and set up your authenticator app again:
+https://app.example.com/account/security
+
+You receive this message whenever your multi-factor authentication changes.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

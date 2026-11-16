@@ -1,0 +1,88 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+# CodeRabbit review settings: https://docs.coderabbit.ai/reference/configuration
+
+language: en-US
+early_access: false
+tone_instructions: >-
+  Be concise and concrete. Prioritise correctness, security and accessibility
+  over style; formatting is enforced by rustfmt, ESLint and Prettier.
+
+reviews:
+  profile: chill
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  poem: false
+  sequence_diagrams: false
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches: [main]
+    ignore_title_keywords: ["chore(release)"]
+  path_filters:
+    - "!pnpm-lock.yaml"
+    - "!Cargo.lock"
+    - "!CHANGELOG.md"
+    - "!apps/web/src/lib/paraglide/**"
+    - "!crates/server/src/mailer/snapshots/**"
+  path_instructions:
+    - path: "crates/**/*.rs"
+      instructions: >-
+        Rust backend (axum, tokio, rusqlite). Watch for blocking calls on async
+        tasks, unbounded allocations from request input, missing authorization
+        checks, secrets or tokens in logs, and SQL built from strings. Errors
+        returned to clients must not leak internals.
+    - path: "crates/server/src/db/migrations/*.sql"
+      instructions: >-
+        Applied migrations are immutable. Schema changes need a new numbered
+        migration that works on existing databases.
+    - path: "crates/server/locales/*.json"
+      instructions: >-
+        en.json and de.json must have the same keys and placeholders. German
+        texts use formal address ("Sie") and correct umlauts.
+    - path: "apps/web/messages/*.json"
+      instructions: >-
+        en.json is the source; de.json must have the same keys and parameters.
+        German texts use formal address ("Sie") and correct umlauts.
+    - path: "apps/web/src/**/*.{ts,svelte}"
+      instructions: >-
+        Svelte 5 with runes, SvelteKit as a SPA. All UI text comes from
+        Paraglide messages, never hard-coded strings. Check keyboard access,
+        focus handling and ARIA for interactive elements. Untrusted email HTML
+        must only render through the sanitizer and the sandboxed frame.
+    - path: "packages/jmap/**/*.ts"
+      instructions: >-
+        Browser JMAP client (RFC 8620/8621). Check request batching,
+        back-references and state handling against the RFCs.
+    - path: ".github/workflows/*.yml"
+      instructions: >-
+        Actions are pinned to full commit SHAs with a version comment;
+        permissions are least privilege per job; untrusted input is never
+        interpolated into run scripts.
+  tools:
+    shellcheck:
+      enabled: true
+    actionlint:
+      enabled: true
+    hadolint:
+      enabled: true
+    markdownlint:
+      enabled: true
+    yamllint:
+      enabled: true
+    gitleaks:
+      enabled: true
+    clippy:
+      enabled: true
+    eslint:
+      enabled: true
+
+chat:
+  auto_reply: true
+
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - CONTRIBUTING.md

@@ -1,0 +1,26 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+Ihr Konto wurde mit einem Wiederherstellungscode statt mit Ihrer Authenticator-App angemeldet. Der Code ist damit verbraucht.
+{%- if t.new_device %}
+
+Die Anmeldung kam von einem neuen Gerät.
+{%- endif %}
+
+Gerät: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+Zeitpunkt: {{ v.when }}
+Noch unbenutzt: {{ t.remaining }} von {{ t.total }}
+
+{% if t.remaining == 0 -%}
+Sie haben keine unbenutzten Wiederherstellungscodes mehr. Erzeugen Sie unter Konto > Sicherheit neue Codes.
+{%- else -%}
+Neue Codes erzeugen Sie unter Konto > Sicherheit.
+{%- endif %}
+
+Waren Sie das nicht? Ändern Sie sofort Ihr Passwort, melden Sie alle anderen Geräte ab und erzeugen Sie neue Wiederherstellungscodes:
+{{ v.link }}
+
+Haben Sie Ihre Authenticator-App verloren? Richten Sie unter Konto > Sicherheit eine neue ein.
+{%- endblock %}

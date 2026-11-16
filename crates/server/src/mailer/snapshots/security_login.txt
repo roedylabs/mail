@@ -1,0 +1,15 @@
+Hi Max,
+
+A new device was used to sign in to your account.
+
+Device: Safari on iPhone
+Location: Hamburg, Germany
+Time: Today, 15:57
+
+Wasn’t this you? Sign out the device and change your password:
+https://app.example.com/account/security
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

@@ -1,0 +1,13 @@
+{% extends "de/layout.txt" %}
+{%- block body -%}
+Hallo{% if let Some(first) = v.first %} {{ first }}{% endif %},
+
+Ihr Konto wurde auf einem neuen Gerät angemeldet.
+
+Gerät: {{ v.device }}
+{{ v.loc_key }}: {{ v.loc_value }}
+Zeitpunkt: {{ v.when }}
+
+Waren Sie das nicht? Melden Sie das Gerät ab und ändern Sie Ihr Passwort:
+{{ v.link }}
+{%- endblock %}

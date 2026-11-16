@@ -1,0 +1,8 @@
+Sending system emails from Roedy Mail is working.
+
+This message was requested in Administration under Email > Test. You don’t need to do anything else.
+
+--
+Example Ltd · support@example.com
+Legal notice: https://example.com/imprint
+Privacy policy: https://example.com/privacy

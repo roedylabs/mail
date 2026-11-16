@@ -1,0 +1,282 @@
+name: Release
+
+# Build, check and publish a release.
+# - Tag v*: web app and static musl binaries (`just dist`) → amd64 image →
+#   size, smoke test, Trivy → multi-arch push to ghcr.io with SBOM and
+#   provenance → cosign signature and build attestations → check the published
+#   image → GitHub release with notes and binaries.
+# - Pull requests that change the image or this pipeline: build and check
+#   only, publish nothing, so that errors show up before the tag.
+
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review]
+    paths:
+      - Dockerfile
+      - .dockerignore
+      - Cargo.lock # new crates must also build for musl with Zig
+      - justfile
+      - scripts/image-smoke.sh
+      - .github/workflows/release.yml
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  IMAGE: ghcr.io/${{ github.repository }}
+
+jobs:
+  build:
+    name: Build and check
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # git-cliff and the check "tag is on main"
+          persist-credentials: false
+
+      - name: Version and build info
+        id: version
+        run: |
+          version=$(node -p 'require("./package.json").version')
+          cargo_version=$(sed -n '/^\[workspace\.package\]/,/^\[/ s/^version = "\(.*\)"$/\1/p' Cargo.toml)
+          if [ "$version" != "$cargo_version" ]; then
+            echo "::error::Version in package.json ($version) and Cargo.toml ($cargo_version) differ"
+            exit 1
+          fi
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            if [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME does not match version $version (tags are set by just release-tag)"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::Tag $GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+          fi
+          case $version in
+            *-*) prerelease=true ;;
+            *) prerelease=false ;;
+          esac
+          echo "version=$version" >>"$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >>"$GITHUB_OUTPUT"
+          {
+            echo "ROEDY_VERSION=$version"
+            echo "ROEDY_BUILD_SHA=${GITHUB_SHA::7}"
+            echo "ROEDY_BUILD_DATE=$(git log -1 --format=%cI)"
+          } >>"$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 26
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # No rust-cache: tag runs cannot read the cache of another tag, and a
+      # cold build of the release binaries only takes a few minutes.
+      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+        with:
+          toolchain: stable
+          targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
+        with:
+          version: 0.17.0
+          use-cache: false
+      - uses: taiki-e/install-action@1e29709c0ec63babbe8f266397a465f29a825f91 # v2.87.31
+        with:
+          tool: cargo-zigbuild@0.24.0,cargo-auditable@0.7.7,cargo-about@0.9.2
+
+      - name: Web app and binaries (just dist)
+        run: pnpm exec just dist
+
+      - name: Check binaries
+        run: |
+          check() { # <file> <architecture as reported by file>
+            info=$(file -b "$1")
+            echo "$1: $info"
+            echo "$info" | grep -q "$2" || { echo "::error::$1 is not built for $2"; exit 1; }
+            echo "$info" | grep -Eq '(statically|static-pie) linked' || { echo "::error::$1 is not statically linked"; exit 1; }
+            # Dependency list from cargo auditable for SBOM and Trivy
+            readelf -S "$1" | grep -q '\.dep-v0' || { echo "::error::$1 without section .dep-v0 (cargo auditable)"; exit 1; }
+          }
+          check dist/amd64/roedy-mail x86-64
+          check dist/arm64/roedy-mail aarch64
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image for amd64
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64
+          load: true
+          tags: roedy-mail:test
+          provenance: false
+          sbom: false
+
+      - name: Check size
+        run: |
+          size=$(docker image inspect -f '{{.Size}}' roedy-mail:test)
+          echo "Image linux/amd64: $((size / 1000)) kB" | tee -a "$GITHUB_STEP_SUMMARY"
+          if [ "$size" -gt 40000000 ]; then
+            echo "::error::Image larger than 40 MB"
+            exit 1
+          elif [ "$size" -gt 25000000 ]; then
+            echo "::warning::Image larger than the 25 MB target"
+          fi
+      - name: Smoke test
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: scripts/image-smoke.sh roedy-mail:test "$VERSION"
+      - name: Vulnerabilities (Trivy)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: roedy-mail:test
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+      - name: Release notes (git-cliff)
+        if: github.ref_type == 'tag'
+        run: pnpm exec git-cliff --latest --strip all >dist/release-notes.md
+      - name: Binary archives
+        if: github.ref_type == 'tag'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist/assets
+          for arch in amd64 arm64; do
+            tar -C "dist/$arch" -czf "dist/assets/roedy-mail-$VERSION-linux-$arch.tar.gz" \
+              --owner=0 --group=0 --mtime="$ROEDY_BUILD_DATE" roedy-mail
+          done
+          (cd dist/assets && sha256sum -- *.tar.gz >SHA256SUMS)
+          cat dist/assets/SHA256SUMS
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: github.ref_type == 'tag'
+        with:
+          name: dist
+          path: dist/
+          retention-days: 1
+          if-no-files-found: error
+
+  publish:
+    name: Publish
+    needs: build
+    if: github.ref_type == 'tag'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write # GitHub release
+      packages: write # ghcr.io
+      id-token: write # keyless cosign and attestations (Sigstore)
+      attestations: write
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+      PRERELEASE: ${{ needs.build.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6 # v4.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Tags and labels
+        id: meta
+        uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0
+        env:
+          DOCKER_METADATA_ANNOTATIONS_LEVELS: manifest,index
+        with:
+          images: ${{ env.IMAGE }}
+          # Pre-releases only get {{version}} and no "latest".
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+          labels: |
+            org.opencontainers.image.title=Roedy Mail
+            org.opencontainers.image.description=Lightweight JMAP webmailer for Stalwart
+            org.opencontainers.image.licenses=AGPL-3.0-only
+          annotations: |
+            org.opencontainers.image.title=Roedy Mail
+            org.opencontainers.image.description=Lightweight JMAP webmailer for Stalwart
+            org.opencontainers.image.licenses=AGPL-3.0-only
+      - name: Push multi-arch image
+        id: push
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          annotations: ${{ steps.meta.outputs.annotations }}
+          provenance: mode=max
+          sbom: true
+
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+      - name: Sign image (cosign)
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: cosign sign --yes "$IMAGE@$DIGEST"
+      - name: Attest image
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-name: ${{ env.IMAGE }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+      - name: Attest binaries
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/assets/*.tar.gz
+
+      - name: Check published image
+        env:
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          platforms=$(docker buildx imagetools inspect --raw "$IMAGE:$VERSION" | jq -r '.manifests[].platform | "\(.os)/\(.architecture)"')
+          echo "$platforms"
+          for platform in linux/amd64 linux/arm64; do
+            echo "$platforms" | grep -qx "$platform" || { echo "::error::$platform missing from the image"; exit 1; }
+          done
+          cosign verify "$IMAGE@$DIGEST" \
+            --certificate-identity "https://github.com/$GITHUB_REPOSITORY/.github/workflows/release.yml@$GITHUB_REF" \
+            --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
+          docker pull "$IMAGE:$VERSION"
+          scripts/image-smoke.sh "$IMAGE:$VERSION" "$VERSION"
+
+      - name: GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DIGEST: ${{ steps.push.outputs.digest }}
+        run: |
+          # shellcheck disable=SC2016 # backticks are Markdown
+          {
+            cat dist/release-notes.md
+            printf '\n## Container image\n\n```sh\ndocker pull %s:%s\n```\n\n' "$IMAGE" "$VERSION"
+            printf 'Platforms linux/amd64 and linux/arm64, digest `%s`, signed with cosign; SBOM and provenance are attached to the image as attestations.\n\n' "$DIGEST"
+            printf '## Binaries\n\nStatic Linux binaries with the embedded web app are attached below; verify them with `SHA256SUMS` or `gh attestation verify <file> --repo %s`.\n' "$GITHUB_REPOSITORY"
+          } >release-notes.md
+          prerelease=()
+          if [ "$PRERELEASE" = true ]; then prerelease=(--prerelease); fi
+          gh release create "$GITHUB_REF_NAME" --verify-tag --title "$GITHUB_REF_NAME" \
+            --notes-file release-notes.md "${prerelease[@]}" dist/assets/*
