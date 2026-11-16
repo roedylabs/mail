@@ -78,6 +78,8 @@ Roedy Mail does not proxy your mail. The backend manages app accounts, settings 
 
 ```sh
 curl -fsSLO https://raw.githubusercontent.com/roedylabs/mail/main/deploy/compose.yml
+curl -fsSL -o .env https://raw.githubusercontent.com/roedylabs/mail/main/deploy/.env.example
+${EDITOR:-vi} .env                                # public URL, image version
 docker compose up -d                              # listens on 127.0.0.1:8080
 docker compose logs roedy-mail | grep Setup-Token
 ```
