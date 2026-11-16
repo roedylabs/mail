@@ -6,8 +6,9 @@
 //!   if its mail does not go out, and reports ID and `sent` per address;
 //!   without a system mail the invitations are only created
 //!   (`system_mail: false`). An address is taken if it belongs to a user (any
-//!   status), an open invitation or an open email address change
-//!   (`emails.<i>`: `taken`).
+//!   status) or an open invitation (`emails.<i>`: `taken`). An open email
+//!   address change to it does not count; the invitation makes its link
+//!   invalid.
 //! - `POST invites/:id/resend`: the same link; on success a new expiry
 //!   (7 days) and `mail_sent_at`, otherwise 502 `mail_failed` without change.
 //! - `POST invites/:id/renew` ("Extend"): the same link, new expiry
@@ -58,7 +59,6 @@ use crate::{
         self,
         repo::{
             audit_log::{self, Category, Entry},
-            email_changes,
             invitations::{self, Found, Invitation, NewInvitation, TOKEN_PURPOSE, TOTP_PURPOSE},
             known_devices, sessions, totp_devices,
             users::{self, NewUser, Role},
@@ -284,10 +284,7 @@ async fn create(
     let created = admin_change(&state, admin.clone(), ip, move |tx, actor| {
         let mut taken = FieldErrors::default();
         for (i, email, ..) in &planned {
-            if users::email_taken(tx, email, "", false)?
-                || invitations::exists_for(tx, email)?
-                || email_changes::pending_for(tx, email)?
-            {
+            if users::email_taken(tx, email, "", false)? || invitations::exists_for(tx, email)? {
                 taken.code(&format!("emails.{i}"), "taken");
             }
         }
