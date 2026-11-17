@@ -349,6 +349,8 @@
   };
 
   let busy = $state(false);
+  /** Angle of the refresh icon: every refresh that starts turns it two more revolutions. */
+  let rot = $state(0);
 
   async function refresh() {
     const current = list;
@@ -371,11 +373,12 @@
     }
     if (busy || !current || !view) return;
     busy = true;
+    rot += 720;
     // Sync pill while the request runs.
     ui.syncing = true;
     const multi = view.multi;
-    // The icon spins at least one turn, even if the response comes faster.
-    const spin = new Promise((r) => setTimeout(r, 600));
+    // The sync pill stays at least 600 ms, even if the response comes faster.
+    const minimum = new Promise((r) => setTimeout(r, 600));
     try {
       const { added, failed } = await current.refresh();
       if (failed) {
@@ -384,7 +387,7 @@
       } else if (!added)
         ui.toasts.show(viewAccounts.every(isReachable) ? m.list_refresh_none() : m.list_refresh_partial());
     } finally {
-      await spin;
+      await minimum;
       busy = false;
       ui.syncing = false;
     }
@@ -1655,7 +1658,7 @@
       <MailListCompact
         {pf}
         isMobile={ui.isMobile}
-        {busy}
+        {rot}
         hasMore={!!list && !view?.unavailable && list.hasMore}
         onSegment={(s: Segment) => (kept.segment = s)}
         onSort={(k: ListSort['key']) => {
@@ -1686,7 +1689,7 @@
       <MailListSoft
         {pf}
         isMobile={ui.isMobile}
-        {busy}
+        {rot}
         hasMore={!!list && !view?.unavailable && list.hasMore}
         onSegment={(s: Segment) => (kept.segment = s)}
         onOpen={open}

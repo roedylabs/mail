@@ -41,8 +41,8 @@
   interface Props {
     pf: ListValues;
     isMobile: boolean;
-    /** Refresh in progress: the refresh icon spins. */
-    busy: boolean;
+    /** Angle of the refresh icon in degrees; each change turns it in 900 ms. */
+    rot: number;
     /** More pages on the server; near the end of the list `onMore` loads more. */
     hasMore: boolean;
     onSegment: (s: Segment) => void;
@@ -83,7 +83,7 @@
   let {
     pf,
     isMobile,
-    busy,
+    rot,
     hasMore,
     onSegment,
     onOpen,
@@ -207,7 +207,8 @@
     class="ib refresh"
     onclick={onRefresh}
     aria-label={m.list_refresh()}
-    use:tooltip={tip(m.list_refresh())}><span class="ri" class:spin={busy}><Icon name="ti-refresh" /></span></button
+    use:tooltip={tip(m.list_refresh())}
+    ><span class="ri" style:transform="rotate({rot}deg)"><Icon name="ti-refresh" /></span></button
   >
 {/snippet}
 
@@ -649,18 +650,10 @@
     color: var(--danger);
   }
 
+  /* Two revolutions per refresh, eased; no motion with reduced motion (tokens) */
   .ri {
     display: grid;
-  }
-
-  .ri.spin {
-    animation: var(--spin, none);
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .ri.spin {
-      animation: none;
-    }
+    transition: transform 900ms cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   /* Column header */
