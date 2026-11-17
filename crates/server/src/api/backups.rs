@@ -14,7 +14,7 @@
 //! Only one backup or restore runs at a time; meanwhile nothing can be
 //! deleted either (409 `backup_running`).
 
-use std::io;
+use std::{io, sync::Arc};
 
 use axum::{
     Json, Router,
@@ -67,8 +67,8 @@ struct Row {
     legacy: bool,
 }
 
-impl Row {
-    fn new(backup: Backup, legacy: bool) -> Self {
+impl From<(Backup, bool)> for Row {
+    fn from((backup, legacy): (Backup, bool)) -> Self {
         Self {
             id: backup.id,
             at: backup.at.to_string(),
@@ -78,6 +78,9 @@ impl Row {
         }
     }
 }
+
+/// The backups and their `legacy` flags, in the same order.
+type Scan = (Vec<Backup>, Vec<bool>);
 
 /// Response of `GET`, `schedule` and `restore`.
 #[derive(Debug, Serialize)]
@@ -92,19 +95,14 @@ struct View {
 }
 
 impl View {
-    fn load(conn: &Connection, backups: &Backups) -> anyhow::Result<Self> {
+    /// `list` and the `legacy` flag of each backup, read beforehand
+    /// ([`Self::scan`]); this only reads the database.
+    fn load(conn: &Connection, (list, legacy): Scan) -> anyhow::Result<Self> {
         let settings = backups::load(conn)?;
-        let list = backups.list()?;
         let now = Timestamp::now();
         let next_at = settings.next_at(backups::last_run(conn, &list)?, now);
         Ok(Self {
-            backups: list
-                .into_iter()
-                .map(|backup| {
-                    let legacy = backups.legacy(&backup);
-                    Row::new(backup, legacy)
-                })
-                .collect(),
+            backups: list.into_iter().zip(legacy).map(Row::from).collect(),
             auto: settings.auto,
             every: settings.every,
             keep: settings.keep,
@@ -113,11 +111,23 @@ impl View {
             next_at: next_at.map(|at| at.max(now).to_string()),
         })
     }
+
+    /// The list with the `legacy` flag of each backup. Reads the directory and
+    /// a part of every file: on a blocking thread of its own, so that a slow
+    /// backup directory (a share) does not hold up the database thread.
+    async fn scan(backups: Arc<Backups>) -> anyhow::Result<Scan> {
+        db::blocking(move || {
+            let list = backups.list()?;
+            let legacy = list.iter().map(|backup| backups.legacy(backup)).collect();
+            Ok((list, legacy))
+        })
+        .await
+    }
 }
 
 async fn view(state: &AppState) -> Result<Json<View>, ApiError> {
-    let backups = state.backups.clone();
-    let view = db::call(&state.db, move |conn| View::load(conn, &backups)).await?;
+    let list = View::scan(state.backups.clone()).await?;
+    let view = db::call(&state.db, move |conn| View::load(conn, list)).await?;
     Ok(Json(view))
 }
 
@@ -160,7 +170,7 @@ async fn create(
     .await
     .map_err(anyhow::Error::from)??;
     // A new backup always carries the authenticity value.
-    Ok((StatusCode::CREATED, Json(Row::new(backup, false))))
+    Ok((StatusCode::CREATED, Json(Row::from((backup, false)))))
 }
 
 /// Body of `schedule`: the changed fields.
