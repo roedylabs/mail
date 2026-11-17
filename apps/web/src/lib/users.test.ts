@@ -3,7 +3,8 @@ import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
-import { UsersPage, rowsValues, usersValues, type ListedUser } from './users.svelte.ts';
+import { forgetAccount } from '#lib/state/account.ts';
+import { UsersPage, keptUsers, rowsValues, usersValues, type ListedUser } from './users.svelte.ts';
 
 const NOW = Date.parse('2026-10-26T12:00:00Z');
 const before = (hours: number) => new Date(NOW - hours * 3600_000).toISOString();
@@ -83,6 +84,7 @@ afterEach(() => {
   session.user = null;
   prefs.reset();
   ui.reset();
+  keptUsers.forget();
 });
 
 /** Loaded page with the test data. */
@@ -1088,5 +1090,159 @@ describe('Actions per row', () => {
     await vi.waitFor(() => expect(session.isAdmin).toBe(false));
     // Instead of reloading the list, the layout then shows "Access denied".
     expect(sent(calls).filter((c) => c === 'GET users')).toHaveLength(1);
+  });
+});
+
+describe('Reopening', () => {
+  const offline = () =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('offline'))),
+    );
+
+  it('shows the list of the last open page at once and replaces it with the new one', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const later = USERS.filter((u) => u.id !== 'u3');
+    mockApi({ 'GET users': [{ body: { users: later } }] });
+    const q = new UsersPage();
+    expect(q.status).toBe('ready');
+    expect(q.rows.map((u) => u.id)).toEqual(USERS.map((u) => u.id));
+    await q.load();
+    expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id));
+  });
+
+  it('keeps the list with the toast "Couldn’t update the list." if loading fails, also without a connection', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    for (const fail of [() => mockApi({ 'GET users': [{ status: 500, body: { error: 'internal' } }] }), offline]) {
+      fail();
+      const q = new UsersPage();
+      await q.load();
+      expect(q.status).toBe('ready');
+      expect(q.rows).toHaveLength(USERS.length);
+      expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true });
+      ui.reset();
+      q.dispose();
+    }
+  });
+
+  it('a later reload of the open page still reports "No connection" without a connection', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    mockApi({ 'GET users': [{ body: { users: USERS } }] });
+    const q = new UsersPage();
+    await q.load();
+    offline();
+    await q.load();
+    expect(ui.toast?.text).toBe('No connection. Please try again.');
+  });
+
+  it('keeps changes the server confirmed, not those still on their way', async () => {
+    const { p } = await loaded({
+      'DELETE users/u3': [{ status: 204 }],
+      'DELETE users/u2': [() => new Promise(() => {})],
+    });
+    const row = (id: string) => {
+      const u = p.rows.find((x) => x.id === id);
+      if (!u) throw new Error(`no ${id}`);
+      return u;
+    };
+    p.remove(row('u3'));
+    ui.confirmOk();
+    // Response of the server.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    p.remove(row('u2'));
+    ui.confirmOk();
+    expect(p.rows.map((u) => u.id)).not.toContain('u2');
+    p.setRole(row('u1'), 'user');
+    p.dispose();
+    const kept = new UsersPage().rows;
+    expect(kept.map((u) => u.id)).not.toContain('u3');
+    // Removal still on its way (it may yet fail): the server still knows the user.
+    expect(kept.map((u) => u.id)).toContain('u2');
+    // Role change with undo not sent yet: the role the server knows.
+    expect(kept.find((u) => u.id === 'u1')?.role).toBe('admin');
+  });
+
+  it('a reload that started before a confirmed removal does not bring the user back', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    let answer: (reply: { body: { users: ListedUser[] } }) => void = () => {};
+    const later = USERS.filter((u) => u.id !== 'u3');
+    mockApi({
+      'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: later } }],
+      'DELETE users/u3': [{ status: 204 }],
+    });
+    const q = new UsersPage();
+    const load = q.load();
+    const u3 = q.rows.find((u) => u.id === 'u3');
+    if (!u3) throw new Error('no u3');
+    q.remove(u3);
+    ui.confirmOk();
+    // Response of the server.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    answer({ body: { users: USERS } });
+    await load;
+    await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
+  });
+
+  it('a removal the left page confirms later makes the reopened page load again', async () => {
+    let removed: (reply: { status: number }) => void = () => {};
+    let answer: (reply: { body: { users: ListedUser[] } }) => void = () => {};
+    const later = USERS.filter((u) => u.id !== 'u3');
+    const { p } = await loaded({ 'DELETE users/u3': [() => new Promise((resolve) => (removed = resolve))] });
+    const u3 = p.rows.find((u) => u.id === 'u3');
+    if (!u3) throw new Error('no u3');
+    p.remove(u3);
+    ui.confirmOk();
+    p.dispose();
+    mockApi({ 'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: later } }] });
+    const q = new UsersPage();
+    expect(q.rows.map((u) => u.id)).toContain('u3');
+    const load = q.load();
+    removed({ status: 204 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    answer({ body: { users: USERS } });
+    await load;
+    await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
+  });
+
+  it('an extension the left page confirms later makes the reopened page load again', async () => {
+    const old = invite('i3', 'old@example.com', { expires_at: before(1), expired: true });
+    const renewed = { ...old, expires_at: before(-168), expired: false };
+    let done: (reply: { body: { invite: ListedUser } }) => void = () => {};
+    let answer: (reply: { body: { users: ListedUser[] } }) => void = () => {};
+    const { p } = await loaded({ 'POST invites/i3/renew': [() => new Promise((resolve) => (done = resolve))] }, [
+      ...USERS,
+      old,
+    ]);
+    const extending = p.extend(old);
+    p.dispose();
+    mockApi({
+      'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: [...USERS, renewed] } }],
+    });
+    const q = new UsersPage();
+    const load = q.load();
+    done({ body: { invite: renewed } });
+    await extending;
+    answer({ body: { users: [...USERS, old] } });
+    await load;
+    await vi.waitFor(() => expect(q.rows.find((u) => u.id === 'i3')?.expired).toBe(false));
+  });
+
+  it('signing out discards the list, also of a page left afterwards', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const { p: open } = await loaded();
+    forgetAccount();
+    open.dispose();
+    const q = new UsersPage();
+    expect([q.status, q.rows]).toEqual(['loading', []]);
+  });
+
+  it('keeps nothing from a page that has not loaded', () => {
+    new UsersPage().dispose();
+    expect(new UsersPage().status).toBe('loading');
   });
 });

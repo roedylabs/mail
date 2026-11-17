@@ -4,6 +4,8 @@ import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
+import { forgetAccount } from '#lib/state/account.ts';
+import { forgetRegistered } from '#lib/state/forget.ts';
 import { dialogValues, ServersPage, serversValues, type AdminServer } from './servers.svelte.ts';
 
 const NOW = Date.parse('2026-10-26T12:00:00Z');
@@ -88,6 +90,8 @@ afterEach(() => {
   prefs.reset();
   ui.reset();
   csp.stale = false;
+  // Kept list and the toggles of the policy still on their way.
+  forgetRegistered();
 });
 
 /** Loaded page with the test data; further responses per route. */
@@ -1287,5 +1291,166 @@ describe('Dialog', () => {
     expect(sd()).not.toBeNull();
     sd()?.overlay({ target: scrim, currentTarget: scrim, preventDefault: () => {} });
     expect(sd()).toBeNull();
+  });
+});
+
+describe('Reopening', () => {
+  it('shows list and policy of the last open page at once and replaces them with the new ones', async () => {
+    const { p } = await loaded({
+      'GET admin/servers/policy': [{ body: { allow_custom_servers: true } }],
+    });
+    p.dispose();
+    mockApi({ 'GET admin/servers': [list([S1], { system_mail_server: null })], 'GET admin/servers/policy': [POLICY] });
+    const q = new ServersPage();
+    expect([q.status, q.rows.map((s) => s.id), q.redirectUri, q.systemServer, q.allowOwn]).toEqual([
+      'ready',
+      ['s1', 's2'],
+      REDIRECT,
+      's1',
+      true,
+    ]);
+    await q.load();
+    expect([q.rows.map((s) => s.id), q.systemServer, q.allowOwn]).toEqual([['s1'], null, false]);
+  });
+
+  it('keeps the list with the toast "Couldn’t update the list." if loading fails, also without a connection', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const fails = [
+      () =>
+        mockApi({
+          'GET admin/servers': [{ status: 500, body: { error: 'internal' } }],
+          'GET admin/servers/policy': [POLICY],
+        }),
+      () =>
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(() => Promise.reject(new TypeError('offline'))),
+        ),
+    ];
+    for (const fail of fails) {
+      fail();
+      const q = new ServersPage();
+      await q.load();
+      expect(q.status).toBe('ready');
+      expect(q.rows.map((s) => s.id)).toEqual(['s1', 's2']);
+      expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true });
+      ui.reset();
+      q.dispose();
+    }
+  });
+
+  it('keeps list and policy as the server knows them while a removal or toggle may yet fail', async () => {
+    const { p } = await loaded({
+      'DELETE admin/servers/s2': [() => new Promise(() => {})],
+      'PUT admin/servers/policy': [() => new Promise(() => {})],
+    });
+    const s2 = p.rows.find((s) => s.id === 's2');
+    if (!s2) throw new Error('no s2');
+    p.remove(s2);
+    ui.confirmOk();
+    p.toggleOwn();
+    expect([p.rows.map((s) => s.id), p.allowOwn]).toEqual([['s1'], true]);
+    p.dispose();
+    const q = new ServersPage();
+    expect([q.rows.map((s) => s.id), q.allowOwn]).toEqual([['s1', 's2'], false]);
+  });
+
+  it('asks for the policy only after a toggle still on its way', async () => {
+    let done: (reply: { body: { allow_custom_servers: boolean } }) => void = () => {};
+    const { p, calls } = await loaded({
+      'PUT admin/servers/policy': [() => new Promise((resolve) => (done = resolve))],
+      'GET admin/servers/policy': [POLICY, { body: { allow_custom_servers: true } }],
+    });
+    p.toggleOwn();
+    const load = p.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'GET admin/servers/policy')).toHaveLength(1);
+    done({ body: { allow_custom_servers: true } });
+    await load;
+    expect(sent(calls).slice(-2)).toEqual(['PUT admin/servers/policy', 'GET admin/servers/policy']);
+    p.dispose();
+    expect(new ServersPage().allowOwn).toBe(true);
+  });
+
+  it('keeps a confirmed removal and toggle', async () => {
+    const { p } = await loaded({
+      'DELETE admin/servers/s2': [{ status: 204 }],
+      'PUT admin/servers/policy': [{ body: { allow_custom_servers: true } }],
+    });
+    const s2 = p.rows.find((s) => s.id === 's2');
+    if (!s2) throw new Error('no s2');
+    p.remove(s2);
+    ui.confirmOk();
+    p.toggleOwn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    p.dispose();
+    const q = new ServersPage();
+    expect([q.rows.map((s) => s.id), q.allowOwn]).toEqual([['s1'], true]);
+  });
+
+  it('a save the left page confirms later makes the reopened page load again', async () => {
+    let saved: (reply: { body: AdminServer }) => void = () => {};
+    let answer: (reply: ReturnType<typeof list>) => void = () => {};
+    const { p } = await loaded({ 'PATCH admin/servers/s1': [() => new Promise((resolve) => (saved = resolve))] });
+    p.openDialog(S1);
+    p.setLabel('New');
+    const saving = p.save();
+    p.dispose();
+    mockApi({
+      'GET admin/servers': [() => new Promise((resolve) => (answer = resolve)), list([{ ...S1, label: 'New' }, S2])],
+      'GET admin/servers/policy': [POLICY, POLICY],
+    });
+    const q = new ServersPage();
+    const load = q.load();
+    saved({ body: { ...S1, label: 'New' } });
+    await saving;
+    answer(list([S1, S2]));
+    await load;
+    await vi.waitFor(() => expect(q.rows.find((s) => s.id === 's1')?.label).toBe('New'));
+  });
+
+  it('a reopened page asks for the policy only after a toggle of the left page', async () => {
+    let done: (reply: { body: { allow_custom_servers: boolean } }) => void = () => {};
+    const { p, calls } = await loaded({
+      'PUT admin/servers/policy': [() => new Promise((resolve) => (done = resolve))],
+    });
+    p.toggleOwn();
+    p.dispose();
+    const q = new ServersPage();
+    const load = q.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'GET admin/servers/policy')).toHaveLength(1);
+    done({ body: { allow_custom_servers: true } });
+    await load;
+    expect(sent(calls).slice(-2)).toEqual(['PUT admin/servers/policy', 'GET admin/servers/policy']);
+  });
+
+  it('a toggle queued before signing out is not sent with a later session', async () => {
+    let done: (reply: { body: { allow_custom_servers: boolean } }) => void = () => {};
+    const { p, calls } = await loaded({
+      'PUT admin/servers/policy': [
+        () => new Promise((resolve) => (done = resolve)),
+        { body: { allow_custom_servers: false } },
+      ],
+    });
+    p.toggleOwn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'PUT admin/servers/policy')).toHaveLength(1);
+    p.toggleOwn();
+    forgetRegistered();
+    done({ body: { allow_custom_servers: true } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'PUT admin/servers/policy')).toHaveLength(1);
+  });
+
+  it('signing out discards list and policy, also of a page left afterwards', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const { p: open } = await loaded();
+    forgetAccount();
+    open.dispose();
+    const q = new ServersPage();
+    expect([q.status, q.rows]).toEqual(['loading', []]);
   });
 });

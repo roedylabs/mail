@@ -10,6 +10,10 @@
  * confirmation, without undo. Errors without a text of their own show the
  * generic error toast and reload the list. Local changes the server does not
  * know yet also apply to reloaded lists until their call is through.
+ *
+ * The list stays for the session (`keptUsers`): a reopened page shows it at
+ * once and loads again in the background; if that fails, the list stays with
+ * the toast "Couldn’t update the list.".
  */
 import { AV } from '@roedy/tokens';
 import { SvelteSet } from 'svelte/reactivity';
@@ -25,6 +29,7 @@ import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { pickList, type SelectValues } from '#lib/select.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
+import { Kept } from '#lib/state/kept.ts';
 import { initialsOf, session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import { waitText } from '#lib/wait.ts';
@@ -100,6 +105,8 @@ interface Overlay {
   ids: readonly string[];
   /** Changed fields; without: rows removed. */
   patch?: RowPatch;
+  /** The rows without this change (as the server still knows them). */
+  undo: (rows: ListedUser[]) => ListedUser[];
 }
 
 /** Lifting a local change: revert it or, if the server knows it, settle it. */
@@ -153,6 +160,9 @@ type ChipKind = 'ok' | 'bad' | 'dup';
 /** Key in a field (`#lib/keys.ts`). */
 export type { KeyInput };
 
+/** List of the last open page of the session. */
+export const keptUsers = new Kept<ListedUser[]>();
+
 export class UsersPage {
   rows = $state<ListedUser[]>([]);
   status = $state<ListStatus>('loading');
@@ -184,6 +194,17 @@ export class UsersPage {
   #seq = 0;
   #formId = 0;
   #disposed = false;
+  /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
+  #reopened = false;
+  readonly #keep = keptUsers.keeper();
+
+  constructor() {
+    const kept = keptUsers.value;
+    if (!kept) return;
+    this.rows = kept;
+    this.status = 'ready';
+    this.#reopened = true;
+  }
 
   me = $derived(session.user?.id ?? null);
   /** System emails set up (from `auth/me`). */
@@ -258,9 +279,18 @@ export class UsersPage {
   /** Loads the list; after the first load it stays as it is on an error. */
   async load(): Promise<void> {
     const seq = ++this.#seq;
+    const reopened = this.#reopened;
+    this.#reopened = false;
+    const changes = keptUsers.changes;
     try {
       const { users } = await api<{ users: ListedUser[] }>('GET', 'users');
       if (seq !== this.#seq || this.#disposed) return;
+      // Confirmed in the meantime (e.g. removed): the list is older, so reload.
+      if (changes !== keptUsers.changes) {
+        this.#reopened = reopened;
+        void this.load();
+        return;
+      }
       this.rows = this.#overlaid(users);
       this.status = 'ready';
       const ids = users.map((u) => u.id);
@@ -276,7 +306,7 @@ export class UsersPage {
         this.failure = error instanceof ApiError ? '500' : 'offline';
         this.status = 'failed';
       } else {
-        ui.toasts.error(failText(error, m.error_list()));
+        ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
       }
     }
   }
@@ -293,10 +323,21 @@ export class UsersPage {
     return rows;
   }
 
-  #overlay(o: Overlay): () => void {
+  /** Local change until the server knows it (`settle`) or rejects it (`revert`). */
+  #change(o: Overlay): Change {
     this.#overlays.push(o);
-    return () => {
+    const lift = () => {
       this.#overlays = this.#overlays.filter((x) => x !== o);
+    };
+    return {
+      settle: () => {
+        lift();
+        keptUsers.changed();
+      },
+      revert: () => {
+        lift();
+        this.rows = o.undo(this.rows);
+      },
     };
   }
 
@@ -305,8 +346,16 @@ export class UsersPage {
     await this.load();
   }
 
-  /** Leave the page: late responses and errors after a toast expires load nothing any more. */
+  /**
+   * Leave the page: keep the list as the server knows it (without local changes
+   * still on their way, which may yet fail); late responses and errors after a
+   * toast expires load nothing any more.
+   */
   dispose(): void {
+    if (this.status === 'ready' && !this.#disposed) {
+      const rows = this.#overlays.reduceRight((list, o) => o.undo(list), $state.snapshot(this.rows));
+      this.#keep(rows);
+    }
     this.#disposed = true;
     this.inviteLock.stop();
   }
@@ -450,6 +499,8 @@ export class UsersPage {
         role: form.role,
         ...(name ? { name } : {}),
       });
+      // Also for a page already left: a reopened page's load may be older.
+      keptUsers.changed();
       if (this.#disposed) return;
       const unsent = res.invites.filter((i) => !i.sent).map((i) => i.id);
       if (current()) this.invite = null;
@@ -534,22 +585,17 @@ export class UsersPage {
       .filter((u) => ids.includes(u.id))
       .map((u) => ({ id: u.id, role: u.role, status: u.status, mfa: u.mfa }));
     this.rows = this.rows.map((u) => (ids.includes(u.id) ? { ...u, ...patch } : u));
-    const settle = this.#overlay({ ids, patch });
-    return {
-      settle,
-      revert: () => {
-        settle();
-        this.rows = this.rows.map((u) => {
-          const prev = before.find((b) => b.id === u.id);
-          if (!prev) return u;
-          const back: Partial<ListedUser> = {};
-          for (const key of Object.keys(patch) as (keyof RowPatch)[]) {
-            (back as Record<string, unknown>)[key] = prev[key];
-          }
-          return { ...u, ...back };
-        });
-      },
-    };
+    const undo = (rows: ListedUser[]) =>
+      rows.map((u) => {
+        const prev = before.find((b) => b.id === u.id);
+        if (!prev) return u;
+        const back: Partial<ListedUser> = {};
+        for (const key of Object.keys(patch) as (keyof RowPatch)[]) {
+          (back as Record<string, unknown>)[key] = prev[key];
+        }
+        return { ...u, ...back };
+      });
+    return this.#change({ ids, patch, undo });
   }
 
   /** Remove rows (remove, withdraw) until the response; `revert` if the server rejects. */
@@ -558,15 +604,11 @@ export class UsersPage {
     this.rows = rows.filter((u) => !ids.includes(u.id));
     this.selected = this.selected.filter((id) => !ids.includes(id));
     if (this.open && ids.includes(this.open)) this.open = null;
-    const settle = this.#overlay({ ids });
-    return {
-      settle,
-      revert: () => {
-        settle();
-        const now = this.rows.map((u) => u.id);
-        this.rows = [...this.rows, ...rows.filter((u) => ids.includes(u.id) && !now.includes(u.id))];
-      },
+    const undo = (now: ListedUser[]) => {
+      const known = now.map((u) => u.id);
+      return [...now, ...rows.filter((u) => ids.includes(u.id) && !known.includes(u.id))];
     };
+    return this.#change({ ids, undo });
   }
 
   /** Call immediately after confirmation; afterwards the server state applies, otherwise back. */
@@ -680,6 +722,8 @@ export class UsersPage {
     this.busy.add(u.id);
     try {
       const res = await api<{ invite: ListedUser | null }>('POST', `invites/${u.id}/resend`);
+      // Also for a page already left: a reopened page's load may be older.
+      keptUsers.changed();
       if (this.#disposed) return;
       const now = res.invite;
       if (now) this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
@@ -702,6 +746,8 @@ export class UsersPage {
     this.busy.add(u.id);
     try {
       const res = await api<{ invite: ListedUser | null }>('POST', `invites/${u.id}/renew`);
+      // Also for a page already left: a reopened page's load may be older.
+      keptUsers.changed();
       if (this.#disposed) return;
       const now = res.invite;
       if (now) this.rows = this.rows.map((r) => (r.id === u.id ? now : r));

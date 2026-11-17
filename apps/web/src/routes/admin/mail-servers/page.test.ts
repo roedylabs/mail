@@ -1,7 +1,7 @@
 import { fireEvent, render, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { m } from '#lib/paraglide/messages.js';
-import type { AdminServer } from '#lib/servers.svelte.ts';
+import { keptServers, type AdminServer } from '#lib/servers.svelte.ts';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
@@ -66,6 +66,7 @@ afterEach(() => {
   session.user = null;
   prefs.reset();
   ui.reset();
+  keptServers.forget();
   window.dispatchEvent(new Event('resize'));
 });
 
@@ -183,5 +184,20 @@ describe('Mail servers page', () => {
     expect(await view.findByText('Something went wrong')).toBeInTheDocument();
     await fireEvent.click(view.getByRole('button', { name: 'Try again' }));
     expect(await view.findByText('VPS 1')).toBeInTheDocument();
+  });
+
+  it('shows the list at once on reopen and keeps it with a toast if loading fails', async () => {
+    const first = renderPage();
+    expect(await first.findByText('VPS 1')).toBeInTheDocument();
+    first.unmount();
+    mockApi({
+      'GET admin/servers': [{ status: 500, body: { error: 'internal' } }],
+      'GET admin/servers/policy': [{ body: POLICY }],
+    });
+    const view = render(Page);
+    expect(view.getByText('VPS 1')).toBeInTheDocument();
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true }));
+    expect(view.queryByText('Something went wrong')).toBeNull();
+    expect(view.getByText('VPS 1')).toBeInTheDocument();
   });
 });

@@ -9,6 +9,10 @@
  *
  * Removal runs immediately after confirmation, without undo. Errors show the
  * error toast; diagnosis and registration texts depend on the reason.
+ *
+ * List and policy stay for the session (`keptServers`): a reopened page shows
+ * them at once and loads again in the background; if that fails, they stay
+ * with the toast "Couldn’t update the list.".
  */
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { ago } from '#lib/ago.ts';
@@ -35,6 +39,8 @@ import type { IconName } from '#lib/icons.ts';
 import type { KeyInput } from '#lib/keys.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { overlayClose, type OverlayEvent } from '#lib/shell.ts';
+import { onForget } from '#lib/state/forget.ts';
+import { Kept } from '#lib/state/kept.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import { MAX_DOMAINS, domainsOf, hostOf, httpOther, isDomain, localHttp } from '#lib/url.ts';
@@ -153,6 +159,25 @@ function urlError(url: string, empty: string): string | undefined {
   return undefined;
 }
 
+/** List and policy of the last open page of the session. */
+export interface KeptServers {
+  rows: AdminServer[];
+  redirectUri: string | null;
+  systemServer: string | null;
+  allowOwn: boolean;
+}
+
+export const keptServers = new Kept<KeptServers>();
+
+/** Toggles of the policy of every page, one after the other: a load of a reopened page also asks only after them. */
+let policyWrites: Promise<unknown> = Promise.resolve();
+/** Counts sign-outs: a toggle queued before one is not sent any more (it would go out with the next session). */
+let policyEpoch = 0;
+onForget(() => {
+  policyEpoch++;
+  policyWrites = Promise.resolve();
+});
+
 export class ServersPage {
   rows = $state<AdminServer[]>([]);
   status = $state<ListStatus>('loading');
@@ -194,29 +219,48 @@ export class ServersPage {
   #regSeq = 0;
   /** Servers whose removal the server has not confirmed yet: keep them out of reloaded lists. */
   #removing: string[] = [];
+  /** Their rows, as long as the removal may yet fail (kept list). */
+  #removingRows: AdminServer[] = [];
+  /** "Allow custom server URLs" as the server knows it (kept list; a toggle may yet fail). */
+  #ownKnown = false;
   /** Local changes per server; a test result only applies without newer ones. */
   #edits: Record<string, number> = {};
-  /** Counts local changes of the list; a response older than the last one does not apply. */
-  #changes = 0;
   /** Stored servers that are tested after the running test. */
   #queue: string[] = [];
   #policySeq = 0;
-  #policy: Promise<unknown> = Promise.resolve();
   #disposed = false;
+  /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
+  #reopened = false;
+  readonly #keep = keptServers.keeper();
+
+  constructor() {
+    const kept = keptServers.value;
+    if (!kept) return;
+    this.rows = kept.rows;
+    this.redirectUri = kept.redirectUri;
+    this.systemServer = kept.systemServer;
+    this.allowOwn = this.#ownKnown = kept.allowOwn;
+    this.status = 'ready';
+    this.#reopened = true;
+  }
 
   /** Loads list and policy; after the first load the list stays as it is on an error. */
   async load(): Promise<void> {
     const seq = ++this.#seq;
     const policySeq = this.#policySeq;
-    const changes = this.#changes;
+    const changes = keptServers.changes;
+    const reopened = this.#reopened;
+    this.#reopened = false;
     try {
       const [list, policy] = await Promise.all([
         api<ServerList>('GET', 'admin/servers'),
-        api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy'),
+        // After toggles still on their way: otherwise the response could be older than a confirmed one.
+        policyWrites.catch(() => {}).then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
       ]);
       if (seq !== this.#seq || this.#disposed) return;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
-      if (changes !== this.#changes) {
+      if (changes !== keptServers.changes) {
+        this.#reopened = reopened;
         void this.load();
         return;
       }
@@ -229,7 +273,7 @@ export class ServersPage {
       this.redirectUri = list.redirect_uri;
       this.systemServer = list.system_mail_server;
       // A toggle during loading applies, not the older state.
-      if (policySeq === this.#policySeq) this.allowOwn = policy.allow_custom_servers;
+      if (policySeq === this.#policySeq) this.allowOwn = this.#ownKnown = policy.allow_custom_servers;
       this.status = 'ready';
       const ids = list.servers.map((s) => s.id);
       for (const id of this.diag) if (!ids.includes(id)) this.diag.delete(id);
@@ -243,7 +287,7 @@ export class ServersPage {
         this.failure = error instanceof ApiError ? '500' : 'offline';
         this.status = 'failed';
       } else {
-        ui.toasts.error(failText(error, m.error_list()));
+        ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
       }
     }
   }
@@ -253,8 +297,17 @@ export class ServersPage {
     await this.load();
   }
 
-  /** Leave the page: late responses change nothing any more. */
+  /**
+   * Leave the page: keep list and policy as the server knows them (servers
+   * whose removal may yet fail stay in it); late responses change nothing any more.
+   */
   dispose(): void {
+    if (this.status === 'ready' && !this.#disposed) {
+      const { redirectUri, systemServer } = this;
+      const ids = this.rows.map((s) => s.id);
+      const rows = [...$state.snapshot(this.rows), ...this.#removingRows.filter((s) => !ids.includes(s.id))];
+      this.#keep({ rows, redirectUri, systemServer, allowOwn: this.#ownKnown });
+    }
     this.#disposed = true;
     this.#regSeq++;
     this.regLock.stop();
@@ -285,7 +338,6 @@ export class ServersPage {
 
   /** Take over a server from a response (add, edit, test). */
   #put(server: AdminServer): void {
-    this.#changes++;
     const known = this.rows.some((s) => s.id === server.id);
     this.rows = known ? this.rows.map((s) => (s.id === server.id ? server : s)) : [...this.rows, server];
   }
@@ -326,6 +378,8 @@ export class ServersPage {
         reasons?: DiagReasons;
         retry_after?: number;
       }>('POST', `admin/servers/${id}/test`);
+      // Also for a page already left: a reopened page's load may be older.
+      keptServers.changed();
       if (this.#disposed) return;
       // Saved or removed in the meantime: the response may be older than the state of the list.
       if ((this.#edits[id] ?? 0) !== stamp || !this.rows.some((s) => s.id === id)) return;
@@ -361,8 +415,9 @@ export class ServersPage {
       danger: true,
       run: () => {
         const before = this.rows;
-        this.#changes++;
+        keptServers.changed();
         this.#removing.push(server.id);
+        this.#removingRows.push(server);
         this.rows = before.filter((s) => s.id !== server.id);
         this.diag.delete(server.id);
         this.#edited(server.id);
@@ -376,7 +431,8 @@ export class ServersPage {
               return;
             }
             this.#removing = this.#removing.filter((x) => x !== server.id);
-            this.#changes++;
+            this.#removingRows = this.#removingRows.filter((s) => s.id !== server.id);
+            keptServers.changed();
             if (!this.rows.some((s) => s.id === server.id)) {
               this.rows = [...this.rows, ...before.filter((s) => s.id === server.id)];
             }
@@ -388,8 +444,9 @@ export class ServersPage {
   }
 
   #removed(id: string, sys: boolean): void {
-    this.#changes++;
+    keptServers.changed();
     this.#removing = this.#removing.filter((x) => x !== id);
+    this.#removingRows = this.#removingRows.filter((s) => s.id !== id);
     if (sys) {
       this.systemServer = null;
       // System mail without a server: banner and notice of the users page follow from `auth/me`.
@@ -402,13 +459,18 @@ export class ServersPage {
     const on = !this.allowOwn;
     this.allowOwn = on;
     const seq = ++this.#policySeq;
+    const epoch = policyEpoch;
     ui.toasts.show(on ? m.server_own_allowed() : m.server_own_blocked());
     // Only once switched on does the CSP allow more; already before the response in case of an immediate navigation.
     if (on) csp.stale = true;
     // One after the other so that the last chosen state also arrives last.
-    this.#policy = this.#policy
+    policyWrites = policyWrites
       .catch(() => {})
-      .then(() => api('PUT', 'admin/servers/policy', { allow_custom_servers: on }))
+      .then(async () => {
+        if (epoch !== policyEpoch) return;
+        await api('PUT', 'admin/servers/policy', { allow_custom_servers: on });
+        this.#ownKnown = on;
+      })
       .catch((error: unknown) => {
         if (seq !== this.#policySeq) return;
         this.allowOwn = !on;
@@ -713,6 +775,8 @@ export class ServersPage {
       const server = d.id
         ? await api<AdminServer>('PATCH', `admin/servers/${d.id}`, body)
         : await api<AdminServer>('POST', 'admin/servers', body);
+      // Also for a page already left: a reopened page's load may be older.
+      keptServers.changed();
       if (this.#disposed) return;
       this.#edited(server.id);
       this.#put(server);

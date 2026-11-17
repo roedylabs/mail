@@ -7,6 +7,10 @@
  * of the toast (`ui.toasts.defer`); whatever requires password and code goes
  * immediately. App passwords and API keys are not managed here. Errors without
  * a text of their own show the generic error toast.
+ *
+ * Apps, codes and devices stay for the session (`keptSecurity`): a reopened
+ * page shows them at once and loads again in the background; if that fails,
+ * they stay with the toast "Couldn’t update the list.".
  */
 import { SvelteSet } from 'svelte/reactivity';
 import { ago } from '#lib/ago.ts';
@@ -22,6 +26,7 @@ import { m } from '#lib/paraglide/messages.js';
 import { PW_RULES, tooLong, type PasswordRuleId } from '#lib/password.ts';
 import { qrSymbol, type QrSymbol } from '#lib/qr.ts';
 import { CODE_LENGTH, reauthError, type ReauthError } from '#lib/reauth.ts';
+import { Kept } from '#lib/state/kept.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
@@ -85,6 +90,15 @@ function ms(value: string | null | undefined, now: number): number {
   return Number.isNaN(t) ? now : t;
 }
 
+/** Apps, codes and devices of the last open page of the session. */
+export interface KeptSecurity {
+  devices: TotpDevice[];
+  recovery: RecoverySummary | null;
+  sessions: ListedSession[];
+}
+
+export const keptSecurity = new Kept<KeptSecurity>();
+
 export class SecurityPage {
   status = $state<ListStatus>('loading');
   /** First load failed: "offline" without a response, otherwise "500". */
@@ -132,6 +146,19 @@ export class SecurityPage {
   #seq = 0;
   #enrollSeq = 0;
   #disposed = false;
+  /** Reopened with the kept data: the next load reports a failure only as "Couldn’t update the list.". */
+  #reopened = false;
+  readonly #keep = keptSecurity.keeper();
+
+  constructor() {
+    const kept = keptSecurity.value;
+    if (!kept) return;
+    this.devices = kept.devices;
+    this.recovery = kept.recovery;
+    this.sessions = kept.sessions;
+    this.status = 'ready';
+    this.#reopened = true;
+  }
 
   get mfa(): boolean {
     return this.devices.length > 0;
@@ -144,13 +171,23 @@ export class SecurityPage {
   /** Loads apps, codes and sessions; after the first load the page stays as it is on an error. */
   async load(): Promise<void> {
     const seq = ++this.#seq;
+    const reopened = this.#reopened;
+    this.#reopened = false;
+    const changes = keptSecurity.changes;
     try {
       const [mfa, list] = await Promise.all([
         api<MfaOverview>('GET', 'auth/totp/devices'),
         api<{ sessions: ListedSession[] }>('GET', 'auth/sessions'),
       ]);
       if (seq !== this.#seq || this.#disposed) return;
-      this.#applyMfa(mfa);
+      // Changed in the meantime (app added or removed, devices signed out): the response is older, so reload.
+      if (changes !== keptSecurity.changes) {
+        this.#reopened = reopened;
+        void this.load();
+        return;
+      }
+      this.devices = mfa.devices;
+      this.recovery = mfa.recovery;
       this.sessions = list.sessions;
       this.status = 'ready';
     } catch (error) {
@@ -160,7 +197,7 @@ export class SecurityPage {
         this.failure = error instanceof ApiError ? '500' : 'offline';
         this.status = 'failed';
       } else if (!isApiError(error, 401)) {
-        ui.toasts.error(failText(error, m.error_list()));
+        ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
       }
     }
   }
@@ -171,8 +208,12 @@ export class SecurityPage {
     void this.load();
   }
 
-  /** Leave the page: late responses change nothing any more. */
+  /** Leave the page: keep apps, codes and devices as the server knows them; late responses change nothing any more. */
   dispose(): void {
+    if (this.status === 'ready' && !this.#disposed) {
+      // As the server knows them: devices whose sign-out with undo is pending stay (it may yet be undone or fail).
+      this.#keep($state.snapshot({ devices: this.devices, recovery: this.recovery, sessions: this.sessions }));
+    }
     this.#disposed = true;
     this.#enrollSeq++;
   }
@@ -217,6 +258,7 @@ export class SecurityPage {
       this.pwShowCur = this.pwShowNew = false;
       this.pwErr = null;
       // All other sessions are ended, open links from mails discarded.
+      keptSecurity.changed();
       this.sessions = this.sessions.filter((s) => s.current);
       const user = session.user;
       if (user) session.user = { ...user, password_changed_at: res.password_changed_at, email_change: null };
@@ -533,6 +575,7 @@ export class SecurityPage {
           // Already ended or expired.
           if (!isApiError(error, 404)) throw error;
         }
+        keptSecurity.changed();
         this.sessions = this.sessions.filter((s) => s.id !== id);
         this.hidden.delete(id);
       },
@@ -552,6 +595,7 @@ export class SecurityPage {
       },
       commit: async (keepalive) => {
         await api('POST', 'auth/sessions/revoke-others', undefined, { keepalive });
+        keptSecurity.changed();
         this.sessions = this.sessions.filter((s) => s.current);
         for (const id of ids) this.hidden.delete(id);
         // Open links from mails are discarded.
@@ -568,7 +612,9 @@ export class SecurityPage {
 
   // ---- internal ----
 
+  /** Apps and codes after a change confirmed by the server. */
   #applyMfa(res: MfaOverview): void {
+    keptSecurity.changed();
     this.devices = res.devices;
     this.recovery = res.recovery;
   }

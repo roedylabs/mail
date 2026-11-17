@@ -36,12 +36,22 @@ describe('onForget and forgetRegistered', () => {
     const { identities } = await import('#lib/identities.svelte.ts');
     const { rules } = await import('#lib/rules.svelte.ts');
     const { vacations } = await import('#lib/vacation.svelte.ts');
+    const { keptUsers } = await import('#lib/users.svelte.ts');
+    const { keptServers } = await import('#lib/servers.svelte.ts');
+    const { keptSecurity } = await import('#lib/security.svelte.ts');
     expect(registered).toContain(forgetBanner);
     expect(registered).toContain(forgetBranding);
-    const spies = [vi.spyOn(identities, 'reset'), vi.spyOn(rules, 'reset'), vi.spyOn(vacations, 'reset')];
+    const spies = [
+      vi.spyOn(identities, 'reset'),
+      vi.spyOn(rules, 'reset'),
+      vi.spyOn(vacations, 'reset'),
+      vi.spyOn(keptUsers, 'forget'),
+      vi.spyOn(keptServers, 'forget'),
+      vi.spyOn(keptSecurity, 'forget'),
+    ];
     for (const reset of registered) reset();
     for (const spy of spies) expect(spy).toHaveBeenCalledOnce();
-    // Imports five large modules without cache; under a full parallel run that
+    // Imports eight large modules without cache; under a full parallel run that
     // can take longer than the default 5 s.
   }, 20_000);
 });
