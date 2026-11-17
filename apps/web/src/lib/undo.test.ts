@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { TOAST_MS, Toasts, type Toast } from './undo.ts';
+import { ERROR_TOAST_MS, TOAST_MS, Toasts, type Toast } from './undo.ts';
 
 let shown: (Toast | null)[];
 let toasts: Toasts;
@@ -29,13 +29,14 @@ describe('Toasts', () => {
   it('shows notices without undo for 3.2 s', () => {
     toasts.show('Calendar coming soon');
     expect(last()).toMatchObject({ text: 'Calendar coming soon', undo: false });
+    expect(TOAST_MS).toBe(3200);
     vi.advanceTimersByTime(TOAST_MS - 1);
     expect(last()).not.toBeNull();
     vi.advanceTimersByTime(1);
     expect(last()).toBeNull();
   });
 
-  it('shows errors as an error toast without undo for 3.2 s', async () => {
+  it('shows errors as an error toast without undo for 4.6 s', async () => {
     toasts.show('Notice');
     expect(last()).toMatchObject({ error: false });
     const a = action();
@@ -53,7 +54,8 @@ describe('Toasts', () => {
     toasts.undo();
     expect(a.revert).not.toHaveBeenCalled();
     toasts.error('Copying not possible.');
-    vi.advanceTimersByTime(TOAST_MS - 1);
+    expect(ERROR_TOAST_MS).toBe(4600);
+    vi.advanceTimersByTime(ERROR_TOAST_MS - 1);
     expect(last()).toMatchObject({ text: 'Copying not possible.', error: true });
     vi.advanceTimersByTime(1);
     expect(last()).toBeNull();
@@ -97,6 +99,19 @@ describe('Toasts', () => {
     await vi.advanceTimersByTimeAsync(1);
     expect(last()).toBeNull();
     expect(a.commit).toHaveBeenCalledWith(false);
+  });
+
+  it('pauses an error toast while swiping and lets it run 2.4 s after springing back', () => {
+    toasts.error('Copying not possible.');
+    vi.advanceTimersByTime(ERROR_TOAST_MS - 1);
+    toasts.hold();
+    vi.advanceTimersByTime(60_000);
+    expect(last()).toMatchObject({ text: 'Copying not possible.', error: true });
+    toasts.resume(2400);
+    vi.advanceTimersByTime(2399);
+    expect(last()).toMatchObject({ error: true });
+    vi.advanceTimersByTime(1);
+    expect(last()).toBeNull();
   });
 
   it('does not restart without a paused toast', async () => {
