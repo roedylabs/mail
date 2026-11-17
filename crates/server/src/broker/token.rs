@@ -192,7 +192,8 @@ pub async fn prefetch(state: &AppState, id: &str) -> Result<(), Error> {
 
 /// Decrypted client secret of a registry server for `client_id`.
 /// The secret belongs only to the registry's client; another client (e.g.
-/// after a new registration) goes without it.
+/// after a new registration) goes without it, as does a `server` whose
+/// address or client has changed in the registry since it was read.
 pub async fn client_secret(
     state: &AppState,
     server: &Server,
@@ -201,9 +202,13 @@ pub async fn client_secret(
     if !server.has_secret || server.client_id.as_deref() != Some(client_id) {
         return Ok(None);
     }
-    let id = server.id.clone();
+    let (id, base_url, client_id) = (
+        server.id.clone(),
+        server.base_url.clone(),
+        client_id.to_owned(),
+    );
     let Some(sealed) = db::call(&state.db, move |conn| {
-        Ok(servers::client_secret(conn, &id)?)
+        Ok(servers::client_secret(conn, &id, &base_url, &client_id)?)
     })
     .await?
     else {
@@ -275,9 +280,19 @@ pub fn revoke_discarded(state: &AppState, user_id: &str, discarded: Discarded) {
             refresh_token,
         } = discarded;
         let result = async {
+            let secret = client_secret(&state, &server, &client_id).await?;
+            // The registry entry changed since the sign-in (address or
+            // client): its secret is not for this grant, and without it the
+            // mail server would only count a rejected client.
+            if secret.is_none()
+                && server.has_secret
+                && server.client_id.as_deref() == Some(client_id.as_str())
+            {
+                return Ok(Err("server changed"));
+            }
             let as_client = AsClient {
                 http: &state.http,
-                secret: client_secret(&state, &server, &client_id).await?,
+                secret,
                 client_id: &client_id,
                 refresh_token,
             };

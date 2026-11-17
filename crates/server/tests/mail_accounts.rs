@@ -2057,7 +2057,13 @@ async fn reauth_revokes_its_grant_if_the_account_was_removed() {
     let body = json!({ "code": fake.new_code(), "code_verifier": VERIFIER });
     let removal = async {
         // As soon as the token endpoint has the code.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
         while fake.token_requests().len() < 2 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "reauth did not reach the token endpoint: {} token requests",
+                fake.token_requests().len()
+            );
             tokio::time::sleep(std::time::Duration::from_millis(5)).await;
         }
         remove(&s, &s.user, &id).await
