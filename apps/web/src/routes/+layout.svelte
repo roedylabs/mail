@@ -93,6 +93,7 @@
     ALL_ACCOUNTS,
     chromeOf,
     isAdminPath,
+    isSettingsPath,
     mailboxParams,
     mailboxPath,
     parseMailboxPath,
@@ -952,7 +953,7 @@
     initials: session.initials,
     showAdmin: session.isAdmin,
     adminOn: chrome === 'panel' && isAdminPath(path),
-    settingsOn: path.startsWith('/settings/'),
+    settingsOn: isSettingsPath(path),
   });
 
   // Only for administrators: whoever loses the role could no longer reach the switch.

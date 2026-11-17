@@ -383,7 +383,7 @@
     border-radius: 9999px;
     border: 1px solid var(--bd);
     outline: none;
-    padding: 0 50px 0 52px;
+    padding: 0 52px 0 52px;
     font-size: 15px;
     background: var(--surface);
     box-shadow: var(--sh1);
@@ -503,14 +503,15 @@
     height: 44px;
   }
 
-  .tool:hover {
-    background: var(--hov);
-    color: var(--fg);
-  }
-
   .tool.on {
     background: var(--accsoft);
     color: var(--deep);
+  }
+
+  /* Hover after `.on`: an active button also shows `--hov` and `--fg`. */
+  .tool:hover {
+    background: var(--hov);
+    color: var(--fg);
   }
 
   .badge {

@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import type { NavMenuValues } from '#lib/shell.ts';
+  import { tooltip } from '#lib/actions/tooltip.ts';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
 
@@ -12,7 +13,9 @@
 
 <div class="head">
   <span class="title">{mNavTitle}</span>
-  <button class="close" onclick={closeSheet} aria-label={m.shell_close()}><Icon name="ti-x" /></button>
+  <button class="close" onclick={closeSheet} use:tooltip={m.shell_close()} aria-label={m.shell_close()}
+    ><Icon name="ti-x" /></button
+  >
 </div>
 <div class="rows">
   {#each mExtraRows as r (r.label)}
