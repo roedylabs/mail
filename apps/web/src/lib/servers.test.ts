@@ -475,6 +475,33 @@ describe('Test connection', () => {
     await vi.waitFor(() => expect(sent(calls).filter((c) => c === 'GET admin/servers')).toHaveLength(2));
   });
 
+  it('keeps open diagnostics open after a failed test', async () => {
+    const { p, v } = await loaded({ 'POST admin/servers/s1/test': [{ status: 500, body: { error: 'internal' } }] });
+    rowOf(v(), 's1').diagToggle();
+    await p.test('s1');
+    expect(ui.toast).toMatchObject({ error: true });
+    expect(rowOf(v(), 's1')).toMatchObject({
+      canDiag: true,
+      diagOpen: true,
+      diagDone: true,
+      diagLabel: 'Hide diagnostics',
+    });
+    expect(rowOf(v(), 's1').diagRows).toHaveLength(3);
+  });
+
+  it('collapses the diagnostics of a server never tested after a failed test', async () => {
+    const fresh = server('s3', 'New', 'https://mail.new.test');
+    const { p, v } = await loaded({ 'POST admin/servers/s3/test': [{ status: 500, body: { error: 'internal' } }] }, [
+      S1,
+      fresh,
+    ]);
+    const running = p.test('s3');
+    expect(rowOf(v(), 's3')).toMatchObject({ diagOpen: true, canDiag: false });
+    await running;
+    expect(ui.toast).toMatchObject({ error: true });
+    expect(rowOf(v(), 's3')).toMatchObject({ diagOpen: false, canDiag: false, diagRows: [] });
+  });
+
   it('discards a test result if the server was saved in the meantime', async () => {
     const reply = later({ body: { server: { ...S1, label: 'Alt' }, reasons: {} } });
     const { p } = await loaded({
@@ -1262,6 +1289,26 @@ describe('Dialog', () => {
     sd()?.onCsec('\u00e4'.repeat(513));
     sd()?.save();
     expect(sd()?.eCred).toBe('The secret contains invalid characters or is too long.');
+    expect(sent(calls).filter((c) => !c.startsWith('GET'))).toEqual([]);
+  });
+
+  it('checks the domains in the order invalid, already assigned, number', async () => {
+    const { v, sd, calls } = await loaded();
+    rowOf(v(), 's2').edit();
+    const many = Array.from({ length: 101 }, (_, i) => `d${String(i)}.test`);
+    sd()?.onDomIn([...many, 'example.com', 'bad_domain'].join(' ') + ' ');
+    const rm = (d: string) => {
+      const chip = sd()?.doms.find((x) => x.d === d);
+      chip?.rm();
+    };
+    sd()?.save();
+    expect(sd()?.eDom).toBe('“bad_domain” isn’t a valid domain.');
+    rm('bad_domain');
+    sd()?.save();
+    expect(sd()?.eDom).toBe('“example.com” is already assigned to “VPS 1”.');
+    rm('example.com');
+    sd()?.save();
+    expect(sd()?.eDom).toBe('Up to 100 domains per server.');
     expect(sent(calls).filter((c) => !c.startsWith('GET'))).toEqual([]);
   });
 
