@@ -398,7 +398,7 @@ export class EditQueue {
   async #replayEdits(account: string, epoch: number): Promise<{ done: number; stopped: boolean }> {
     let done = 0;
     for (;;) {
-      const batch = this.items.filter((i) => i.account === account);
+      const batch = nextBatch(this.items.filter((i) => i.account === account));
       if (!batch.length || this.#env.lacksAccess(account)) return { done, stopped: false };
       const net = netOf(batch);
       let lost: readonly Id[] = [];
@@ -529,6 +529,17 @@ export class EditQueue {
       Math.max(0, this.#pillAt + PILL_MIN - Date.now()),
     );
   }
+}
+
+/**
+ * Entries of an account that go out together: the waiting ones up to the next copy from
+ * `keep()`, a copy alone. A copy may already apply at the server; netted with
+ * a later opposite change, nothing would go out and the server would keep the copy's value.
+ */
+function nextBatch(items: readonly QueuedEdit[]): readonly QueuedEdit[] {
+  if (items[0]?.sent) return items.slice(0, 1);
+  const copy = items.findIndex((i) => i.sent);
+  return copy < 0 ? items : items.slice(0, copy);
 }
 
 const sorted = <T extends { key: string }>(items: readonly T[]): T[] =>

@@ -13,9 +13,9 @@
  * so that the server sees the actions in their order. If the
  * response fails to come, the change waits in the queue (`queue`):
  * it stays laid over, also across a restart, until the replay is through.
- * When the page closes, a queueable change lies in the database before its
- * request goes out (`EditQueue.keep()`): the page may end before the response,
- * even without a known outage, and the next start replays it.
+ * When the page closes, a queueable change goes to the database together with its
+ * request (`EditQueue.keep()`): the page may end before the response, even
+ * without a known outage, and the next start replays it.
  * If an action puts emails into a mailbox, it takes the rows of their
  * conversations along (`carried()`): this way they are in the target before the server
  * shows it.
@@ -533,6 +533,7 @@ export class EmailEdits {
       return;
     }
     // Closing without a known outage: the request may fail without the page living to see it.
+    // Not awaited: after `pagehide` the page may run no further task, the request would then not go out.
     const copy = waits && keepalive ? this.#copy(token, account, edits, partial === null) : null;
     try {
       await this.#api.set(account, edits, keepalive);

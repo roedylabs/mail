@@ -1216,6 +1216,25 @@ describe('Queue', () => {
       await flushed;
     });
 
+    it('does not cancel the copy against a later opposite change: the server may already have it', async () => {
+      const { log, answer, flushed } = await close();
+      const fresh = fakeApi();
+      const restarted = new EmailEdits(fresh.api, log);
+      await restarted.restore();
+      const unseen = new Map<string, EmailEdit>([['e1', { keywords: { $seen: false } }]]);
+      restarted.run({ account: 'k1', edits: unseen });
+      await tick();
+      await restarted.queue.replay();
+      expect(fresh.set).not.toHaveBeenCalled();
+      expect(fresh.replay.mock.calls).toEqual([
+        ['k1', SEEN],
+        ['k1', unseen],
+      ]);
+      expect(restarted.queue.items).toEqual([]);
+      answer();
+      await flushed;
+    });
+
     it('still reports in the bar what the server does not take over on the replay', async () => {
       const { log, answer, flushed } = await close();
       const fresh = fakeApi();
