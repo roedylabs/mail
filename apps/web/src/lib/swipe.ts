@@ -460,17 +460,20 @@ export interface ToastSwipe {
 
 /**
  * Swiping the toast (`data-g="toast"`, `touch-action: none`) in any direction
- * except up: far or fast enough it flies out, otherwise it springs back. Takes
- * precedence over all other gestures; a short tap on "Undo" stays a
- * click.
+ * except up: far or fast enough it flies out, otherwise it springs back; after
+ * `pointercancel` it always springs back. Takes precedence over all other
+ * gestures; a short tap on "Undo" stays a click. Only where `get` returns
+ * values: in the shell on mobile and on tablets (`ui.swipeOn`), there with any
+ * pointer. Without (desktop layout, pages without a shell) the toast does not
+ * move and its text stays selectable.
  */
-export function swipeToast(get: () => ToastSwipe): Attachment<HTMLElement> {
+export function swipeToast(get: () => ToastSwipe | null): Attachment<HTMLElement> {
   return (el) => {
     let resetTimer: ReturnType<typeof setTimeout> | undefined;
 
     const onDown = (e: PointerEvent) => {
-      if (!canStart(e)) return;
       const o = get();
+      if (!o || !canStart(e)) return;
       const ms = (n: number) => (o.animations ? n : 0);
       let dx = 0;
       let dy = 0;

@@ -51,6 +51,36 @@ describe('Toast', () => {
     expect(closeToast).toHaveBeenCalled();
   });
 
+  it('stays in place in the desktop layout (`swipe` null) and "Undo" still works with the mouse', async () => {
+    const closeToast = vi.fn();
+    const { getByRole } = render(Toast, {
+      isMobile: false,
+      isPanel: false,
+      toastText: 'Message deleted',
+      toastUndo: true,
+      toastNoUndo: false,
+      toastErr: false,
+      toastOk: true,
+      toastRole: 'status',
+      closeToast,
+      swipe: null,
+    });
+    const toast = getByRole('status');
+    const at = (x: number, y: number) => ({
+      clientX: x,
+      clientY: y,
+      pointerId: 1,
+      isPrimary: true,
+      pointerType: 'mouse',
+    });
+    await fireEvent.pointerDown(toast, at(100, 100));
+    await fireEvent.pointerMove(window, at(100, 200));
+    await fireEvent.pointerUp(window, at(100, 200));
+    expect(toast.style.translate).toBe('');
+    await fireEvent.click(getByRole('button', { name: 'Undo' }));
+    expect(closeToast).toHaveBeenCalled();
+  });
+
   it('shows notices without undo, on mobile further down in the "Back to …" area', () => {
     const { getByRole, queryByRole } = render(Toast, {
       isMobile: true,

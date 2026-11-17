@@ -1784,8 +1784,11 @@
   {/if}
 {/snippet}
 
-<!-- Toast and confirmation in the shell (desktop and mobile) and on pages without a shell. -->
-{#snippet overlays()}
+<!--
+  Toast and confirmation in the shell (desktop and mobile) and on pages without a shell (`shell` false).
+  The toast can be swiped only in the shell on mobile and on tablets, not in the desktop layout.
+-->
+{#snippet overlays(shell: boolean)}
   {#if ui.toast}
     {#key ui.toast.id}
       <Toast
@@ -1800,7 +1803,7 @@
         toastLift={toastLift.bottom !== null}
         toastB={toastLift.bottom === null ? '' : `${toastLift.bottom}px`}
         closeToast={() => ui.toasts.undo()}
-        swipe={toastSwipe}
+        swipe={shell && ui.swipeOn ? toastSwipe : null}
       />
     {/key}
   {/if}
@@ -1825,11 +1828,11 @@
 
 {#if session.status === 'error'}
   <div class="bare"><ErrorView code={session.failure ?? '500'} retry={boot} /></div>
-  <div class="layer">{@render overlays()}</div>
+  <div class="layer">{@render overlays(false)}</div>
 {:else if ready && !target}
   {#if chrome === 'bare'}
     <div class="bare">{@render children()}</div>
-    <div class="layer">{@render overlays()}</div>
+    <div class="layer">{@render overlays(false)}</div>
   {:else if !ui.isMobile}
     <div class="app">
       {#if banners.length}<NoticeBar isMobile={false} {banners} />{/if}
@@ -1933,7 +1936,7 @@
       {/if}
       {#if pageDialog}{@render pageDialog.content(false)}{/if}
       {@render syncPill(false)}
-      {@render overlays()}
+      {@render overlays(true)}
       {#if debugBar}<DebugBar {...debugBar} />{/if}
     </div>
   {:else}
@@ -2030,7 +2033,7 @@
           <NameDialog {...nameProps} isMobile={true} />
         </Sheet>
       {/if}
-      {@render overlays()}
+      {@render overlays(true)}
       {#if debugBar}<DebugBar {...debugBar} />{/if}
     </div>
   {/if}

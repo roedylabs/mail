@@ -308,13 +308,79 @@ describe('swipeToast', () => {
     document.body.innerHTML = '';
   });
 
-  const toast = () => {
+  const toast = (on = true) => {
     const el = document.createElement('div');
     document.body.append(el);
     const o = { animations: false, hold: vi.fn(), away: vi.fn(), back: vi.fn() };
-    swipeToast(() => o)(el);
+    swipeToast(() => (on ? o : null))(el);
     return { el, o };
   };
+
+  /** Pointer event of a mouse (left button). */
+  const mouse = (type: string, x: number, y: number, target: EventTarget = window) => {
+    const e = new MouseEvent(type, { clientX: x, clientY: y, bubbles: true, button: 0 });
+    Object.assign(e, { pointerId: 2, isPrimary: true, pointerType: 'mouse' });
+    target.dispatchEvent(e);
+  };
+
+  it('does not move without values (desktop layout), neither with the mouse nor with touch', () => {
+    vi.useFakeTimers();
+    const { el, o } = toast(false);
+    mouse('pointerdown', 100, 100, el);
+    mouse('pointermove', 100, 180);
+    mouse('pointerup', 100, 180);
+    pointer('pointerdown', 100, 100, el);
+    pointer('pointermove', 180, 100);
+    pointer('pointerup', 180, 100);
+    vi.advanceTimersByTime(500);
+    expect(el.style.translate).toBe('');
+    expect(o.hold).not.toHaveBeenCalled();
+    expect(o.away).not.toHaveBeenCalled();
+    expect(o.back).not.toHaveBeenCalled();
+    // no gesture: text selection stays possible
+    expect(document.documentElement.style.userSelect).toBe('');
+  });
+
+  it('can be swiped with the mouse where it can be swiped (mobile, tablet)', () => {
+    vi.useFakeTimers();
+    const { el, o } = toast();
+    mouse('pointerdown', 100, 100, el);
+    mouse('pointermove', 110, 100);
+    mouse('pointermove', 180, 100);
+    expect(el.style.translate).toBe('70px');
+    mouse('pointerup', 180, 100);
+    vi.advanceTimersByTime(0);
+    expect(o.away).toHaveBeenCalled();
+    window.dispatchEvent(new MouseEvent('click'));
+  });
+
+  it('springs back after a cancellation by the browser (`pointercancel`), even beyond the threshold', () => {
+    vi.useFakeTimers();
+    const { el, o } = toast();
+    pointer('pointerdown', 100, 100, el);
+    pointer('pointermove', 100, 110);
+    pointer('pointermove', 100, 250);
+    pointer('pointercancel', 100, 250);
+    vi.advanceTimersByTime(500);
+    expect(o.away).not.toHaveBeenCalled();
+    expect(o.back).toHaveBeenCalled();
+    expect(el.style.translate).toBe('');
+    window.dispatchEvent(new MouseEvent('click'));
+  });
+
+  it('keeps a short tap on "Undo" a click', () => {
+    const { el, o } = toast();
+    const undo = document.createElement('button');
+    const click = vi.fn();
+    undo.addEventListener('click', click);
+    el.append(undo);
+    mouse('pointerdown', 100, 100, undo);
+    mouse('pointermove', 103, 101);
+    mouse('pointerup', 103, 101);
+    undo.click();
+    expect(click).toHaveBeenCalled();
+    expect(o.hold).not.toHaveBeenCalled();
+  });
 
   it('stops while dragging and goes when dragged far enough', () => {
     vi.useFakeTimers();

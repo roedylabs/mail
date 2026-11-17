@@ -5,7 +5,8 @@
   longer ones wrap into at most two lines, on mobile three. The error toast
   (`toastErr`) shows a warning icon and announces itself as `alert`. Swiping
   sideways or down closes it and sends a pending action immediately, a short
-  drag springs back. If the page shows the bar "Unsaved changes", it sits
+  drag springs back; only in the shell on mobile and on tablets (`swipe`),
+  not in the desktop layout. If the page shows the bar "Unsaved changes", it sits
   12 px above it (`toastLift`, `toastB`); the change glides with `--dur`.
 -->
 <script lang="ts">

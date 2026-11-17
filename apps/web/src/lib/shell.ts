@@ -816,8 +816,8 @@ export interface ToastValues {
   /** Distance from the bottom edge with `toastLift` (e.g. `106px`), on the desktop and on mobile; measured (`#lib/toast-lift.svelte.ts`). */
   toastB?: string;
   closeToast: () => void;
-  /** Swiping the toast (`#lib/swipe.ts`). */
-  swipe: ToastSwipe;
+  /** Swiping the toast (`#lib/swipe.ts`); `null` where it cannot be swiped (desktop layout, pages without a shell). */
+  swipe: ToastSwipe | null;
 }
 
 // --- Notice bar ---
