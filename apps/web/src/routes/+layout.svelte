@@ -56,7 +56,7 @@
   import { currentEnv } from '#lib/environment.ts';
   import { flashSection } from '#lib/sections.ts';
   import { errorCodeOf, failText, timeZoneOf, type ErrorCode } from '#lib/errors.ts';
-  import { editable, keyCommand, shortcutsFor, type KeyCommand } from '#lib/keys.ts';
+  import { keyCommand, shortcutsFor, textField, type KeyCommand } from '#lib/keys.ts';
   import { logout } from '#lib/logout.ts';
   import {
     accountSwitch,
@@ -743,8 +743,10 @@
       dialog: ui.palette || ui.help || tagFixShown || nameOpen,
       // Above a page dialog, ⌘K for instance would open the palette invisibly below it.
       confirm: ui.confirm !== null || pageDialog !== null,
-      reader: ui.reader !== null && !ui.menu,
-      reply: !!ui.reader?.reply && !ui.menu,
+      compose: !!compose.current && path.startsWith('/compose/'),
+      // Paging and replying also with an open menu; another conversation closes the reading view's popovers.
+      reader: ui.reader !== null,
+      reply: !!ui.reader?.reply,
       list: ui.listKeys !== null && ui.reader === null && !ui.menu,
     });
     if (!command) return;
@@ -791,8 +793,8 @@
       if (compose.current.menu) compose.closeMenu();
       else void compose.close({ leave: (ret) => go(ret.href), reopen: () => {} });
     }
-    // Reading view on desktop: back to the list (`pfClose`), not from an input field.
-    else if (ui.reader && !ui.isMobile && !editable(event.target)) ui.reader.close();
+    // Reading view on desktop: back to the list (`pfClose`), not from an input field or text area.
+    else if (ui.reader && !ui.isMobile && !textField(event.target)) ui.reader.close();
     else if (event.target instanceof HTMLElement) event.target.blur();
   }
 

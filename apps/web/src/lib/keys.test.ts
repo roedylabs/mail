@@ -3,6 +3,7 @@ import {
   isApple,
   keyCommand,
   modKey,
+  textField,
   shortcutGroups,
   shortcutTabs,
   shortcutsFor,
@@ -179,6 +180,65 @@ describe('keyboard shortcuts', () => {
     expect(keyCommand(key('j', {}, document.createElement('input')), reader)).toBeNull();
     expect(keyCommand(key('j'), { ...reader, dialog: true })).toBeNull();
     expect(keyCommand(key('j'), { ...reader, isMobile: true })).toBeNull();
+  });
+
+  it('knows only Escape and ⌘K/Ctrl+K in compose (`cmp`)', () => {
+    const cmp = { ...CTX, compose: true };
+    expect(keyCommand(key('Escape'), cmp)).toBe('escape');
+    expect(keyCommand(key('Escape', {}, document.createElement('textarea')), cmp)).toBe('escape');
+    expect(keyCommand(key('k', { metaKey: true }), cmp)).toBe('togglePalette');
+    expect(keyCommand(key('K', { ctrlKey: true }), cmp)).toBe('togglePalette');
+    for (const k of ['/', '[', ',', '?', 'c', 'C', '1', '6', 'x', 'j', 'r', 'ArrowDown', 'Enter']) {
+      expect(keyCommand(key(k), cmp)).toBeNull();
+    }
+    expect(keyCommand(key('M', { shiftKey: true }), cmp)).toBeNull();
+    expect(keyCommand(key('[', { altKey: true }), cmp)).toBeNull();
+    // ⌘/Ctrl+Enter stays with the field.
+    expect(keyCommand(key('Enter', { metaKey: true }, document.createElement('textarea')), cmp)).toBeNull();
+    expect(keyCommand(key('Enter', { ctrlKey: true }), cmp)).toBeNull();
+  });
+
+  it('takes J/K, R/F and C also in upper case (Caps Lock, Shift)', () => {
+    const reply = { ...CTX, reader: true, reply: true };
+    expect(keyCommand(key('J'), reply)).toBe('next');
+    expect(keyCommand(key('K', { shiftKey: true }), reply)).toBe('prev');
+    expect(keyCommand(key('R'), reply)).toBe('reply');
+    expect(keyCommand(key('F', { shiftKey: true }), reply)).toBe('forward');
+    expect(keyCommand(key('C', { shiftKey: true }), CTX)).toBe('compose');
+  });
+
+  it('ignores every shortcut on a select list and in editable content, Escape still applies', () => {
+    const select = document.createElement('select');
+    const editableDiv = document.createElement('div');
+    editableDiv.contentEditable = 'true';
+    // jsdom has no `isContentEditable`.
+    Object.defineProperty(editableDiv, 'isContentEditable', { value: true });
+    for (const target of [select, editableDiv]) {
+      for (const k of ['/', '[', ',', '?', 'c', '1', 'x']) expect(keyCommand(key(k, {}, target), CTX)).toBeNull();
+      expect(keyCommand(key('j', {}, target), { ...CTX, reader: true })).toBeNull();
+      expect(keyCommand(key('Escape', {}, target), CTX)).toBe('escape');
+    }
+  });
+
+  it('pages with held J/K and ←/→, but not R/F, 1–6 and the palette (`repeat`)', () => {
+    const reply = { ...CTX, reader: true, reply: true };
+    expect(keyCommand(key('j', { repeat: true }), reply)).toBe('next');
+    expect(keyCommand(key('ArrowLeft', { repeat: true }), reply)).toBe('prev');
+    expect(keyCommand(key('r', { repeat: true }), reply)).toBeNull();
+    expect(keyCommand(key('f', { repeat: true }), reply)).toBeNull();
+    for (const k of ['1', '3', '6']) expect(keyCommand(key(k, { repeat: true }), CTX)).toBeNull();
+    expect(keyCommand(key('x', { repeat: true }), CTX)).toBeNull();
+  });
+
+  it('closes the reading view with Escape except from input fields and text areas', () => {
+    const editableDiv = document.createElement('div');
+    Object.defineProperty(editableDiv, 'isContentEditable', { value: true });
+    expect(textField(document.createElement('input'))).toBe(true);
+    expect(textField(document.createElement('textarea'))).toBe(true);
+    expect(textField(document.createElement('select'))).toBe(false);
+    expect(textField(editableDiv)).toBe(false);
+    expect(textField(document.body)).toBe(false);
+    expect(textField(null)).toBe(false);
   });
 
   it('selects a row with ↑/↓ in the list and opens it with Enter, not on buttons and links (`pfNav`)', () => {
