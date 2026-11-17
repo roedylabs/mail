@@ -2020,10 +2020,13 @@ describe('Mailboxes in the shell', () => {
     expect(listView.segmentAt('/mailbox/all/sent')).toBe('all');
     listView.reached('/mailbox/all/sent');
     expect(listView.segment).toBe('all');
-    // The already selected view only closes the popup.
+    // The already selected account counts as a choice too (`select`): the open list starts with "All".
+    listView.segment = 'unread';
     await fireEvent.click(button);
     await fireEvent.click(getByRole('menuitemradio', { name: /account1@s1\.test/ }));
     expect(queryByRole('menu')).toBeNull();
+    expect(listView.segment).toBe('all');
+    // Already the open list: no further history entry.
     expect(goto).toHaveBeenCalledTimes(2);
     // A click beside it closes, a click in the popup does not.
     await fireEvent.click(button);
@@ -2032,6 +2035,27 @@ describe('Mailboxes in the shell', () => {
     await fireEvent.mouseDown(document.body);
     expect(queryByRole('menu')).toBeNull();
     expect(menu).not.toBeInTheDocument();
+  });
+
+  it('the already selected account closes an open thread and starts the list with “All”', async () => {
+    mockBoth();
+    const thread = renderAt('/mailbox/a1/sent/x1');
+    listView.segment = 'flagged';
+    await fireEvent.click(await thread.findByRole('button', { name: /account1@s1\.test/, expanded: false }));
+    await fireEvent.click(thread.getByRole('menuitemradio', { name: /account1@s1\.test/ }));
+    expect(thread.goto).toHaveBeenCalledExactlyOnceWith('/mailbox/a1/sent');
+    expect(thread.queryByRole('menu')).toBeNull();
+    expect(listView.segmentAt('/mailbox/a1/sent')).toBe('all');
+    listView.reached('/mailbox/a1/sent');
+    expect(listView.segment).toBe('all');
+  });
+
+  it('the already selected account leaves a folder for its inbox', async () => {
+    mockBoth();
+    const folder = renderAt('/mailbox/a1/f/mu');
+    await fireEvent.click(await folder.findByRole('button', { name: /account1@s1\.test/, expanded: false }));
+    await fireEvent.click(folder.getByRole('menuitemradio', { name: /account1@s1\.test/ }));
+    expect(folder.goto).toHaveBeenCalledExactlyOnceWith('/mailbox/a1/inbox');
   });
 
   it('opens the “Mailboxes” sheet with “Inbox” on mobile and switches the account in it', async () => {
@@ -2049,6 +2073,14 @@ describe('Mailboxes in the shell', () => {
     await fireEvent.keyDown(window, { key: 'Escape' });
     expect(queryByRole('dialog', { name: 'Switch account' })).toBeNull();
     expect(sheet).toBeInTheDocument();
+    // The already selected account: back to the sheet, the open list starts with "All" (`swPick`).
+    listView.segment = 'flagged';
+    await fireEvent.click(getByRole('button', { name: /Switch account/ }));
+    await fireEvent.click(getByRole('radio', { name: /account1@s1\.test/ }));
+    expect(queryByRole('dialog', { name: 'Switch account' })).toBeNull();
+    expect(sheet).toBeInTheDocument();
+    expect(listView.segment).toBe('all');
+    expect(goto).not.toHaveBeenCalled();
     await fireEvent.click(getByRole('button', { name: /Switch account/ }));
     await fireEvent.click(getByRole('radio', { name: /All accounts/ }));
     // The choice leads to the all-accounts view and returns to the open sheet.

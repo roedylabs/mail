@@ -1479,15 +1479,14 @@
   let mSwOpen = $state(false);
 
   /**
-   * Account switch: the same mailbox in the chosen account or in "All accounts";
-   * on mobile back to the "Mailboxes" sheet. The already selected view only
-   * closes the popup so that the open folder or thread stays.
+   * Account switch: the same mailbox in the chosen account or in "All accounts"
+   * (`select`, `swPick`), the already selected one too: an open thread closes,
+   * a folder or tag gives way to the inbox and the list starts with "All";
+   * on mobile back to the "Mailboxes" sheet.
    */
   function pickScope(key: string) {
     if (ui.isMobile) mSwOpen = false;
-    if (key === scope.key) {
-      if (!ui.isMobile) ui.closeMenu();
-    } else openMailbox(key, { role: curRole }, ui.isMobile);
+    openMailbox(key, { role: curRole }, ui.isMobile);
   }
 
   const switcherProps = $derived(
