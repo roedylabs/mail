@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { hostOf, httpOther, localHttp, normUrl, originOf } from './url.ts';
+import { hostOf, httpOther, isDomain, localHttp, normUrl, originOf } from './url.ts';
 
 describe('Addresses', () => {
   it('adds https:// and removes trailing slashes (normUrl)', () => {
@@ -28,5 +28,24 @@ describe('Addresses', () => {
     expect(httpOther('http://localhost:8080')).toBe(false);
     expect(httpOther('https://stalwart')).toBe(false);
     expect(httpOther('nonsense')).toBe(false);
+  });
+});
+
+describe('Domains', () => {
+  it('accepts domains with the label rules of the backend', () => {
+    for (const d of ['example.com', 'mail-1.example.com', 'a.b', 'x'.repeat(63) + '.test'])
+      expect(isDomain(d), d).toBe(true);
+    for (const d of [
+      'example',
+      '-bad.com',
+      'bad-.com',
+      'a.-b.com',
+      'a..com',
+      'bad_domain.com',
+      'x'.repeat(64) + '.test',
+    ])
+      expect(isDomain(d), d).toBe(false);
+    expect(isDomain(`${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(61)}`)).toBe(true);
+    expect(isDomain(`${'a'.repeat(63)}.${'b'.repeat(63)}.${'c'.repeat(63)}.${'d'.repeat(62)}`)).toBe(false);
   });
 });

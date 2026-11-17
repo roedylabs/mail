@@ -56,9 +56,12 @@ export function httpOther(url: string): boolean {
   }
 }
 
-/** Domain `name.tld`, lower case, ASCII (setup and mail server dialog). */
+/**
+ * Domain `name.tld`, lower case, ASCII (setup and mail server dialog). Like the backend: at most
+ * 253 characters, labels of 1 to 63 characters without a hyphen at the start or end.
+ */
 export function isDomain(domain: string): boolean {
-  return /^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(domain);
+  return domain.length <= 253 && /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/.test(domain);
 }
 
 /** At most this many domains per server (backend). */
