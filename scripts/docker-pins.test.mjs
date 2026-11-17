@@ -106,7 +106,9 @@ function buildxProblems(text) {
         if (lineIndent === childIndent) inputs.push(l);
       }
     }
-    if (!inputs.some((l) => /^\s*driver-opts:.*\bimage=\$\{\{\s*steps\.buildkit\.outputs\.image\s*\}\}/.test(l))) {
+    // The whole value, without anything after it: a `# …` comment is not part of the input.
+    const pinned = /^\s*driver-opts:\s*(['"]?)image=\$\{\{\s*steps\.buildkit\.outputs\.image\s*\}\}\1\s*$/;
+    if (!inputs.some((l) => pinned.test(l))) {
       problems.push(
         `line ${i + 1}: setup-buildx-action without driver-opts image=\${{ steps.buildkit.outputs.image }}`,
       );
@@ -195,6 +197,10 @@ describe('buildxProblems', () => {
       '    with:',
       '      other: |',
       '        driver-opts: image=${{ steps.buildkit.outputs.image }}',
+      '  - name: Builder with the image in a comment',
+      '    uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
+      '    with:',
+      '      driver-opts: image=moby/buildkit:master # image=${{ steps.buildkit.outputs.image }}',
     ].join('\n');
     assert.deepEqual(buildxProblems(text), [
       'line 2: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
@@ -203,6 +209,7 @@ describe('buildxProblems', () => {
       'line 18: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 22: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 28: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
+      'line 33: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
     ]);
   });
 });

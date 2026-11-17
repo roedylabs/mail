@@ -247,15 +247,17 @@ jobs:
         id: published
         run: |
           err="$RUNNER_TEMP/inspect.err"
-          if raw=$(docker buildx imagetools inspect --raw "$IMAGE:$VERSION" 2>"$err"); then
-            revision=$(printf '%s\n' "$raw" | jq -r '.annotations["org.opencontainers.image.revision"] // empty')
-            if [ "$revision" != "$GITHUB_SHA" ]; then
-              echo "::error::$IMAGE:$VERSION is already published from ${revision:-an unknown commit}; releases are never overwritten"
-              exit 1
-            fi
-            digest=$(docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$VERSION" | jq -r .digest)
+          # Resolve the tag once; the revision is read from that digest, so the
+          # digest used below is the one that was checked.
+          if manifest=$(docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$VERSION" 2>"$err"); then
+            digest=$(printf '%s\n' "$manifest" | jq -r .digest)
             if ! printf '%s\n' "$digest" | grep -Eqx 'sha256:[0-9a-f]{64}'; then
               echo "::error::No digest for $IMAGE:$VERSION (found '$digest')"
+              exit 1
+            fi
+            revision=$(docker buildx imagetools inspect --raw "$IMAGE@$digest" | jq -r '.annotations["org.opencontainers.image.revision"] // empty')
+            if [ "$revision" != "$GITHUB_SHA" ]; then
+              echo "::error::$IMAGE:$VERSION is already published from ${revision:-an unknown commit}; releases are never overwritten"
               exit 1
             fi
             echo "$IMAGE:$VERSION was published from this commit ($digest); the rerun completes the release without pushing"
