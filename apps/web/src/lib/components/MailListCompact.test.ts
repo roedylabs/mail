@@ -85,7 +85,7 @@ function setup(
   props: {
     pf?: ListValues;
     isMobile?: boolean;
-    busy?: boolean;
+    rot?: number;
     hasMore?: boolean;
     focusSort?: 'date' | 'from' | null;
   } = {},
@@ -113,7 +113,7 @@ function setup(
   const view = render(MailListCompact, {
     pf: values(),
     isMobile: false,
-    busy: false,
+    rot: 0,
     hasMore: false,
     ...fns,
     ...props,
@@ -184,16 +184,18 @@ describe('message list (compact)', () => {
     expect(view.queryByRole('button', { name: 'Edit folder' })).toBeNull();
     expect(view.queryByRole('button', { name: 'Edit tag' })).toBeNull();
     const refresh = view.getByRole('button', { name: 'Refresh' });
-    expect(refresh.querySelector('.ri')).not.toHaveClass('spin');
+    expect(refresh.querySelector<HTMLElement>('.ri')!.style.transform).toBe('rotate(0deg)');
     await fireEvent.click(refresh);
     expect(onRefresh).toHaveBeenCalledOnce();
   });
 
-  it('spins the icon while refreshing', async () => {
-    const { view } = setup({ busy: true });
-    expect(view.getByRole('button', { name: 'Refresh' }).querySelector('.ri')).toHaveClass('spin');
-    await view.rerender({ busy: false });
-    expect(view.getByRole('button', { name: 'Refresh' }).querySelector('.ri')).not.toHaveClass('spin');
+  it('turns the icon two more revolutions per refresh instead of spinning', async () => {
+    const { view } = setup({ rot: 720 });
+    const icon = () => view.getByRole('button', { name: 'Refresh' }).querySelector<HTMLElement>('.ri')!;
+    expect(icon().style.transform).toBe('rotate(720deg)');
+    expect(icon()).not.toHaveClass('spin');
+    await view.rerender({ rot: 1440 });
+    expect(icon().style.transform).toBe('rotate(1440deg)');
   });
 
   it('shows the column header with sorting by date', async () => {
