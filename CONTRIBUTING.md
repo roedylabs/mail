@@ -77,7 +77,8 @@ New parsers of external input should get a property or a fuzz target; a bug foun
 - **Web app:** imports via `#lib/…` with file extension, icons through the registry in `apps/web/src/lib/icons.ts`, colours through the design tokens.
 - **Accessibility:** every interactive element must be usable with the keyboard and a screen reader; `scripts/a11y/audit.mjs` runs axe over all pages.
 - **Database:** never edit an existing migration in `crates/server/src/db/migrations/`; add a new one.
-- **Dependencies:** keep the app lightweight (image ≤ 25 MB, idle memory ≤ 40 MB, mailbox JavaScript ≤ 300 kB gzip). Justify new dependencies in the PR.
+- **Dependencies:** keep the app lightweight (image ≤ 25 MB, idle memory ≤ 40 MB, mailbox JavaScript ≤ 300 kB gzip). Justify new dependencies in the PR. Libraries that end up in the browser bundle belong in `dependencies`, build and test tools in `devDependencies` (`pnpm audit --prod` checks the former).
+- **Pinning:** GitHub Actions by full commit SHA, container images (`FROM`, BuildKit in `.github/buildkit/Dockerfile`) by digest; Dependabot keeps them current. `scripts/action-pins.test.mjs` and `scripts/docker-pins.test.mjs` check it in `pnpm test`.
 - **Clean room:** do not copy code from other webmail projects. The basis is the JMAP RFCs and the Stalwart documentation.
 
 ## Commits and pull requests
@@ -97,7 +98,7 @@ just release 0.2.0       # branch, version bump, CHANGELOG.md and release PR
 just release-tag 0.2.0   # after merging: tag v0.2.0 on main, starts the release workflow
 ```
 
-The release workflow builds and checks the image (size, smoke test, Trivy), publishes it to `ghcr.io/roedylabs/mail` for amd64 and arm64, signs it with cosign, attests image and binaries, and creates the GitHub release.
+The release workflow only accepts a tag on the release commit `chore(release): v<version>` on `main` and never overwrites a published version. It builds and checks the image (size, smoke test, Trivy), publishes it to `ghcr.io/roedylabs/mail` for amd64 and arm64, signs it with cosign, attests image and binaries, and creates the GitHub release.
 
 ## License
 

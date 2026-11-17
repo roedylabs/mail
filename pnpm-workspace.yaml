@@ -7,6 +7,14 @@ packages:
 allowBuilds:
   lefthook: false
 
+# Only resolve versions that have been published for at least 7 days (in
+# minutes), the same cooldown as Dependabot (.github/dependabot.yml): a
+# hijacked release is usually found and pulled within that time. Explicitly
+# set, the check is strict: a younger version fails the install instead of
+# being added to minimumReleaseAgeExclude. An urgent security fix that is
+# younger goes into minimumReleaseAgeExclude by hand (name@version).
+minimumReleaseAge: 10080
+
 # Security advisory GHSA-g3hv-75wg-m249:
 # minimatch < 11.0.1 blows up glob patterns with optimizationLevel >= 2.
 # There is no fixed 10.x; eslint, @eslint/config-array and

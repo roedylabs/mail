@@ -55,8 +55,9 @@ updates:
         update-types: ["minor", "patch"]
 
   - package-ecosystem: docker
-    # .clusterfuzzlite/: build image of the fuzz targets.
-    directories: ["/", "/.clusterfuzzlite"]
+    # .clusterfuzzlite/: build image of the fuzz targets; .github/buildkit/:
+    # BuildKit image of release.yml.
+    directories: ["/", "/.clusterfuzzlite", "/.github/buildkit"]
     schedule:
       interval: weekly
     # Room for separate major-update PRs next to the grouped minor/patch PR.
