@@ -833,6 +833,35 @@ describe('Search', () => {
       expect(local.hits.map((h) => h.id)).toEqual(['e9', 'e10']);
     });
 
+    for (const order of ['refresh first', 'load more first'] as const)
+      it(`a "load more" in flight when the hits are fetched again follows the refresh (${order})`, async () => {
+        let pageTwo: (p: MailPage) => void = () => {};
+        page.mockImplementation((account, _q, position) => {
+          // k2 without a connection: mixed hits from the server and from storage.
+          if (account === 'k2') return Promise.reject(new NetworkError('gone'));
+          if (position === 0) return Promise.resolve({ hits: [hit('k1', 'a1')], positions: 1, total: 2 });
+          return new Promise<MailPage>((r) => (pageTwo = r));
+        });
+        local.open('inv', null);
+        ids = ['k1', 'k2'];
+        local.sync();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(local.local).toBe(true);
+        void local.more();
+        expect(local.loadingMore).toBe(true);
+        const first = pageTwo;
+        local.resume();
+        const late = { hits: [hit('k1', 'a2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 };
+        if (order === 'load more first') first(late);
+        await vi.advanceTimersByTimeAsync(0);
+        if (order === 'refresh first') first(late);
+        // The retry after the refresh asks for the second page again.
+        pageTwo(late);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(local.loadingMore).toBe(false);
+        expect(local.hits.filter((h) => h.account === 'k1').map((h) => h.id)).toEqual(['a1', 'a2']);
+      });
+
     it('does not search in storage on other errors', async () => {
       page.mockImplementation(() => Promise.reject(new Error('500')));
       await find('inv');

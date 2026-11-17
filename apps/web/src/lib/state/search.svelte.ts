@@ -590,9 +590,11 @@ export class Search {
     const cur = this.mail;
     if (!cur?.local || cur.key !== this.#want) return;
     const list = Object.entries(cur.queries).map(([account, q]) => ({ account, filter: q.filter }));
+    // Same query: a "load more" waiting for the previous refresh, or one in flight that the
+    // refresh discards, follows this refresh.
+    if (this.loadingMore) this.#moreAfter = true;
     this.loadingMore = false;
     this.#refreshing = true;
-    // Same query: a "load more" waiting for the previous refresh follows this one.
     void this.#load(++this.#gen, cur.key, list, cur.words);
   }
 
