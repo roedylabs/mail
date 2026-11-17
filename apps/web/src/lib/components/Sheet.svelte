@@ -1,7 +1,8 @@
 <!--
   Mobile sheet of the shell (`M_SHEETS`): one component for all content
   (navigation "More", account, notifications, apps …). Closes on a click on
-  the backdrop, with Escape and when dragged down (`dragSheet`). A second sheet
+  the backdrop, with Escape and when dragged down (`dragSheet`); the tab bar
+  finds it via `data-sheet` when pulling "More" up (`pullSheet`). A second sheet
   (`level` 2, e.g. "Switch account" above "Mailboxes") lies above it; the first
   then moves back (`behind`, `mSh1T`) and leaves Escape to it.
 -->
@@ -28,9 +29,10 @@
   let scrim: HTMLDivElement | undefined = $state();
 
   // Focus into the sheet, also back when the sheet above closes – unless the
-  // focus trap has already put it back on the opener inside.
+  // focus trap has already put it back on the opener inside. Without scrolling:
+  // a sheet pulled up from the tab bar still lies below the edge (`pullSheet`).
   $effect(() => {
-    if (!behind && panel && !panel.contains(document.activeElement)) panel.focus();
+    if (!behind && panel && !panel.contains(document.activeElement)) panel.focus({ preventScroll: true });
   });
 
   function onkeydown(event: KeyboardEvent) {
@@ -54,6 +56,7 @@
   inert={behind}
   role="dialog"
   aria-modal="true"
+  data-sheet={level}
   use:focustrap
   {@attach dragSheet(() => ({ animations: prefs.motion, scrim: scrim ?? null }))}
   aria-label={label}

@@ -142,7 +142,7 @@
   import { network, pollVisible } from '#lib/state/network.svelte.ts';
   import { scopeOf, search } from '#lib/state/search.svelte.ts';
   import { returnable, returnBackLabel, returnLabel, searchReturn } from '#lib/search-return.ts';
-  import { swipeBack, TOAST_BACK_MS, type BackSwipe, type ToastSwipe } from '#lib/swipe.ts';
+  import { swipeBack, TOAST_BACK_MS, type BackSwipe, type SheetPull, type ToastSwipe } from '#lib/swipe.ts';
   import { ago } from '#lib/ago.ts';
   import { editLogs } from '#lib/mail-queue.ts';
   import { mailStores } from '#lib/mail-store.ts';
@@ -1616,6 +1616,9 @@
    */
   const backSwipe = (back: () => Promise<void>): BackSwipe | null =>
     chrome === 'panel' && ui.swipeOn ? { animations: prefs.motion, back } : null;
+  /** Pulling up "More" from the tab bar (mobile). */
+  const morePull = (): SheetPull | null =>
+    ui.swipeOn ? { animations: prefs.motion, open: () => (ui.menu = 'nav'), close: () => ui.closeMenu() } : null;
   /** Tablet: the rows of the shell leave scrolling to the browser and the horizontal movement to the gestures. */
   const tablet = $derived(ui.swipeOn && !ui.isMobile);
 
@@ -1889,7 +1892,7 @@
             />
           {/if}
           <div class="m-main">{@render content()}</div>
-          {#if !noAccounts && !mReading}<TabBar mTabsL={tabsL} mTabsR={tabsR} />{/if}
+          {#if !noAccounts && !mReading}<TabBar mTabsL={tabsL} mTabsR={tabsR} pull={morePull} />{/if}
         {:else}
           <header class="m-back">
             <button onclick={() => void panelBack()}>

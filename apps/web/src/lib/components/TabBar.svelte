@@ -1,15 +1,22 @@
 <!--
   Bottom bar of the mobile view with inbox and search on the left, compose
-  and more on the right.
+  and more on the right. Dragging up on it pulls up "More" (`pullSheet`);
+  `touch-action: none` leaves the whole movement to the gesture.
 -->
 <script lang="ts">
   import type { TabBarValues } from '#lib/shell.ts';
   import Icon from '#lib/components/Icon.svelte';
+  import { pullSheet, type SheetPull } from '#lib/swipe.ts';
 
-  let { mTabsL, mTabsR }: TabBarValues = $props();
+  interface Props extends TabBarValues {
+    /** Pulling up "More"; read on touch, `null` turns it off. */
+    pull?: () => SheetPull | null;
+  }
+
+  let { mTabsL, mTabsR, pull = () => null }: Props = $props();
 </script>
 
-<nav class="tabbar">
+<nav class="tabbar" {@attach pullSheet(() => pull())}>
   {#each [...mTabsL, ...mTabsR] as t (t.label)}
     <button
       class="tab"
