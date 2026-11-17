@@ -221,23 +221,38 @@ export interface Metadata {
   iss_supported: boolean;
 }
 
+/** Longest wait for the metadata (ms), e.g. when all connections to the server are taken. */
+export const METADATA_TIMEOUT = 15_000;
+
 /**
  * Loads the metadata; `issuer` and endpoints must be on the origin of the
  * server as in the diagnosis, otherwise `null`. A
- * network error (also CORS) throws.
+ * network error (also CORS) and a timeout after `METADATA_TIMEOUT` throw.
  */
 export async function loadMetadata(
   origin: string,
   fetchFn: typeof fetch,
   signal?: AbortSignal,
 ): Promise<Metadata | null> {
-  const res = await fetchFn(`${origin}/.well-known/oauth-authorization-server`, {
-    headers: { Accept: 'application/json' },
-    credentials: 'omit',
-    ...(signal ? { signal } : {}),
-  });
-  if (!res.ok) return null;
-  const data: unknown = await res.json().catch(() => null);
+  const timeout = new AbortController();
+  const timer = setTimeout(
+    () => timeout.abort(new DOMException('Metadata timed out', 'TimeoutError')),
+    METADATA_TIMEOUT,
+  );
+  let data: unknown;
+  try {
+    const res = await fetchFn(`${origin}/.well-known/oauth-authorization-server`, {
+      headers: { Accept: 'application/json' },
+      credentials: 'omit',
+      signal: signal ? AbortSignal.any([signal, timeout.signal]) : timeout.signal,
+    });
+    if (!res.ok) return null;
+    data = await res.json().catch(() => null);
+  } finally {
+    clearTimeout(timer);
+  }
+  // The body stopped with the timeout: like a network error.
+  timeout.signal.throwIfAborted();
   if (!isRecord(data)) return null;
   const { issuer, authorization_endpoint: authorize, token_endpoint: token } = data;
   if (typeof issuer !== 'string' || typeof authorize !== 'string' || typeof token !== 'string') return null;

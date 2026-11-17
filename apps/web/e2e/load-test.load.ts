@@ -35,9 +35,9 @@ import { connectAccount, readyWithAccount } from './setup.ts';
 test.describe.configure({ mode: 'serial' });
 
 const MAILS = Number(process.env.LOAD_TEST_MAILS || 50_000);
-// At most 4 more: every account keeps a push stream to Stalwart open, over
-// HTTP/1.1 (locally without TLS) the browser only allows 6 connections per
-// host – from 6 accounts on every further request hangs.
+// 4 more by default, to keep the run short. Over HTTP/1.1 (locally without
+// TLS) only 3 accounts per server keep a push stream open, the others poll,
+// so more accounts do not use up the browser's 6 connections per host.
 const ACCOUNTS = Number(process.env.LOAD_TEST_ACCOUNTS ?? 4);
 const RUNS = 3;
 const REPO = join(dirname(fileURLToPath(import.meta.url)), '../../..');
