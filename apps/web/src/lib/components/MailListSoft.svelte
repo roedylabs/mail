@@ -1467,8 +1467,9 @@
     padding-top: 14px;
   }
 
-  .mobile .note + .vlist .ghead.first {
-    padding-top: 2px;
+  /* The hint gives up its space instead of the head, so the head's height stays fixed for the virtual list. */
+  .mobile .note:has(+ .vlist) {
+    margin-bottom: 0;
   }
 
   .mobile .vlist + .foot {
