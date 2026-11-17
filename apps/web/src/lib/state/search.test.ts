@@ -656,7 +656,7 @@ describe('Search', () => {
       sync(['k1']);
     }
 
-    it('loading more waits for the refresh and works again afterwards', async () => {
+    it('loading more asked during the refresh follows it', async () => {
       pages.set('k1', [
         { hits: [hit('k1', 'e1')], positions: 1, total: 3 },
         { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 3 },
@@ -665,11 +665,10 @@ describe('Search', () => {
         { hits: [hit('k1', 'f3', '2026-10-31T09:00:00Z')], positions: 1, total: 3 },
       ]);
       await returned();
+      // Asked during the refresh (sentinel visible): it follows the refresh instead of getting lost.
       await s.more();
       expect(s.loadingMore).toBe(false);
       await vi.advanceTimersByTimeAsync(0);
-      expect(s.hits.map((h) => h.id)).toEqual(['f1', 'f2']);
-      await s.more();
       expect([s.loadingMore, s.hits.map((h) => h.id)]).toEqual([false, ['f1', 'f2', 'f3']]);
       expect(page.mock.calls.map((c) => c[2])).toEqual([0, 1, 0, 1, 2]);
     });

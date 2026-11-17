@@ -381,6 +381,8 @@ export class Search {
    * back, `resume()`): `more()` waits, otherwise one would discard the other's pages.
    */
   #refreshing = false;
+  /** `more()` was asked during the refresh: it follows once the refresh is in. */
+  #moreAfter = false;
   /** The last query already failed: no further toast while typing. */
   #failed = false;
   /** Hit just opened: the navigation it starts becomes the return path's target. */
@@ -566,6 +568,7 @@ export class Search {
     const gen = ++this.#gen;
     this.loadingMore = false;
     this.#refreshing = false;
+    this.#moreAfter = false;
     if (!key) {
       if (this.mail) this.#parked = this.mail;
       this.mail = null;
@@ -645,6 +648,8 @@ export class Search {
     );
     if (gen !== this.#gen) return;
     this.#refreshing = false;
+    const moreAfter = this.#moreAfter;
+    this.#moreAfter = false;
     // Hits shown for this query (back from the search): an account whose refresh stops halfway keeps them.
     const prev = this.mail?.key === key ? this.mail : null;
     const pages: Record<string, AccountPage> = {};
@@ -674,12 +679,17 @@ export class Search {
     this.mail = { key, queries, words, hits: hits.sort(byReceived), pages, local };
     if (failed && !this.#failed) ui.toasts.error(failText(failed));
     this.#failed = !!failed;
+    if (moreAfter) void this.more();
   }
 
   /** Loads more messages as long as an account has more (area messages only). */
   async more(): Promise<void> {
     const cur = this.mail;
-    if (!cur || this.loadingMore || this.#refreshing || cur.key !== this.#want) return;
+    if (this.#refreshing) {
+      this.#moreAfter = true;
+      return;
+    }
+    if (!cur || this.loadingMore || cur.key !== this.#want) return;
     const open = Object.entries(cur.pages).filter(([, p]) => p.total != null && p.loaded < p.total);
     if (!open.length) return;
     const gen = this.#gen;
@@ -869,6 +879,7 @@ export class Search {
     this.#now = false;
     this.#parked = null;
     this.#refreshing = false;
+    this.#moreAfter = false;
     this.#failed = false;
     this.#pending = null;
     clearTimeout(this.#pendingTimer);
