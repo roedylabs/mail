@@ -97,6 +97,8 @@
   import { m } from '#lib/paraglide/messages.js';
   import { ALL_ACCOUNTS, mailboxParams, parseMailboxPath, type RoleId } from '#lib/routes.ts';
   import { followGone, openList, openThread, threadHref } from '#lib/thread-nav.ts';
+  import { returnLabel, returnToSearch } from '#lib/search-return.ts';
+  import { search } from '#lib/state/search.svelte.ts';
   import { accounts } from '#lib/state/accounts.svelte.ts';
   import { compose, draftRef, NEW_DRAFT, parseMailto, replyInit, type ComposeNav } from '#lib/state/compose.svelte.ts';
   import { modKey } from '#lib/keys.ts';
@@ -478,6 +480,9 @@
   /** Open popover of the reading view (desktop); other shell menus do not recompute the reading view. */
   const readMenu = $derived(ui.menu === 'rdtag' ? 'tag' : ui.menu === 'rdmove' ? 'move' : null);
 
+  /** Return path to the search while this conversation is the one opened from it. */
+  const searchBack = $derived(search.returnAt(page.url.pathname));
+
   const rd = $derived.by(() => {
     if (!opened || !view || !conversation || !readEmails) return null;
     // While paging, the previous conversation still hangs until the effect.
@@ -489,7 +494,8 @@
       emails: readEmails,
       repId,
       kind: view.kind,
-      title: view.title,
+      // Opened from the search: its way back instead of the folder (`navRet.label`).
+      title: searchBack ? returnLabel(searchBack.kind) : view.title,
       account,
       roles: rolesOf(opened.account),
       multi: view.multi,
@@ -1315,7 +1321,10 @@
   function toList(replace: boolean) {
     if (location) openList(location, replace);
   }
-  const closeMessage = () => toList(false);
+  /** Back, Escape and after moving the open message: to the search it came from, otherwise to the list. */
+  const closeMessage = () => {
+    if (!returnToSearch(page.url.pathname)) toList(false);
+  };
 
   /** Previous or next conversation of the list (`rdNav`); at the end of the loaded ones the list loads more. */
   async function step(by: -1 | 1) {

@@ -29,6 +29,7 @@ const nav = vi.hoisted(() => ({
 vi.mock('$app/navigation', () => ({
   goto: nav.goto,
   afterNavigate: (fn: typeof nav.after) => (nav.after = fn),
+  beforeNavigate: () => {},
 }));
 vi.mock('$app/state', () => ({ page: nav.page, updated: nav.updated }));
 // The live sync has its own tests (`live.test.ts`); what counts here is for which accounts the layout starts it.
@@ -1117,6 +1118,69 @@ describe('Shell layout', () => {
     expect(container.querySelector('[role="switch"]')).toBeNull();
     ui.collapsed = true;
     await vi.waitFor(() => expect(container.querySelector('aside.nav')).toHaveClass('collapsed'));
+  });
+
+  describe('return path to the search', () => {
+    /** A hit of the results page (`results`) or the mobile search (`search`) opened `path`. */
+    function openedFromSearch(kind: 'search' | 'results', path: string) {
+      search.reset();
+      search.q = 'invoice';
+      search.set({ st: ['u'] });
+      search.expectReturn(kind);
+      search.done();
+      search.navigating(path, true);
+    }
+
+    afterEach(() => search.reset());
+
+    it('desktop: the settings navigation leads back to the search results', async () => {
+      mockApi({
+        'GET public/config': [{ body: CONFIG }],
+        'GET auth/me': [{ body: me('user') }],
+        'GET settings': [{ body: SETTINGS }],
+        'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+      });
+      openedFromSearch('results', '/account/security');
+      const { findByText, getByRole, goto } = renderAt('/account/security');
+      await findByText('Page content');
+      await fireEvent.click(getByRole('button', { name: 'Back to search results' }));
+      expect(goto).toHaveBeenLastCalledWith('/search');
+      expect([search.q, search.sf.st, search.ret]).toEqual(['invoice', ['u'], null]);
+      // Used up: the next "Back" leads to the app again.
+      await vi.waitFor(() => expect(getByRole('button', { name: 'Back to Roedy Mail' })).toBeInTheDocument());
+    });
+
+    it('desktop: no way back to the search on another page than the opened one', async () => {
+      mockApi({
+        'GET public/config': [{ body: CONFIG }],
+        'GET auth/me': [{ body: me('user') }],
+        'GET settings': [{ body: SETTINGS }],
+        'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+      });
+      openedFromSearch('search', '/account/profile');
+      const { findByText, getByRole, goto } = renderAt('/account/security');
+      await findByText('Page content');
+      await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+      expect(goto).toHaveBeenLastCalledWith('/start');
+      expect(search.ret).toBeNull();
+    });
+
+    it('mobile: the back bar reads “Search” and returns there first', async () => {
+      vi.stubGlobal('innerWidth', 400);
+      window.dispatchEvent(new Event('resize'));
+      mockApi({
+        'GET public/config': [{ body: CONFIG }],
+        'GET auth/me': [{ body: me('admin') }],
+        'GET settings': [{ body: SETTINGS }],
+        'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+      });
+      openedFromSearch('search', '/admin/users');
+      const { findByText, getByRole, goto } = renderAt('/admin/users');
+      await findByText('Page content');
+      await fireEvent.click(getByRole('button', { name: 'Search' }));
+      expect(goto).toHaveBeenLastCalledWith('/search');
+      expect(search.q).toBe('invoice');
+    });
   });
 
   it('shows the page first on mobile, then the area list via “Back”', async () => {
