@@ -276,11 +276,20 @@ describe('updatesValues: other values', () => {
     expect(CTX.scrollTo).toHaveBeenCalledWith('schedule');
   });
 
-  it('time picker: 12-hour format, opening and closing discards the text', async () => {
+  it('time picker: always 24-hour, also with the 12-hour time format', async () => {
     const { p } = await loaded();
-    const t = values(p, { timeFmt: '12h' }).upTimeSel;
-    expect(t.h24).toBe(false);
-    expect(t.inputVal).toBe('3:00 AM');
+    for (const isMobile of [false, true]) {
+      const t = values(p, { timeFmt: '12h', isMobile }).upTimeSel;
+      expect(t.h24).toBe(true);
+      expect(t.label).toBe('03:00');
+      expect(t.inputVal).toBe('03:00');
+      expect(t.hours.map((h) => h.label)).toEqual(Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')));
+    }
+  });
+
+  it('time picker: opening and closing discards the text', async () => {
+    const { p } = await loaded();
+    const t = values(p).upTimeSel;
     t.toggle();
     expect(p.timeOpen).toBe(true);
     expect(values(p).upTimeSel.open).toBe(true);
