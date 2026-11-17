@@ -158,7 +158,12 @@ function fakeManager(endpoint: string, existing?: string) {
 
 type FakeRegistration = ServiceWorkerRegistration & { unregister: ReturnType<typeof vi.fn> };
 
-type FakeStore = MailPushStore & { copy: MailPushCopy | null; writes: number; clearFails: boolean };
+type FakeStore = MailPushStore & {
+  copy: MailPushCopy | null;
+  writes: number;
+  clearFails: boolean;
+  writeFails: boolean;
+};
 
 /** Service worker storage in memory. */
 function fakeStore(): FakeStore {
@@ -166,8 +171,10 @@ function fakeStore(): FakeStore {
     copy: null,
     writes: 0,
     clearFails: false,
+    writeFails: false,
     read: () => Promise.resolve(store.copy),
     write: (copy) => {
+      if (store.writeFails) return Promise.reject(new Error('quota'));
       store.copy = copy;
       store.writes++;
       return Promise.resolve();
@@ -921,6 +928,22 @@ describe('mailPush', () => {
       browser.store.clearFails = false;
       await module.resume();
       expect(browser.store.copy).toBeNull();
+    });
+
+    it('checks for the copy of the previous app user again after a failed write', async () => {
+      browser.store.copy = copy;
+      browser.store.clearFails = true;
+      browser.user = 'u2';
+      const module = mailPushWith(browser, 1000);
+      await enabled(module);
+      browser.store.writeFails = true;
+      module.share({ ...copy, user: 'u2' });
+      await vi.waitFor(() => expect(browser.store.writes).toBe(0));
+      await Promise.resolve();
+      browser.store.clearFails = false;
+      await module.disable('m1');
+      module.share({ ...copy, user: 'u2' });
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
     });
 
     it('keeps the copy of the same app user', async () => {

@@ -343,7 +343,13 @@ export class MailPush {
       }
       this.#shared = null;
       this.#owner = copy.user;
-      this.env.store.clear().catch(() => {});
+      // Not deleted: whatever is stored is unknown again, so the next call checks it.
+      void this.env.store
+        .clear()
+        .catch(() => false)
+        .then((done) => {
+          if (!done) this.#owner = null;
+        });
       return;
     }
     const text = JSON.stringify(copy);
@@ -353,6 +359,8 @@ export class MailPush {
     // Without a copy no quiet hours apply and the app is named like its host.
     this.env.store.write(copy).catch(() => {
       this.#shared = null;
+      // A copy of another user may still be there: the next call checks again.
+      this.#owner = null;
     });
   }
 
