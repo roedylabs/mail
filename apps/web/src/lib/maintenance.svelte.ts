@@ -238,6 +238,8 @@ export class MaintenancePage {
   #switching = false;
   /** Counts adopted states of maintenance mode: an older observation does not overwrite a newer one. */
   #modeGen = 0;
+  /** Last adopted state of maintenance mode. */
+  #modeOn = false;
   #waiting: ReturnType<typeof setTimeout> | undefined;
 
   #modeSaver = new Saver<MaintenanceMode>((body) => this.#sendMode(body));
@@ -295,19 +297,22 @@ export class MaintenancePage {
   /** Saved state: the notice bar follows immediately. */
   #adoptMode(mode: MaintenanceMode): void {
     this.#modeGen++;
+    this.#modeOn = mode.on;
     if (this.#modeSaver.pending.on === undefined) this.on = mode.on;
     session.setMaintenance(mode);
   }
 
   async #sendMode(body: Partial<MaintenanceMode>): Promise<void> {
     const on = body.on;
+    const gen = this.#modeGen;
     try {
       this.#adoptMode(await api<MaintenanceMode>('PUT', MODE, body));
       if (on === true) ui.toasts.show(m.maintenance_on_done());
       else if (on === false) ui.toasts.show(m.maintenance_off_done());
     } catch (error) {
       checkAccess(error);
-      if (on !== undefined) this.on = !on;
+      // Back to the previous state, or to one adopted meanwhile (e.g. a restore's `maintenance_required`).
+      if (on !== undefined) this.on = gen === this.#modeGen ? !on : this.#modeOn;
       // The field keeps showing the text; just do not resend an invalid one, it would otherwise break the switch.
       if (body.message !== undefined && !isApiError(error, 422)) this.#modeSaver.retain({ message: body.message });
       ui.toasts.error(failText(error));

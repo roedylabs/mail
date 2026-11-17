@@ -677,6 +677,28 @@ describe('backups', () => {
     expect(session.config?.maintenance.on).toBe(true);
   });
 
+  it('keeps the switch off when turning it off fails after a maintenance_required', async () => {
+    let restored: (reply: { status: number; body: unknown }) => void = () => {};
+    let saved: (reply: { status: number; body: unknown }) => void = () => {};
+    const { p, v } = await restorable({
+      'POST admin/backups/b1/restore': [() => new Promise((resolve) => (restored = resolve))],
+      'PUT admin/maintenance': [() => new Promise((resolve) => (saved = resolve))],
+    });
+    v().bkRows[1]?.onRestore();
+    ui.confirm?.run();
+    await vi.advanceTimersByTimeAsync(0);
+    p.toggle();
+    await vi.advanceTimersByTimeAsync(0);
+    restored({ status: 409, body: { error: 'maintenance_required' } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p.on).toBe(false);
+    saved({ status: 500, body: { error: 'internal' } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p.on).toBe(false);
+    expect(session.config?.maintenance.on).toBe(false);
+    expect(v().bkRows[1]?.rs.dis).toBe(true);
+  });
+
   it('reports a restore without a connection with the offline text', async () => {
     const { v } = await restorable();
     vi.stubGlobal(
