@@ -14,7 +14,6 @@
   import { tooltip } from '#lib/actions/tooltip.ts';
   import ErrorView from '#lib/components/ErrorView.svelte';
   import Icon from '#lib/components/Icon.svelte';
-  import { MAX_NAME } from '#lib/name.ts';
   import { m } from '#lib/paraglide/messages.js';
   import { pickPop, selIds, selKey } from '#lib/select.ts';
   import { pageOf } from '#lib/settings-nav.ts';
@@ -68,6 +67,14 @@
       ui.userInvite = false;
       ui.userOpen = null;
     });
+  });
+
+  // Opening "Invite people" (button or search) focuses "Email addresses" after 40 ms, once per opening.
+  const inviteOpen = $derived(!!p.invite);
+  $effect(() => {
+    if (!inviteOpen) return;
+    const timer = setTimeout(() => emailInput?.focus(), 40);
+    return () => clearTimeout(timer);
   });
 
   /** A click into the address frame focuses the field. */
@@ -199,7 +206,6 @@
         oninput={(e) => v.onInvName(e.currentTarget.value)}
         onkeydown={key(v.invNameKey)}
         disabled={v.invNameDis}
-        maxlength={MAX_NAME}
         placeholder={isMobile ? v.invNamePhM : v.invNamePh}
         aria-label={m.users_invite_name()}
         autocomplete="off"

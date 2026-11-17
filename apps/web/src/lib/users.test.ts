@@ -422,8 +422,10 @@ describe('Selection', () => {
     await vi.waitFor(() => expect(calls.at(-1)?.body).toEqual({ action: 'remove', ids: ['u1', 'i2'] }));
   });
 
-  it('asks before withdrawing a single invitation and reports it as withdrawn', async () => {
-    const { p, v } = await loaded({ 'POST users/bulk': [{ body: { changed: ['i2'] } }] });
+  it('asks before withdrawing a single invitation and reports it as removed', async () => {
+    const { p, v } = await loaded({
+      'POST users/bulk': [{ body: { changed: ['i2'] } }, { body: { changed: ['i1'] } }],
+    });
     p.toggleSelect('i2');
     v().uBulkRemove();
     expect(ui.confirm).toMatchObject({
@@ -432,7 +434,12 @@ describe('Selection', () => {
       ok: 'Revoke',
     });
     ui.confirmOk();
-    expect(ui.toast?.text).toBe('Invitation revoked');
+    // The selection bar always says "removed", without a name with the address.
+    expect(ui.toast?.text).toBe('paul.long@example.com removed');
+    p.toggleSelect('i1');
+    v().uBulkRemove();
+    ui.confirmOk();
+    expect(ui.toast?.text).toBe('Jane Smith removed');
   });
 });
 

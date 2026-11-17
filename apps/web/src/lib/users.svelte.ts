@@ -845,8 +845,7 @@ export class UsersPage {
       run: () => {
         const ids = list.map((u) => u.id);
         const change = this.#drop(ids);
-        // Like the row: a single invitation is "revoked".
-        ui.toasts.show(invited ? m.users_revoked() : m.users_removed({ who }));
+        ui.toasts.show(m.users_removed({ who }));
         this.#now(change, api('POST', 'users/bulk', { action: 'remove', ids }));
       },
     });

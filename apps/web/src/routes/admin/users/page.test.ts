@@ -138,6 +138,39 @@ describe('Users page', () => {
     expect(view.queryByText('Invite people')).toBeNull();
   });
 
+  it('focuses "Email addresses" 40 ms after opening "Invite people"', async () => {
+    const view = renderPage();
+    await view.findByText('Alice Brown');
+    await fireEvent.click(view.getByRole('button', { name: 'Invite' }));
+    const field = view.getByLabelText('Email addresses');
+    expect(field).not.toHaveFocus();
+    await vi.waitFor(() => expect(field).toHaveFocus());
+  });
+
+  it('focuses "Email addresses" when opened via the search action "Invite user"', async () => {
+    const view = renderPage();
+    await view.findByText('Alice Brown');
+    ui.userInvite = true;
+    const field = await view.findByLabelText('Email addresses');
+    await vi.waitFor(() => expect(field).toHaveFocus());
+  });
+
+  it('reports a name over 100 characters instead of cutting it off', async () => {
+    const view = renderPage();
+    await view.findByText('Alice Brown');
+    await fireEvent.click(view.getByRole('button', { name: 'Invite' }));
+    await fireEvent.input(view.getByLabelText('Email addresses'), { target: { value: 'eve@example.com' } });
+    const name = view.getByRole('textbox', { name: 'Name' }) as HTMLInputElement;
+    expect(name).not.toHaveAttribute('maxlength');
+    await fireEvent.input(name, { target: { value: 'E'.repeat(101) } });
+    expect(name.value).toHaveLength(101);
+    expect(view.getByRole('alert')).toHaveTextContent('The name is too long.');
+    expect(view.getByRole('button', { name: 'Send invitation' })).toHaveAttribute('aria-disabled', 'true');
+    await fireEvent.input(name, { target: { value: 'E'.repeat(100) } });
+    expect(view.getByRole('alert')).toHaveTextContent('');
+    expect(view.getByRole('button', { name: 'Send invitation' })).toHaveAttribute('aria-disabled', 'false');
+  });
+
   it('marks taken addresses and shows the message', async () => {
     const view = renderPage();
     await view.findByText('Alice Brown');
@@ -255,6 +288,21 @@ describe('Users page', () => {
     expect(ui.pick?.().title).toBe('Role for 1 person');
     await fireEvent.click(view.getByRole('button', { name: /Alice Brown/, expanded: false }));
     expect(view.getByText('alice@example.com · Last active 2 hours ago', { exact: false })).toBeInTheDocument();
+  });
+
+  it('focuses "Email addresses" after opening "Invite people" on mobile', async () => {
+    vi.stubGlobal('innerWidth', 390);
+    window.dispatchEvent(new Event('resize'));
+    const view = renderPage();
+    await view.findByText('Alice Brown');
+    await fireEvent.click(view.getByRole('button', { name: 'Invite' }));
+    const field = view.getByLabelText('Email addresses');
+    await vi.waitFor(() => expect(field).toHaveFocus());
+    const name = view.getByRole('textbox', { name: 'Name' });
+    expect(name).not.toHaveAttribute('maxlength');
+    await fireEvent.input(name, { target: { value: 'E'.repeat(101) } });
+    expect(view.getByRole('alert')).toHaveTextContent('The name is too long.');
+    expect(view.getByRole('button', { name: 'Send' })).toHaveAttribute('aria-disabled', 'true');
   });
 
   it('offers "Extend" instead of "Copy link" for an expired invitation', async () => {
