@@ -335,6 +335,16 @@ describe('readValues', () => {
         }),
       ),
     ).toMatchObject({ canMove: true, canSpam: true });
+    // A representing email in the trash stays shown and gets no "Report spam".
+    expect(
+      readValues(
+        input({
+          kind: { tag: true },
+          repId: 'e1',
+          emails: [email('e1', { mailboxIds: ['trash', 'tag1'] }), email('e2', { mailboxIds: ['in', 'tag1'] })],
+        }),
+      ),
+    ).toMatchObject({ id: 'e1', canMove: true, canSpam: false });
     expect(readValues(input())).toMatchObject({
       sched: false,
       canUnread: true,
