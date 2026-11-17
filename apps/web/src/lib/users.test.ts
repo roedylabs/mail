@@ -1165,6 +1165,28 @@ describe('Reopening', () => {
     expect(kept.find((u) => u.id === 'u1')?.role).toBe('admin');
   });
 
+  it('a reload that started before a confirmed removal does not bring the user back', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    let answer: (reply: { body: { users: ListedUser[] } }) => void = () => {};
+    const later = USERS.filter((u) => u.id !== 'u3');
+    mockApi({
+      'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: later } }],
+      'DELETE users/u3': [{ status: 204 }],
+    });
+    const q = new UsersPage();
+    const load = q.load();
+    const u3 = q.rows.find((u) => u.id === 'u3');
+    if (!u3) throw new Error('no u3');
+    q.remove(u3);
+    ui.confirmOk();
+    // Response of the server.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    answer({ body: { users: USERS } });
+    await load;
+    await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
+  });
+
   it('signing out discards the list, also of a page left afterwards', async () => {
     const { p } = await loaded();
     p.dispose();

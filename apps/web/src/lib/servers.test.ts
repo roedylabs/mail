@@ -1354,6 +1354,23 @@ describe('Reopening', () => {
     expect([q.rows.map((s) => s.id), q.allowOwn]).toEqual([['s1', 's2'], false]);
   });
 
+  it('asks for the policy only after a toggle still on its way', async () => {
+    let done: (reply: { body: { allow_custom_servers: boolean } }) => void = () => {};
+    const { p, calls } = await loaded({
+      'PUT admin/servers/policy': [() => new Promise((resolve) => (done = resolve))],
+      'GET admin/servers/policy': [POLICY, { body: { allow_custom_servers: true } }],
+    });
+    p.toggleOwn();
+    const load = p.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'GET admin/servers/policy')).toHaveLength(1);
+    done({ body: { allow_custom_servers: true } });
+    await load;
+    expect(sent(calls).slice(-2)).toEqual(['PUT admin/servers/policy', 'GET admin/servers/policy']);
+    p.dispose();
+    expect(new ServersPage().allowOwn).toBe(true);
+  });
+
   it('keeps a confirmed removal and toggle', async () => {
     const { p } = await loaded({
       'DELETE admin/servers/s2': [{ status: 204 }],

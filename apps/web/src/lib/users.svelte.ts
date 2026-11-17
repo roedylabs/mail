@@ -191,6 +191,8 @@ export class UsersPage {
   readonly #taken = new SvelteSet<string>();
   readonly #invalid = new SvelteSet<string>();
   #overlays: Overlay[] = [];
+  /** Counts changes confirmed by the server; a load that started before one does not apply. */
+  #changes = 0;
   #seq = 0;
   #formId = 0;
   #disposed = false;
@@ -281,9 +283,16 @@ export class UsersPage {
     const seq = ++this.#seq;
     const reopened = this.#reopened;
     this.#reopened = false;
+    const changes = this.#changes;
     try {
       const { users } = await api<{ users: ListedUser[] }>('GET', 'users');
       if (seq !== this.#seq || this.#disposed) return;
+      // Confirmed in the meantime (e.g. removed): the list is older, so reload.
+      if (changes !== this.#changes) {
+        this.#reopened = reopened;
+        void this.load();
+        return;
+      }
       this.rows = this.#overlaid(users);
       this.status = 'ready';
       const ids = users.map((u) => u.id);
@@ -316,10 +325,21 @@ export class UsersPage {
     return rows;
   }
 
-  #overlay(o: Overlay): () => void {
+  /** Local change until the server knows it (`settle`) or rejects it (`revert`). */
+  #change(o: Overlay): Change {
     this.#overlays.push(o);
-    return () => {
+    const lift = () => {
       this.#overlays = this.#overlays.filter((x) => x !== o);
+    };
+    return {
+      settle: () => {
+        lift();
+        this.#changes++;
+      },
+      revert: () => {
+        lift();
+        this.rows = o.undo(this.rows);
+      },
     };
   }
 
@@ -575,14 +595,7 @@ export class UsersPage {
         }
         return { ...u, ...back };
       });
-    const settle = this.#overlay({ ids, patch, undo });
-    return {
-      settle,
-      revert: () => {
-        settle();
-        this.rows = undo(this.rows);
-      },
-    };
+    return this.#change({ ids, patch, undo });
   }
 
   /** Remove rows (remove, withdraw) until the response; `revert` if the server rejects. */
@@ -595,14 +608,7 @@ export class UsersPage {
       const known = now.map((u) => u.id);
       return [...now, ...rows.filter((u) => ids.includes(u.id) && !known.includes(u.id))];
     };
-    const settle = this.#overlay({ ids, undo });
-    return {
-      settle,
-      revert: () => {
-        settle();
-        this.rows = undo(this.rows);
-      },
-    };
+    return this.#change({ ids, undo });
   }
 
   /** Call immediately after confirmation; afterwards the server state applies, otherwise back. */
@@ -718,7 +724,10 @@ export class UsersPage {
       const res = await api<{ invite: ListedUser | null }>('POST', `invites/${u.id}/resend`);
       if (this.#disposed) return;
       const now = res.invite;
-      if (now) this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
+      if (now) {
+        this.#changes++;
+        this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
+      }
       if (this.sendFail === u.id) this.sendFail = null;
       ui.toasts.show(m.users_resent());
     } catch (error) {
@@ -740,7 +749,10 @@ export class UsersPage {
       const res = await api<{ invite: ListedUser | null }>('POST', `invites/${u.id}/renew`);
       if (this.#disposed) return;
       const now = res.invite;
-      if (now) this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
+      if (now) {
+        this.#changes++;
+        this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
+      }
       // A failed "Resend" before no longer applies: the invitation is valid again.
       if (this.sendFail === u.id) this.sendFail = null;
       const until = now?.expires_at ?? null;

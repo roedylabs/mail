@@ -251,7 +251,8 @@ export class ServersPage {
     try {
       const [list, policy] = await Promise.all([
         api<ServerList>('GET', 'admin/servers'),
-        api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy'),
+        // After toggles still on their way: otherwise the response could be older than a confirmed one.
+        this.#policy.catch(() => {}).then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
       ]);
       if (seq !== this.#seq || this.#disposed) return;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
