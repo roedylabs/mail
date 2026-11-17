@@ -38,8 +38,6 @@ export interface SearchItemsInput {
   users: readonly ListedUser[];
   /** Own user ID (omitted from the list). */
   me: string | null;
-  /** Contact chosen: messages from this address (`search.searchFrom`). */
-  searchFrom: (email: string) => void;
   actions: SearchActions;
 }
 
@@ -203,7 +201,7 @@ function contactItems(input: SearchItemsInput): Candidate[] {
       av: avatar(label, c.email),
       path: c.email + (c.count > 0 ? ` · ${messagesText(c.count)}` : ''),
       extra: c.email,
-      run: () => input.searchFrom(c.email),
+      run: () => input.actions.searchFrom(c.email),
     };
   });
 }
