@@ -13,6 +13,7 @@ import { untrack } from 'svelte';
 import { api } from '#lib/api.ts';
 import { timeZoneOf } from '#lib/errors.ts';
 import { modKey } from '#lib/keys.ts';
+import { roleLabel } from '#lib/mailbox-nav.ts';
 import type { TimeContext } from '#lib/mail-list.ts';
 import { ALL_ACCOUNTS, mailboxParams } from '#lib/routes.ts';
 import { hitBox, searchCandidates } from '#lib/search-items.ts';
@@ -27,6 +28,7 @@ import {
   type ResultsValues,
 } from '#lib/search.ts';
 import { accounts } from '#lib/state/accounts.svelte.ts';
+import { compose, draftRef } from '#lib/state/compose.svelte.ts';
 import { contacts } from '#lib/state/contacts.svelte.ts';
 import { mailboxes } from '#lib/state/mailboxes.svelte.ts';
 import { network } from '#lib/state/network.svelte.ts';
@@ -37,8 +39,23 @@ import { tags } from '#lib/state/tags.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import type { ListedUser } from '#lib/users.svelte.ts';
 
-/** Open a found email: thread in its folder. */
-function openHit(hit: MailHit, box: HitBox): void {
+/**
+ * Open a found email: thread in its folder. An email in the account's drafts
+ * opens compose, back to "Drafts" (`select` + `pfOpen`); not after another
+ * navigation meanwhile.
+ */
+export function openHit(hit: MailHit, box: HitBox): void {
+  const drafts = mailboxes.role(hit.account, 'drafts')?.id;
+  if (drafts && hit.mailboxIds[drafts]) {
+    const list = mailboxParams(hit.account, { role: 'drafts' });
+    const ret = { href: resolve('/mailbox/[account]/[...path]', list), label: roleLabel('drafts') };
+    const draft = encodeURIComponent(draftRef({ account: hit.account, id: hit.id }));
+    const at = search.navigations;
+    void compose.openDraft(hit.account, hit.id, ret).then((ok) => {
+      if (ok && search.navigations === at) void goto(resolve('/compose/[draft]', { draft }));
+    });
+    return;
+  }
   const { account, path } = mailboxParams(hit.account, box.target);
   void goto(resolve('/mailbox/[account]/[...path]', { account, path: `${path}/${encodeURIComponent(hit.threadId)}` }));
 }

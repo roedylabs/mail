@@ -1120,15 +1120,22 @@ export class Compose {
     await Promise.allSettled([...this.#pending]);
     // After reloading the tab may not know the queue yet.
     await this.#outbox.restore();
+    // One that started meanwhile (e.g. closing) too: otherwise reusing the open draft would change its way back.
+    await Promise.allSettled([...this.#pending]);
     if (token !== this.#token) return false;
     ({ account, id } = this.#latest(account, id));
     // Sent: silently open nothing (the route goes to the drafts), so that no error toast replaces the toast "Message sent".
     if (this.#sent.has(draftRef({ account, id }))) return false;
+    // Already open: with the way back of this opening (opened before from another view, compose not shown then).
     const open = this.current?.saved;
-    if (open?.account === account && open.id === id) return true;
+    const reuse = () => {
+      if (ret && this.current) this.#set({ ...this.current, ret });
+      return true;
+    };
+    if (open?.account === account && open.id === id) return reuse();
     // A waiting version is newer than the state at the server and applies even once the connection is back.
     const parked = this.#outbox.findDraft(account, id);
-    if (parked && this.current?.parked === parked.key) return true;
+    if (parked && this.current?.parked === parked.key) return reuse();
     // Orphaned or still uploading in the background: this session instead of the state at the server.
     const orphan = [...this.#orphans, ...this.#busy].find(
       (s) => (s.saved?.account === account && s.saved.id === id) || (parked && s.parked === parked.key),

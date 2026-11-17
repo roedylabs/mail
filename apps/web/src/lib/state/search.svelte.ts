@@ -388,6 +388,8 @@ export class Search {
   /** Hit just opened: the navigation it starts becomes the return path's target. */
   #pending: { kind: ReturnKind; snap: SearchSnapshot } | null = null;
   #pendingTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Navigations started so far (`navigating()`): an opening that loads first goes nowhere after another one. */
+  navigations = 0;
 
   constructor(
     api: SearchApi = jmapSearchApi((account) => accounts.client(account)),
@@ -827,6 +829,7 @@ export class Search {
    * a return path whose target it leaves (J/K, another page).
    */
   navigating(path: string, returnable: boolean): void {
+    this.navigations++;
     const pending = this.#pending;
     this.#pending = null;
     clearTimeout(this.#pendingTimer);
