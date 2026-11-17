@@ -269,7 +269,7 @@ fn refused(error: anyhow::Error) -> ApiError {
 ///
 /// Only in maintenance mode, so that nobody changes data while it is being
 /// reset; otherwise 409 `maintenance_required` (the page shows the switch as
-/// off), also if it is turned off before the copy
+/// off), also if it is turned off before the copy, even if on again by then
 /// ([`backups::restore`] checks again). Like every refused restore, this changes nothing and writes no audit
 /// entry.
 async fn restore(
@@ -280,15 +280,16 @@ async fn restore(
 ) -> Result<Json<View>, ApiError> {
     let guard = state.backups.try_begin().ok_or_else(running)?;
     let backup = find(&state, id).await?;
-    if !state.maintenance.is_on() {
-        return Err(maintenance_required());
-    }
+    let maintenance = state
+        .maintenance
+        .period()
+        .ok_or_else(maintenance_required)?;
     let entry = audit_entry(Category::System, "backups.restore", &user, ip)
         .details(json!({ "at": backup.at.to_string() }));
     let worker = state.clone();
     tokio::spawn(async move {
         let _running = guard;
-        backups::restore(&worker, &backup, user, entry).await
+        backups::restore(&worker, &backup, user, entry, maintenance).await
     })
     .await
     .map_err(anyhow::Error::from)?

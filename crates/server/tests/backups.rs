@@ -951,7 +951,7 @@ async fn restoring_needs_the_rights_until_the_copy() {
     })
     .await
     .unwrap();
-    let error = backups::restore(&env.state, &backup, admin.clone(), entry())
+    let error = backups::restore(&env.state, &backup, admin.clone(), entry(), 0)
         .await
         .unwrap_err();
     assert_eq!(error.downcast_ref(), Some(&Refused::Forbidden));
@@ -968,7 +968,7 @@ async fn restoring_needs_the_rights_until_the_copy() {
     })
     .await
     .unwrap();
-    let error = backups::restore(&env.state, &backup, admin, entry())
+    let error = backups::restore(&env.state, &backup, admin, entry(), 0)
         .await
         .unwrap_err();
     assert_eq!(error.downcast_ref(), Some(&Refused::Unauthorized));
@@ -977,7 +977,8 @@ async fn restoring_needs_the_rights_until_the_copy() {
 }
 
 /// The handler checks maintenance mode before the preparation, the restore
-/// again right before the copy: turned off in between, nothing is reset.
+/// again right before the copy: turned off in between, nothing is reset, even
+/// if it is on again by then (people could have changed data meanwhile).
 #[tokio::test]
 async fn restoring_needs_maintenance_mode_until_the_copy() {
     let env = env().await;
@@ -1002,20 +1003,37 @@ async fn restoring_needs_maintenance_mode_until_the_copy() {
         role: Role::Admin,
         session_id: anna.1,
     };
+    let restore = |period| {
+        backups::restore(
+            &env.state,
+            &backup,
+            admin.clone(),
+            Entry::new(Category::System, "backups.restore"),
+            period,
+        )
+    };
+
+    // Off.
     env.maintenance(true).await;
+    let period = env.state.maintenance.period().unwrap();
     env.maintenance(false).await;
-
-    let error = backups::restore(
-        &env.state,
-        &backup,
-        admin,
-        Entry::new(Category::System, "backups.restore"),
-    )
-    .await
-    .unwrap_err();
-
+    let error = restore(period).await.unwrap_err();
     assert_eq!(error.downcast_ref(), Some(&Refused::Maintenance));
     untouched(&env).await;
+
+    // Off and on again.
+    env.maintenance(true).await;
+    let period = env.state.maintenance.period().unwrap();
+    env.maintenance(false).await;
+    env.maintenance(true).await;
+    let error = restore(period).await.unwrap_err();
+    assert_eq!(error.downcast_ref(), Some(&Refused::Maintenance));
+    untouched(&env).await;
+
+    // On throughout: restored.
+    let period = env.state.maintenance.period().unwrap();
+    restore(period).await.unwrap();
+    assert_eq!(env.usernames().await, ["anna", "ben", "mia"]);
 }
 
 #[tokio::test]

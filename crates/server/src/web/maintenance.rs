@@ -65,22 +65,46 @@ impl Mode {
 
 /// The state in memory; [`Self::set`] after every change.
 #[derive(Default)]
-pub struct Maintenance(RwLock<Mode>);
+pub struct Maintenance(RwLock<Current>);
+
+#[derive(Default)]
+struct Current {
+    mode: Mode,
+    /// Counts the times maintenance mode was turned on.
+    period: u64,
+}
 
 impl Maintenance {
     pub fn current(&self) -> Mode {
         self.0
             .read()
             .unwrap_or_else(PoisonError::into_inner)
+            .mode
             .clone()
     }
 
     pub fn set(&self, mode: Mode) {
-        *self.0.write().unwrap_or_else(PoisonError::into_inner) = mode;
+        let mut state = self.0.write().unwrap_or_else(PoisonError::into_inner);
+        if mode.on && !state.mode.on {
+            state.period += 1;
+        }
+        state.mode = mode;
     }
 
     pub fn is_on(&self) -> bool {
-        self.0.read().unwrap_or_else(PoisonError::into_inner).on
+        self.0
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .mode
+            .on
+    }
+
+    /// While maintenance mode is on: which time it was turned on. Compared
+    /// later, the same value means it stayed on in between (a restore needs
+    /// that until it copies, `crate::backups::restore`).
+    pub fn period(&self) -> Option<u64> {
+        let state = self.0.read().unwrap_or_else(PoisonError::into_inner);
+        state.mode.on.then_some(state.period)
     }
 
     /// Whether a session with this role may be created now; otherwise 503
@@ -153,9 +177,20 @@ mod tests {
 
         let maintenance = Maintenance::default();
         assert!(maintenance.admit(Role::User).is_ok());
-        maintenance.set(mode);
+        assert_eq!(maintenance.period(), None);
+        maintenance.set(mode.clone());
         assert!(maintenance.admit(Role::Admin).is_ok());
         assert!(maintenance.admit(Role::User).is_err());
+        let first = maintenance.period();
+        assert!(first.is_some());
+
+        // Staying on keeps the period, off and on again starts a new one.
+        maintenance.set(mode.clone());
+        assert_eq!(maintenance.period(), first);
+        maintenance.set(Mode::default());
+        assert_eq!(maintenance.period(), None);
+        maintenance.set(mode);
+        assert_ne!(maintenance.period(), first);
     }
 
     #[test]
