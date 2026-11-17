@@ -77,6 +77,16 @@ choice!(
         English = "en",
     }
 );
+
+impl Language {
+    /// Language code, as serialized; also the `lang` of the mails.
+    pub fn code(self) -> &'static str {
+        match self {
+            Self::German => "de",
+            Self::English => "en",
+        }
+    }
+}
 choice!(
     /// Country or region.
     Region {
@@ -650,6 +660,13 @@ mod tests {
         match result {
             Err(Rejected::Fields(fields)) => fields,
             other => panic!("expected field errors: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn language_code_is_the_serialized_value() {
+        for lang in [Language::German, Language::English] {
+            assert_eq!(serde_json::to_value(lang).unwrap(), json!(lang.code()));
         }
     }
 
