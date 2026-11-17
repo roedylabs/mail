@@ -105,7 +105,6 @@ export class SearchView {
       contacts: contacts.list,
       users: this.users,
       me: session.user?.id ?? null,
-      searchFrom: (email) => search.searchFrom(email),
       actions,
     });
   });

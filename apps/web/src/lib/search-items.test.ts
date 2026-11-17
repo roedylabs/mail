@@ -80,6 +80,7 @@ function actions(): SearchActions {
     addAccount: vi.fn(),
     invite: vi.fn(),
     openUser: vi.fn(),
+    searchFrom: vi.fn(),
     logout: vi.fn(),
   };
 }
@@ -98,7 +99,6 @@ function input(over: Partial<SearchItemsInput> = {}): SearchItemsInput {
     contacts: [],
     users: [],
     me: null,
-    searchFrom: vi.fn(),
     actions: actions(),
     ...over,
   };
@@ -123,7 +123,7 @@ describe('searchCandidates › contacts', () => {
       ['bo@example.org', 'bo@example.org', 'bo@example.org', 'B', 'ti-user'],
     ]);
     list[0]!.run();
-    expect(inp.searchFrom).toHaveBeenCalledWith('anna@example.com');
+    expect(inp.actions.searchFrom).toHaveBeenCalledWith('anna@example.com');
   });
 });
 

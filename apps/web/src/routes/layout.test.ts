@@ -672,6 +672,41 @@ describe('Shell layout', () => {
     search.reset();
   });
 
+  it('a contact in the search opens the filtered search from every page, on the search it stays', async () => {
+    search.reset();
+    const api = () =>
+      mockApi({
+        'GET public/config': [{ body: CONFIG }],
+        'GET auth/me': [{ body: me('user') }],
+        'GET settings': [{ body: SETTINGS }],
+        'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+      });
+    api();
+    const away = renderAt('/no-account');
+    await away.findByText('Page content');
+    search.q = 'anna';
+    search.actions!.searchFrom('anna@example.com');
+    expect(away.goto).toHaveBeenCalledWith('/search');
+    expect([search.q, search.sf.from, search.sf.cats, search.back]).toEqual([
+      '',
+      'anna@example.com',
+      ['mail'],
+      '/no-account',
+    ]);
+    expect(search.chips.map((c) => c.label)).toEqual(['Messages only', 'From: anna@example.com']);
+    away.unmount();
+    search.reset();
+    api();
+    const here = renderAt('/search');
+    await here.findByText('Page content');
+    here.goto.mockClear();
+    search.back = '/start';
+    search.actions!.searchFrom('bo@example.com');
+    expect(here.goto).not.toHaveBeenCalled();
+    expect([search.q, search.sf.from, search.sf.cats, search.back]).toEqual(['', 'bo@example.com', ['mail'], '/start']);
+    search.reset();
+  });
+
   it('opens shortcuts and command palette by keyboard, without ⇧M for users', async () => {
     mockApi({
       'GET public/config': [{ body: CONFIG }],

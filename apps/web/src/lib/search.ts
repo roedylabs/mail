@@ -562,5 +562,7 @@ export interface SearchActions {
   invite: () => void;
   /** Expand a user in Administration › Users. */
   openUser: (id: string) => void;
+  /** Contact chosen: messages from this address, outside the search page as results. */
+  searchFrom: (email: string) => void;
   logout: () => void;
 }
