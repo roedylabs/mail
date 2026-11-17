@@ -2,12 +2,16 @@
 //!
 //! Unknown `ROEDY_*` variables are ignored so that tools such as the Git hooks
 //! (`ROEDY_PUSH_MAIN`) can use their own variables. Empty values count as unset
-//! (e.g. `ROEDY_LOG=${ROEDY_LOG:-}` in Compose).
+//! (e.g. `ROEDY_LOG=${ROEDY_LOG:-}` in Compose). Values are text, without
+//! surrounding whitespace; each field parses what it needs.
 
-use std::{net::SocketAddr, path::PathBuf};
+use std::{collections::BTreeMap, net::SocketAddr, path::PathBuf};
 
 use anyhow::anyhow;
-use figment::{Figment, providers::Env};
+use figment::{
+    Figment,
+    providers::{Env, Serialized},
+};
 use serde::{Deserialize, Deserializer, de::Error as _};
 use url::Url;
 
@@ -118,9 +122,29 @@ impl Default for Config {
 impl Config {
     /// Reads the configuration from the environment.
     pub fn load() -> anyhow::Result<Self> {
-        let env = Env::prefixed(ENV_PREFIX)
-            .filter(|key| Env::var(&format!("{ENV_PREFIX}{key}")).is_some_and(|v| !v.is_empty()));
-        Self::from_figment(Figment::from(env))
+        Self::from_vars(
+            Env::prefixed(ENV_PREFIX)
+                .iter()
+                .map(|(key, value)| (key.to_string(), value)),
+        )
+    }
+
+    /// Reads the configuration from variables named without the prefix
+    /// (`secret_key` for `ROEDY_SECRET_KEY`).
+    ///
+    /// The values go to figment as strings on purpose: its `Env` provider
+    /// parses each value as data, so a key made only of digits arrived as a
+    /// number (without its leading zeros), `true` as a bool and `[a]` as an
+    /// array, and text fields rejected them.
+    fn from_vars(vars: impl IntoIterator<Item = (String, String)>) -> anyhow::Result<Self> {
+        let vars: BTreeMap<String, String> = vars
+            .into_iter()
+            .filter_map(|(key, value)| {
+                let value = value.trim();
+                (!value.is_empty()).then(|| (key.to_ascii_lowercase(), value.to_owned()))
+            })
+            .collect();
+        Self::from_figment(Figment::from(Serialized::defaults(vars)))
     }
 
     pub fn from_figment(figment: Figment) -> anyhow::Result<Self> {
@@ -158,7 +182,8 @@ fn public_url<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Option<Url>,
 }
 
 fn trust_proxy<'de, D: Deserializer<'de>>(deserializer: D) -> Result<TrustProxy, D::Error> {
-    // figment already delivers `true`/`2` from the environment as bool or number.
+    // The environment delivers text; other figment providers may deliver
+    // `true`/`2` as bool or number.
     #[derive(Deserialize)]
     #[serde(untagged)]
     enum Raw {
@@ -266,6 +291,105 @@ mod tests {
             assert_eq!(Config::load().unwrap(), Config::default());
             Ok(())
         });
+    }
+
+    #[test]
+    fn secret_key_made_only_of_digits_is_text() {
+        // Regression: the key arrived as the number 0 and was rejected.
+        let digits = "0".repeat(64);
+        Jail::expect_with(|jail| {
+            jail.set_env("ROEDY_SECRET_KEY", &digits);
+            let config = Config::load().unwrap();
+            assert_eq!(config.secret_key, Some(Secret::new(digits.clone())));
+            let (_, source) = crate::broker::crypto::SecretKey::load(&config).unwrap();
+            assert_eq!(source, crate::broker::crypto::KeySource::Env);
+            Ok(())
+        });
+    }
+
+    /// Values that look like a number, a bool or structured data.
+    const LOOKALIKES: [&str; 14] = [
+        "0",
+        "007",
+        "42",
+        "-1",
+        "1.50",
+        "1e3",
+        "inf",
+        "true",
+        "false",
+        "[a]",
+        "[1, 2]",
+        "{a=1}",
+        "\"quoted\"",
+        "a=b",
+    ];
+
+    #[test]
+    fn text_settings_are_read_verbatim() {
+        for value in LOOKALIKES {
+            Jail::expect_with(|jail| {
+                for key in [
+                    "ROEDY_DATA_DIR",
+                    "ROEDY_LOG",
+                    "ROEDY_WEB_DIR",
+                    "ROEDY_SECRET_KEY",
+                    "ROEDY_GEOIP_DB",
+                ] {
+                    jail.set_env(key, value);
+                }
+                let config = Config::load().unwrap_or_else(|e| panic!("{value}: {e}"));
+                assert_eq!(config.data_dir, PathBuf::from(value), "{value}");
+                assert_eq!(config.log, value);
+                assert_eq!(config.web_dir, Some(PathBuf::from(value)), "{value}");
+                assert_eq!(config.secret_key, Some(Secret::new(value)), "{value}");
+                assert_eq!(config.geoip_db, Some(PathBuf::from(value)), "{value}");
+                Ok(())
+            });
+            // Separately: both key sources together are rejected later on.
+            Jail::expect_with(|jail| {
+                jail.set_env("ROEDY_SECRET_KEY_FILE", value);
+                let config = Config::load().unwrap_or_else(|e| panic!("{value}: {e}"));
+                assert_eq!(config.secret_key_file, Some(PathBuf::from(value)));
+                Ok(())
+            });
+        }
+    }
+
+    /// Property: every text setting keeps any value as text, without the
+    /// surrounding whitespace. Random values from a fixed seed (no property
+    /// test crate in the workspace), weighted towards digits and the syntax of
+    /// figment's value parser.
+    #[test]
+    fn text_settings_keep_any_value() {
+        const CHARS: &[u8] = b"0123456789000000abcdefABCDEF+/=-_.,:[]{}\"' \txyz";
+        let mut state: u64 = 0x5EED_0019;
+        let mut next = |bound: usize| {
+            // xorshift64
+            state ^= state << 13;
+            state ^= state >> 7;
+            state ^= state << 17;
+            usize::try_from(state % bound as u64).unwrap()
+        };
+        for _ in 0..2_000 {
+            let len = next(70);
+            let raw: String = (0..len)
+                .map(|_| char::from(CHARS[next(CHARS.len())]))
+                .collect();
+            let vars = ["data_dir", "log", "web_dir", "secret_key", "geoip_db"]
+                .map(|key| (key.to_owned(), raw.clone()));
+            let config = Config::from_vars(vars).unwrap_or_else(|e| panic!("{raw:?}: {e}"));
+            let value = raw.trim();
+            if value.is_empty() {
+                assert_eq!(config, Config::default(), "{raw:?}");
+                continue;
+            }
+            assert_eq!(config.data_dir, PathBuf::from(value), "{raw:?}");
+            assert_eq!(config.log, value, "{raw:?}");
+            assert_eq!(config.web_dir, Some(PathBuf::from(value)), "{raw:?}");
+            assert_eq!(config.secret_key, Some(Secret::new(value)), "{raw:?}");
+            assert_eq!(config.geoip_db, Some(PathBuf::from(value)), "{raw:?}");
+        }
     }
 
     #[test]
