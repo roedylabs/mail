@@ -70,6 +70,31 @@ export function inScope(scope: SidebarScope, location: MailboxLocation | null): 
   return location.account === scope.key || (!scope.all && location.account === ALL_ACCOUNTS);
 }
 
+/** Where the app is, for `activeLocation`. */
+export interface ActiveInput {
+  /** Path of the address. */
+  path: string;
+  /** Mailbox, folder or tag of the address. */
+  location: MailboxLocation | null;
+  /** Last opened mailbox, folder or tag. */
+  lastMailbox: MailboxLocation | null;
+  /** Last page outside compose; `null` when compose was the first page. */
+  lastPage: string | null;
+}
+
+/**
+ * Mailbox, folder or tag the sidebar marks as active, if it belongs to the
+ * view: that of the address. Compose keeps the one the user came from,
+ * without one the view's inbox (the start view); opened from the search
+ * results none, like on the search itself.
+ */
+export function activeLocation(scope: SidebarScope, at: ActiveInput): MailboxLocation | null {
+  let location = at.location;
+  if (!location && at.path.startsWith('/compose/') && at.lastPage !== '/search')
+    location = at.lastMailbox ?? (scope.key ? { account: scope.key, role: 'inbox', thread: null } : null);
+  return inScope(scope, location) ? location : null;
+}
+
 export interface NavRowsInput {
   /** Role of the view if it shows a sidebar mailbox. */
   active: RoleId | null;

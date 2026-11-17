@@ -1602,6 +1602,14 @@ describe('Mailboxes in the shell', () => {
     expect(calls.filter((c) => c.path === JMAP)).toHaveLength(1);
   });
 
+  it('marks the inbox active in compose opened without a previous mailbox', async () => {
+    mockMail();
+    const { findByRole, container } = renderAt('/compose/new');
+    await findByRole('button', { name: /Inbox/ });
+    const rows = [...container.querySelectorAll('.panel.rows .row')];
+    expect(rows.map((r) => r.classList.contains('on'))).toEqual([true, false, false, false, false, false]);
+  });
+
   it('shows the tree without roles and “Tags” in the “Folders” tab, expands and opens folders', async () => {
     mockMail();
     const { findByRole, findByText, queryByText, getByRole, goto, container } = renderAt('/mailbox/a1/f/mu');

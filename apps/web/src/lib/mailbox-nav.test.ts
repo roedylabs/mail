@@ -2,12 +2,14 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   accountSwitch,
   accountTitle,
+  activeLocation,
   inScope,
   mailboxCommands,
   mobileRows,
   navRowsFor,
   sidebarScope,
   switcherValues,
+  type ActiveInput,
 } from './mailbox-nav.ts';
 import type { MailAccount } from '#lib/state/accounts.svelte.ts';
 
@@ -66,6 +68,60 @@ describe('mailboxes in sidebar and palette', () => {
     expect(inScope(sidebarScope([account('a1')], null, loc('all')), loc('all'))).toBe(true);
     expect(inScope(one, null)).toBe(false);
     expect(inScope(sidebarScope(null, null, null), loc('all'))).toBe(false);
+  });
+
+  describe('active mailbox', () => {
+    const sent = { account: 'a2', role: 'sent' as const, thread: null };
+    const folder = { account: 'a2', folder: 'f1', thread: 'th1' };
+    const tag = { account: 'all', tag: 't1', thread: null };
+    const at = (path: string, lastMailbox: ActiveInput['lastMailbox'], lastPage: string | null = null) => ({
+      path,
+      location: null,
+      lastMailbox,
+      lastPage,
+    });
+
+    it('is that of the address', () => {
+      const scope = sidebarScope(LIST, 'a1', sent);
+      expect(activeLocation(scope, { ...at('/mailbox/a2/sent', null), location: sent })).toEqual(sent);
+      // A mailbox of another view is not active.
+      expect(activeLocation(sidebarScope(LIST, 'a1', null), { ...at('/mailbox/a2/sent', null), location: sent })).toBe(
+        null,
+      );
+    });
+
+    it('stays the folder, tag or mailbox the user came from while compose is open', () => {
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent, '/mailbox/a2/sent'))).toEqual(
+        sent,
+      );
+      expect(activeLocation(sidebarScope(LIST, 'a1', folder), at('/compose/d1', folder, '/mailbox/a2/f/f1/th1'))).toEqual(
+        folder,
+      );
+      expect(activeLocation(sidebarScope(LIST, 'a1', tag), at('/compose/new', tag, '/mailbox/all/t/t1'))).toEqual(tag);
+      // Via settings or another page the last mailbox stays too.
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent, '/settings/general'))).toEqual(sent);
+    });
+
+    it('is the inbox of the view when compose is opened without a previous mailbox', () => {
+      expect(activeLocation(sidebarScope(LIST, 'a2', null), at('/compose/new', null))).toEqual({
+        account: 'a2',
+        role: 'inbox',
+        thread: null,
+      });
+      expect(activeLocation(sidebarScope(LIST, 'all', null), at('/compose/new', null, '/settings/general'))).toEqual({
+        account: 'all',
+        role: 'inbox',
+        thread: null,
+      });
+      expect(activeLocation(sidebarScope(null, null, null), at('/compose/new', null))).toBeNull();
+    });
+
+    it('is none on other pages and in compose opened from the search results', () => {
+      const scope = sidebarScope(LIST, 'a1', sent);
+      expect(activeLocation(scope, at('/search', sent, '/search'))).toBeNull();
+      expect(activeLocation(scope, at('/compose/new', sent, '/search'))).toBeNull();
+      expect(activeLocation(scope, at('/settings/general', sent, '/settings/general'))).toBeNull();
+    });
   });
 
   it('builds the account switch for an account, "All accounts" and without an account', () => {
