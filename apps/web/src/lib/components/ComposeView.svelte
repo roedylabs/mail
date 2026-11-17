@@ -2023,10 +2023,13 @@
     text-overflow: ellipsis;
   }
 
+  /* Overrides the serif desktop `h1` rule: body font with normal line height. */
   .m-title {
     margin: 0;
+    font-family: var(--font-sans);
     font-size: 16px;
     font-weight: 800;
+    line-height: normal;
   }
 
   .m-status {
