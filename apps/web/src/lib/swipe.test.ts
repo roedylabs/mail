@@ -646,6 +646,29 @@ describe('pullSheet', () => {
     expect(tapped).not.toHaveBeenCalled();
   });
 
+  it('leaves the sheet to a drag down that starts while it springs into place', () => {
+    vi.useFakeTimers();
+    const { tab, el, scrim, closed } = bar({ animations: true });
+    const off = dragSheet(() => ({ animations: true, scrim }))(el);
+    pull(tab, 121);
+    // 300 ms after the release the sheet is dragged down beyond 30 % and released: 240 ms to slide out.
+    pointer('pointerdown', 100, 400, el);
+    pointer('pointermove', 100, 410);
+    pointer('pointermove', 100, 530);
+    vi.advanceTimersByTime(300);
+    pointer('pointerup', 100, 530);
+    window.dispatchEvent(new MouseEvent('click'));
+    expect(el.style.translate).toBe('0px 408px');
+    // The pull's reset (470 ms after its release) does not put it back while it slides out.
+    vi.advanceTimersByTime(200);
+    expect(el.style.translate).toBe('0px 408px');
+    expect(scrim.style.opacity).toBe('0');
+    expect(closed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(40);
+    expect(closed).toHaveBeenCalledTimes(1);
+    off?.();
+  });
+
   it('closes like a sheet dragged down when released below 70 %', () => {
     vi.useFakeTimers();
     const { tab, el, scrim, closed } = bar();

@@ -531,6 +531,16 @@ function scroller(from: Element, stop: Element, axis: 'x' | 'y' = 'y'): HTMLElem
   return null;
 }
 
+/** Latest gesture on each sheet: a delayed reset only runs while its gesture still owns the sheet. */
+const owners = new WeakMap<HTMLElement, object>();
+
+/** The gesture takes over the sheet; returns its token. */
+function claim(el: HTMLElement): object {
+  const token = {};
+  owners.set(el, token);
+  return token;
+}
+
 /** Takes the gesture's inline styles off the panel and its backdrop again. */
 function resetSheet(el: HTMLElement, scrim: HTMLElement | null): void {
   el.style.transition = '';
@@ -629,6 +639,7 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
         },
         start: () => {
           clearTimeout(resetTimer);
+          claim(el);
           scrim = o.scrim === undefined ? el.parentElement : o.scrim;
           height = el.offsetHeight;
           el.style.transition = 'none';
@@ -723,12 +734,14 @@ export function pullSheet(get: () => SheetPull | null): Attachment<HTMLElement> 
       let hidden = 0;
       let off = 0;
       let dy = 0;
+      let token: object | null = null;
 
       /** The sheet once it is there: measured, without its open animation and transitions. */
       const sheet = (): HTMLElement | null => {
         if (el) return el;
         el = document.querySelector<HTMLElement>('[data-sheet]');
         if (!el) return null;
+        token = claim(el);
         const prev = el.previousElementSibling;
         scrim = prev instanceof HTMLElement && prev.matches('[data-scrim]') ? prev : null;
         height = el.offsetHeight;
@@ -767,10 +780,11 @@ export function pullSheet(get: () => SheetPull | null): Attachment<HTMLElement> 
             slideOut(s, sc, height, ms(sheetOutMs(height, vy)), () => (sc ? closeVia(sc) : o.close()));
             return;
           }
-          // The open animation stays off: removing it would play it again.
+          // The open animation stays off: removing it would play it again. A
+          // later drag on the sheet (`dragSheet`) takes it over: then no reset.
           resetTimer = setTimeout(
             () => {
-              if (!tracking) resetSheet(s, sc);
+              if (owners.get(s) === token) resetSheet(s, sc);
             },
             springIn(s, sc, ms(440)) + 30,
           );
