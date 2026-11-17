@@ -195,9 +195,11 @@ export class MailPreview {
     return this.load();
   }
 
-  /** Choose a template; the variant starts at the first. */
+  /**
+   * Choose a template; the variant starts at the first and the preview
+   * reloads. The active tab too: it resets the variant and reloads.
+   */
   setTemplate(key: TemplateKey): void {
-    if (key === this.tpl) return;
     this.tpl = key;
     this.variant = templateOf(key).variants[0]?.key ?? null;
     void this.load();

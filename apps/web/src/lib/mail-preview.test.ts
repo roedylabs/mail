@@ -281,10 +281,76 @@ describe('loading', () => {
     await vi.waitFor(() => expect(p.loading).toBe(false));
   });
 
+  it('the active tab resets the variant to the first and reloads with the loading state', async () => {
+    const login = { ...INVITE, subject: 'New sign-in' };
+    const pw = later({ body: { ...INVITE, subject: 'Password changed' } });
+    const again = later({ body: login });
+    const api = mockApi({
+      [path('template=security&variant=login&format=html&theme=light')]: [{ body: login }, again.reply],
+      [path('template=security&variant=password&format=html&theme=light')]: [pw.reply],
+    });
+    const p = new MailPreview();
+    p.setTemplate('security');
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    values(p).mvVarSel!.opts[2]!.onClick();
+    await vi.waitFor(() => expect(api.calls).toHaveLength(2));
+    pw.release();
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    expect(values(p).mvSubj).toBe('Password changed');
+
+    values(p).mvTabs[3]!.onClick();
+    let v = values(p);
+    expect(p.tpl).toBe('security');
+    expect(v.mvTabs[3]!.on).toBe(true);
+    // The select list shows the first variant right away, the previous preview stays dimmed.
+    expect(v.mvVarSel!.label).toBe('New sign-in');
+    expect(v.mvLoad).toMatchObject({ busy: true, spin: true, dim: true, ok: true });
+    expect(v.mvSubj).toBe('Password changed');
+    await vi.waitFor(() => expect(api.calls).toHaveLength(3));
+    again.release();
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    v = values(p);
+    expect(v.mvSubj).toBe('New sign-in');
+    expect(v.mvLoad).toMatchObject({ busy: false, spin: false, dim: false });
+    expect(api.calls.map((c) => c.path)).toEqual([
+      'admin/system-mail/preview?template=security&variant=login&format=html&theme=light&lang=en',
+      'admin/system-mail/preview?template=security&variant=password&format=html&theme=light&lang=en',
+      'admin/system-mail/preview?template=security&variant=login&format=html&theme=light&lang=en',
+    ]);
+  });
+
+  it('the active tab with segment variants and without variants also reloads', async () => {
+    const api = mockApi({
+      [path('template=system&variant=backup&format=html&theme=light')]: [{ body: INVITE }, { body: INVITE }],
+      [path('template=system&variant=update&format=html&theme=light')]: [{ body: INVITE }],
+      [path('template=invite&format=html&theme=light')]: [{ body: INVITE }, { body: INVITE }],
+    });
+    const p = new MailPreview();
+    p.setTemplate('system');
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    p.setVariant('update');
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    values(p).mvTabs[5]!.onClick();
+    expect(values(p).mvVarOpts.map((o) => o.on)).toEqual([true, false]);
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    values(p).mvTabs[0]!.onClick();
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    values(p).mvTabs[0]!.onClick();
+    expect(p.loading).toBe(true);
+    await vi.waitFor(() => expect(p.loading).toBe(false));
+    expect(p.variant).toBeNull();
+    expect(api.calls.map((c) => c.path.split('?')[1])).toEqual([
+      'template=system&variant=backup&format=html&theme=light&lang=en',
+      'template=system&variant=update&format=html&theme=light&lang=en',
+      'template=system&variant=backup&format=html&theme=light&lang=en',
+      'template=invite&format=html&theme=light&lang=en',
+      'template=invite&format=html&theme=light&lang=en',
+    ]);
+  });
+
   it('ignores unknown variants and the same choice', () => {
     const api = mockApi({});
     const p = new MailPreview();
-    p.setTemplate('invite');
     p.setVariant('login');
     p.setFormat('html');
     p.setTheme('light');
