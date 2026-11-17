@@ -231,6 +231,9 @@ impl Context<'_> {
 
 /// Values shared by every mail: colours, branding, footer.
 struct Frame<'a> {
+    /// Language code of the recipient for `lang` on `<html>` and the outer
+    /// table; the same language picks the template.
+    lang: &'static str,
     subject: &'a str,
     page: &'static str,
     card: &'static str,
@@ -262,6 +265,7 @@ impl<'a> Frame<'a> {
         let brand = ctx.brand;
         let some = |value: &'a Option<String>| value.as_deref().filter(|v| !v.trim().is_empty());
         Self {
+            lang: ctx.lang().code(),
             subject,
             page: colors.page,
             card: colors.card,
@@ -1158,10 +1162,21 @@ pub(super) mod tests {
         })
     }
 
+    /// `html` declares `lang` on `<html>` and on the outer layout table, so
+    /// clients that drop `<html>` (webmailers) keep the language.
+    fn assert_lang(html: &str, lang: &str) {
+        let doctype = format!("<!DOCTYPE html>\n<html lang=\"{lang}\">");
+        assert!(html.starts_with(&doctype), "<html lang> is not {lang}");
+        let outer = &html[html.find("<table").expect("no table")..];
+        let table = format!("<table role=\"presentation\" lang=\"{lang}\" width=\"100%\"");
+        assert!(outer.starts_with(&table), "outer table lang is not {lang}");
+    }
+
     /// `german` is the German rendering of the same mail as `english`: the
     /// subject comes from the German texts (for `digest_instant` it is the
     /// notice title `instant_title`), body and HTML are translated, every
-    /// placeholder is filled and the HTML declares German.
+    /// placeholder is filled and the HTML declares German, the English one
+    /// English.
     pub(in crate::mailer) fn assert_german(
         english: &Mail,
         german: &Mail,
@@ -1188,18 +1203,8 @@ pub(super) mod tests {
         assert_eq!(german.subject, subject, "{name}");
         assert_ne!(german.text, english.text, "{name}: text not translated");
         assert_ne!(german.html, english.html, "{name}: HTML not translated");
-        assert!(
-            german
-                .html
-                .starts_with("<!DOCTYPE html>\n<html lang=\"de\">"),
-            "{name}"
-        );
-        assert!(
-            english
-                .html
-                .starts_with("<!DOCTYPE html>\n<html lang=\"en\">"),
-            "{name}"
-        );
+        assert_lang(&german.html, "de");
+        assert_lang(&english.html, "en");
         for mail in [english, german] {
             for text in [&mail.subject, &mail.text, &mail.html] {
                 assert!(!has_placeholder(text), "{name}: placeholder in {text}");
