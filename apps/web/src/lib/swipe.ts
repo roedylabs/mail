@@ -781,8 +781,9 @@ export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> 
             // The new view: from the left and smaller, the layer underneath fades out (`gPending`).
             const slideIn = () => {
               release();
-              reset();
+              // Detached in the meantime: teardown has reset the page, which may now belong to a new gesture.
               if (!alive) return;
+              reset();
               if (o.animations && typeof el.animate === 'function') {
                 el.animate(
                   [

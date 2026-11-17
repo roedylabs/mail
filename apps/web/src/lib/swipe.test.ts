@@ -564,6 +564,11 @@ describe('swipeBack', () => {
     return { root, el, under, chip, strip, back, off };
   }
 
+  /** Lets pending promises (navigation, `tick`) settle. */
+  async function settle() {
+    for (let i = 0; i < 20; i++) await Promise.resolve();
+  }
+
   /** Swipes from (100, 300) sideways by `dx`: decided after 10 px, released after standing still. */
   function drag(target: Element, dx: number, end = 'pointerup') {
     const x = 100 + Math.sign(dx) * 10;
@@ -671,9 +676,7 @@ describe('swipeBack', () => {
     expect(second.back).toHaveBeenCalledTimes(1);
     // The late completion of the first page does not free the lock of the second one.
     shown();
-    await Promise.resolve();
-    await Promise.resolve();
-    await Promise.resolve();
+    await settle();
     drag(second.el, 120);
     vi.advanceTimersByTime(0);
     expect(second.back).toHaveBeenCalledTimes(1);
@@ -682,6 +685,34 @@ describe('swipeBack', () => {
     drag(second.el, 120);
     vi.advanceTimersByTime(0);
     expect(second.back).toHaveBeenCalledTimes(2);
+  });
+
+  it('leaves a new gesture on the same page alone when an old completion arrives late', async () => {
+    vi.useFakeTimers();
+    const { el, off, back } = page();
+    let shown = () => {};
+    back.mockImplementationOnce(() => new Promise<void>((done) => (shown = done)));
+    drag(el, 120);
+    vi.advanceTimersByTime(0);
+    expect(back).toHaveBeenCalledTimes(1);
+    off?.();
+    // Attached again to the same page (e.g. after switching the layout).
+    const again = swipeBack(() => ({ animations: false, back }))(el);
+    pointer('pointerdown', 100, 300, el);
+    pointer('pointermove', 110, 300);
+    pointer('pointermove', 200, 300);
+    expect(el.style.boxShadow).toBe('var(--sh3)');
+    expect(el.style.translate).not.toBe('');
+    // The first gesture's navigation settles late: the second one keeps its painting.
+    shown();
+    await settle();
+    expect(el.style.boxShadow).toBe('var(--sh3)');
+    expect(el.style.translate).not.toBe('');
+    vi.advanceTimersByTime(200);
+    pointer('pointerup', 150, 300);
+    window.dispatchEvent(new MouseEvent('click'));
+    vi.advanceTimersByTime(0);
+    again?.();
   });
 
   it('goes back on a fling before the threshold', () => {
