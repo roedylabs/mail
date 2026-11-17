@@ -574,6 +574,7 @@ describe('backups', () => {
   it.each([
     [422, 'backup_invalid', 'This backup is corrupted and can’t be restored.'],
     [409, 'backup_newer', 'This backup is from a newer version and can only be restored after an update.'],
+    [422, 'backup_older', 'This backup was created by an earlier version in a format that can no longer be restored.'],
     [
       409,
       'backup_other_key',

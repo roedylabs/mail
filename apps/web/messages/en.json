@@ -2666,6 +2666,7 @@
   "maintenance_bk_running": "A backup is running right now. Try again in a moment.",
   "maintenance_bk_invalid": "This backup is corrupted and can’t be restored.",
   "maintenance_bk_newer": "This backup is from a newer version and can only be restored after an update.",
+  "maintenance_bk_older": "This backup was created by an earlier version in a format that can no longer be restored.",
   "maintenance_bk_other_key": "This backup belongs to an instance with a different key (secret.key). Without that key, multi-factor authentication and email accounts would be unusable.",
   "maintenance_bk_restore_ok": "Restore",
   "maintenance_bk_restore_word": "RESTORE",

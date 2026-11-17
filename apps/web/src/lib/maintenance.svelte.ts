@@ -18,7 +18,7 @@
  * the offline text; `backup_running` shows the running button there without
  * a toast and checks again after `BK_RUNNING_WAIT`. Restore and delete report
  * a text per reason (`backup_running`, `backup_invalid`, `backup_newer`,
- * `backup_other_key`), otherwise the generic one. After a restore everything
+ * `backup_older`, `backup_other_key`), otherwise the generic one. After a restore everything
  * is different: configuration, account, settings and mail accounts reload,
  * and without a session the layout shows the sign-in.
  */
@@ -136,6 +136,7 @@ const BK_ERRORS: readonly [number, string, () => string][] = [
   [409, 'backup_running', m.maintenance_bk_running],
   [422, 'backup_invalid', m.maintenance_bk_invalid],
   [409, 'backup_newer', m.maintenance_bk_newer],
+  [422, 'backup_older', m.maintenance_bk_older],
   [409, 'backup_other_key', m.maintenance_bk_other_key],
 ];
 

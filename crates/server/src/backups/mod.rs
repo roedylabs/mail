@@ -313,8 +313,9 @@ impl Drop for Workspace {
 }
 
 /// Fingerprint of the instance key for the manifest. It does not reveal the
-/// key, but on restore it shows whether the backup's secrets would be
-/// readable.
+/// key, and it is the same in every backup: it only names the reason when the
+/// MAC does not fit ([`Refused::OtherKey`]); the MAC
+/// ([`archive::Manifest::mac`]) is the proof.
 fn key_mark(secrets: &SecretKey) -> String {
     STANDARD.encode(secrets.mac(KEY_PURPOSE, &[]))
 }
@@ -328,17 +329,17 @@ pub async fn create(state: &AppState, auto: bool) -> anyhow::Result<Backup> {
     let at = Timestamp::now();
     let name = Backup::file_name(&db::new_id()?, at, auto);
     let database = db::db_path(work.path());
-    let key = key_mark(&state.secrets);
     let snapshot = database.clone();
     let manifest = db::call(&state.db, move |conn| {
         db::snapshot(conn, &snapshot)?;
         let schema = migrations::current_version(conn)?;
-        Ok(archive::Manifest::new(at, auto, key, schema))
+        Ok(archive::Manifest::new(at, auto, schema))
     })
     .await?;
     let backups = state.backups.clone();
+    let secrets = state.secrets.clone();
     db::blocking(move || {
-        let size = archive::write(&database, &manifest, &work.path().join(&name))?;
+        let size = archive::write(&database, &manifest, &secrets, &work.path().join(&name))?;
         backups.publish(&work, &name, size)
     })
     .await
