@@ -91,7 +91,17 @@ function buildxProblems(text) {
       step.push(next);
     }
     if (!step.some((l) => /^\s*uses:\s*['"]?docker\/setup-buildx-action@/.test(l))) continue;
-    if (!step.some((l) => /^\s*driver-opts:.*\bimage=\$\{\{\s*steps\.buildkit\.outputs\.image\s*\}\}/.test(l))) {
+    // Only the action input counts: `driver-opts` under `with:` (not under `env:` or elsewhere).
+    const at = step.findIndex((l) => /^\s*with:\s*$/.test(l));
+    const inputs = [];
+    if (at !== -1) {
+      const withIndent = step[at].search(/\S/);
+      for (const l of step.slice(at + 1)) {
+        if (l.trim() && l.search(/\S/) <= withIndent) break;
+        inputs.push(l);
+      }
+    }
+    if (!inputs.some((l) => /^\s*driver-opts:.*\bimage=\$\{\{\s*steps\.buildkit\.outputs\.image\s*\}\}/.test(l))) {
       problems.push(
         `line ${i + 1}: setup-buildx-action without driver-opts image=\${{ steps.buildkit.outputs.image }}`,
       );
@@ -165,11 +175,16 @@ describe('buildxProblems', () => {
       '  - name: Other step',
       '    with:',
       '      driver-opts: image=moby/buildkit:latest',
+      '  - name: Builder with the image in env',
+      '    uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
+      '    env:',
+      '      driver-opts: image=${{ steps.buildkit.outputs.image }}',
     ].join('\n');
     assert.deepEqual(buildxProblems(text), [
       'line 2: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 6: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 9: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
+      'line 18: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
     ]);
   });
 });
