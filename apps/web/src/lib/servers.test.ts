@@ -1338,6 +1338,38 @@ describe('Reopening', () => {
     }
   });
 
+  it('keeps list and policy as the server knows them while a removal or toggle may yet fail', async () => {
+    const { p } = await loaded({
+      'DELETE admin/servers/s2': [() => new Promise(() => {})],
+      'PUT admin/servers/policy': [() => new Promise(() => {})],
+    });
+    const s2 = p.rows.find((s) => s.id === 's2');
+    if (!s2) throw new Error('no s2');
+    p.remove(s2);
+    ui.confirmOk();
+    p.toggleOwn();
+    expect([p.rows.map((s) => s.id), p.allowOwn]).toEqual([['s1'], true]);
+    p.dispose();
+    const q = new ServersPage();
+    expect([q.rows.map((s) => s.id), q.allowOwn]).toEqual([['s1', 's2'], false]);
+  });
+
+  it('keeps a confirmed removal and toggle', async () => {
+    const { p } = await loaded({
+      'DELETE admin/servers/s2': [{ status: 204 }],
+      'PUT admin/servers/policy': [{ body: { allow_custom_servers: true } }],
+    });
+    const s2 = p.rows.find((s) => s.id === 's2');
+    if (!s2) throw new Error('no s2');
+    p.remove(s2);
+    ui.confirmOk();
+    p.toggleOwn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    p.dispose();
+    const q = new ServersPage();
+    expect([q.rows.map((s) => s.id), q.allowOwn]).toEqual([['s1'], true]);
+  });
+
   it('signing out discards list and policy, also of a page left afterwards', async () => {
     const { p } = await loaded();
     p.dispose();

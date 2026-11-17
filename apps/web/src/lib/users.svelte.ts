@@ -105,6 +105,8 @@ interface Overlay {
   ids: readonly string[];
   /** Changed fields; without: rows removed. */
   patch?: RowPatch;
+  /** The rows without this change (as the server still knows them). */
+  undo: (rows: ListedUser[]) => ListedUser[];
 }
 
 /** Lifting a local change: revert it or, if the server knows it, settle it. */
@@ -326,9 +328,16 @@ export class UsersPage {
     await this.load();
   }
 
-  /** Leave the page: keep the list; late responses and errors after a toast expires load nothing any more. */
+  /**
+   * Leave the page: keep the list as the server knows it (without local changes
+   * still on their way, which may yet fail); late responses and errors after a
+   * toast expires load nothing any more.
+   */
   dispose(): void {
-    if (this.status === 'ready' && !this.#disposed) this.#keep($state.snapshot(this.rows));
+    if (this.status === 'ready' && !this.#disposed) {
+      const rows = this.#overlays.reduceRight((list, o) => o.undo(list), $state.snapshot(this.rows));
+      this.#keep(rows);
+    }
     this.#disposed = true;
     this.inviteLock.stop();
   }
@@ -556,20 +565,22 @@ export class UsersPage {
       .filter((u) => ids.includes(u.id))
       .map((u) => ({ id: u.id, role: u.role, status: u.status, mfa: u.mfa }));
     this.rows = this.rows.map((u) => (ids.includes(u.id) ? { ...u, ...patch } : u));
-    const settle = this.#overlay({ ids, patch });
+    const undo = (rows: ListedUser[]) =>
+      rows.map((u) => {
+        const prev = before.find((b) => b.id === u.id);
+        if (!prev) return u;
+        const back: Partial<ListedUser> = {};
+        for (const key of Object.keys(patch) as (keyof RowPatch)[]) {
+          (back as Record<string, unknown>)[key] = prev[key];
+        }
+        return { ...u, ...back };
+      });
+    const settle = this.#overlay({ ids, patch, undo });
     return {
       settle,
       revert: () => {
         settle();
-        this.rows = this.rows.map((u) => {
-          const prev = before.find((b) => b.id === u.id);
-          if (!prev) return u;
-          const back: Partial<ListedUser> = {};
-          for (const key of Object.keys(patch) as (keyof RowPatch)[]) {
-            (back as Record<string, unknown>)[key] = prev[key];
-          }
-          return { ...u, ...back };
-        });
+        this.rows = undo(this.rows);
       },
     };
   }
@@ -580,13 +591,16 @@ export class UsersPage {
     this.rows = rows.filter((u) => !ids.includes(u.id));
     this.selected = this.selected.filter((id) => !ids.includes(id));
     if (this.open && ids.includes(this.open)) this.open = null;
-    const settle = this.#overlay({ ids });
+    const undo = (now: ListedUser[]) => {
+      const known = now.map((u) => u.id);
+      return [...now, ...rows.filter((u) => ids.includes(u.id) && !known.includes(u.id))];
+    };
+    const settle = this.#overlay({ ids, undo });
     return {
       settle,
       revert: () => {
         settle();
-        const now = this.rows.map((u) => u.id);
-        this.rows = [...this.rows, ...rows.filter((u) => ids.includes(u.id) && !now.includes(u.id))];
+        this.rows = undo(this.rows);
       },
     };
   }

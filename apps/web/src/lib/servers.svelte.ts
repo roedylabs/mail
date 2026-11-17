@@ -213,6 +213,10 @@ export class ServersPage {
   #regSeq = 0;
   /** Servers whose removal the server has not confirmed yet: keep them out of reloaded lists. */
   #removing: string[] = [];
+  /** Their rows, as long as the removal may yet fail (kept list). */
+  #removingRows: AdminServer[] = [];
+  /** "Allow custom server URLs" as the server knows it (kept list; a toggle may yet fail). */
+  #ownKnown = false;
   /** Local changes per server; a test result only applies without newer ones. */
   #edits: Record<string, number> = {};
   /** Counts local changes of the list; a response older than the last one does not apply. */
@@ -232,7 +236,7 @@ export class ServersPage {
     this.rows = kept.rows;
     this.redirectUri = kept.redirectUri;
     this.systemServer = kept.systemServer;
-    this.allowOwn = kept.allowOwn;
+    this.allowOwn = this.#ownKnown = kept.allowOwn;
     this.status = 'ready';
     this.#reopened = true;
   }
@@ -265,7 +269,7 @@ export class ServersPage {
       this.redirectUri = list.redirect_uri;
       this.systemServer = list.system_mail_server;
       // A toggle during loading applies, not the older state.
-      if (policySeq === this.#policySeq) this.allowOwn = policy.allow_custom_servers;
+      if (policySeq === this.#policySeq) this.allowOwn = this.#ownKnown = policy.allow_custom_servers;
       this.status = 'ready';
       const ids = list.servers.map((s) => s.id);
       for (const id of this.diag) if (!ids.includes(id)) this.diag.delete(id);
@@ -289,11 +293,16 @@ export class ServersPage {
     await this.load();
   }
 
-  /** Leave the page: keep list and policy; late responses change nothing any more. */
+  /**
+   * Leave the page: keep list and policy as the server knows them (servers
+   * whose removal may yet fail stay in it); late responses change nothing any more.
+   */
   dispose(): void {
     if (this.status === 'ready' && !this.#disposed) {
-      const { rows, redirectUri, systemServer, allowOwn } = this;
-      this.#keep({ rows: $state.snapshot(rows), redirectUri, systemServer, allowOwn });
+      const { redirectUri, systemServer } = this;
+      const ids = this.rows.map((s) => s.id);
+      const rows = [...$state.snapshot(this.rows), ...this.#removingRows.filter((s) => !ids.includes(s.id))];
+      this.#keep({ rows, redirectUri, systemServer, allowOwn: this.#ownKnown });
     }
     this.#disposed = true;
     this.#regSeq++;
@@ -403,6 +412,7 @@ export class ServersPage {
         const before = this.rows;
         this.#changes++;
         this.#removing.push(server.id);
+        this.#removingRows.push(server);
         this.rows = before.filter((s) => s.id !== server.id);
         this.diag.delete(server.id);
         this.#edited(server.id);
@@ -416,6 +426,7 @@ export class ServersPage {
               return;
             }
             this.#removing = this.#removing.filter((x) => x !== server.id);
+            this.#removingRows = this.#removingRows.filter((s) => s.id !== server.id);
             this.#changes++;
             if (!this.rows.some((s) => s.id === server.id)) {
               this.rows = [...this.rows, ...before.filter((s) => s.id === server.id)];
@@ -430,6 +441,7 @@ export class ServersPage {
   #removed(id: string, sys: boolean): void {
     this.#changes++;
     this.#removing = this.#removing.filter((x) => x !== id);
+    this.#removingRows = this.#removingRows.filter((s) => s.id !== id);
     if (sys) {
       this.systemServer = null;
       // System mail without a server: banner and notice of the users page follow from `auth/me`.
@@ -449,6 +461,9 @@ export class ServersPage {
     this.#policy = this.#policy
       .catch(() => {})
       .then(() => api('PUT', 'admin/servers/policy', { allow_custom_servers: on }))
+      .then(() => {
+        this.#ownKnown = on;
+      })
       .catch((error: unknown) => {
         if (seq !== this.#policySeq) return;
         this.allowOwn = !on;

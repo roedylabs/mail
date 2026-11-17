@@ -734,11 +734,34 @@ describe('Reopening', () => {
     }
   });
 
-  it('keeps the devices as shown, without one whose sign-out with undo is pending', async () => {
+  it('keeps a device whose sign-out with undo is pending: it may yet be undone or fail', async () => {
     const { p } = await loaded();
     p.revoke('s1');
     p.dispose();
-    expect(new SecurityPage().sessions.map((s) => s.id)).toEqual(['s0', 's2']);
+    expect(new SecurityPage().sessions.map((s) => s.id)).toEqual(['s0', 's1', 's2']);
+  });
+
+  it('a reload that started before a removed app does not bring it back', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const after: MfaOverview = { devices: [LAPTOP], recovery: MFA.recovery };
+    let answer: (reply: { body: MfaOverview }) => void = () => {};
+    mockApi({
+      'GET auth/totp/devices': [() => new Promise((resolve) => (answer = resolve)), { body: after }],
+      'GET auth/sessions': [{ body: { sessions: SESSIONS } }, { body: { sessions: SESSIONS } }],
+      'DELETE auth/totp/devices/t1': [{ body: after }],
+    });
+    const q = new SecurityPage();
+    const load = q.load();
+    q.askRemove('t1');
+    q.setTPw('Secret-123');
+    q.setTCode('123456');
+    await q.confirmTotp();
+    expect(q.devices.map((d) => d.id)).toEqual(['t2']);
+    answer({ body: MFA });
+    await load;
+    await vi.waitFor(() => expect(q.devices.map((d) => d.id)).toEqual(['t2']));
+    expect(ui.toast?.text).toBe('iPhone removed');
   });
 
   it('signing out discards the data, also of a page left afterwards', async () => {

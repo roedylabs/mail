@@ -145,6 +145,8 @@ export class SecurityPage {
 
   #seq = 0;
   #enrollSeq = 0;
+  /** Counts changes confirmed by the server; a load that started before one does not apply. */
+  #changes = 0;
   #disposed = false;
   /** Reopened with the kept data: the next load reports a failure only as "Couldn’t update the list.". */
   #reopened = false;
@@ -173,13 +175,21 @@ export class SecurityPage {
     const seq = ++this.#seq;
     const reopened = this.#reopened;
     this.#reopened = false;
+    const changes = this.#changes;
     try {
       const [mfa, list] = await Promise.all([
         api<MfaOverview>('GET', 'auth/totp/devices'),
         api<{ sessions: ListedSession[] }>('GET', 'auth/sessions'),
       ]);
       if (seq !== this.#seq || this.#disposed) return;
-      this.#applyMfa(mfa);
+      // Changed in the meantime (app added or removed, devices signed out): the response is older, so reload.
+      if (changes !== this.#changes) {
+        this.#reopened = reopened;
+        void this.load();
+        return;
+      }
+      this.devices = mfa.devices;
+      this.recovery = mfa.recovery;
       this.sessions = list.sessions;
       this.status = 'ready';
     } catch (error) {
@@ -200,12 +210,11 @@ export class SecurityPage {
     void this.load();
   }
 
-  /** Leave the page: keep apps, codes and devices; late responses change nothing any more. */
+  /** Leave the page: keep apps, codes and devices as the server knows them; late responses change nothing any more. */
   dispose(): void {
     if (this.status === 'ready' && !this.#disposed) {
-      // As shown: without devices whose sign-out with undo is pending.
-      const sessions = this.sessions.filter((s) => !this.hidden.has(s.id));
-      this.#keep($state.snapshot({ devices: this.devices, recovery: this.recovery, sessions }));
+      // As the server knows them: devices whose sign-out with undo is pending stay (it may yet be undone or fail).
+      this.#keep($state.snapshot({ devices: this.devices, recovery: this.recovery, sessions: this.sessions }));
     }
     this.#disposed = true;
     this.#enrollSeq++;
@@ -251,6 +260,7 @@ export class SecurityPage {
       this.pwShowCur = this.pwShowNew = false;
       this.pwErr = null;
       // All other sessions are ended, open links from mails discarded.
+      this.#changes++;
       this.sessions = this.sessions.filter((s) => s.current);
       const user = session.user;
       if (user) session.user = { ...user, password_changed_at: res.password_changed_at, email_change: null };
@@ -567,6 +577,7 @@ export class SecurityPage {
           // Already ended or expired.
           if (!isApiError(error, 404)) throw error;
         }
+        this.#changes++;
         this.sessions = this.sessions.filter((s) => s.id !== id);
         this.hidden.delete(id);
       },
@@ -586,6 +597,7 @@ export class SecurityPage {
       },
       commit: async (keepalive) => {
         await api('POST', 'auth/sessions/revoke-others', undefined, { keepalive });
+        this.#changes++;
         this.sessions = this.sessions.filter((s) => s.current);
         for (const id of ids) this.hidden.delete(id);
         // Open links from mails are discarded.
@@ -602,7 +614,9 @@ export class SecurityPage {
 
   // ---- internal ----
 
+  /** Apps and codes after a change confirmed by the server. */
   #applyMfa(res: MfaOverview): void {
+    this.#changes++;
     this.devices = res.devices;
     this.recovery = res.recovery;
   }

@@ -1138,14 +1138,31 @@ describe('Reopening', () => {
     expect(ui.toast?.text).toBe('No connection. Please try again.');
   });
 
-  it('keeps local changes of the page', async () => {
-    const { p } = await loaded({ 'DELETE users/u3': [{ status: 204 }] });
-    const u3 = p.rows.find((u) => u.id === 'u3');
-    if (!u3) throw new Error('no u3');
-    p.remove(u3);
+  it('keeps changes the server confirmed, not those still on their way', async () => {
+    const { p } = await loaded({
+      'DELETE users/u3': [{ status: 204 }],
+      'DELETE users/u2': [() => new Promise(() => {})],
+    });
+    const row = (id: string) => {
+      const u = p.rows.find((x) => x.id === id);
+      if (!u) throw new Error(`no ${id}`);
+      return u;
+    };
+    p.remove(row('u3'));
     ui.confirmOk();
+    // Response of the server.
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    p.remove(row('u2'));
+    ui.confirmOk();
+    expect(p.rows.map((u) => u.id)).not.toContain('u2');
+    p.setRole(row('u1'), 'user');
     p.dispose();
-    expect(new UsersPage().rows.map((u) => u.id)).not.toContain('u3');
+    const kept = new UsersPage().rows;
+    expect(kept.map((u) => u.id)).not.toContain('u3');
+    // Removal still on its way (it may yet fail): the server still knows the user.
+    expect(kept.map((u) => u.id)).toContain('u2');
+    // Role change with undo not sent yet: the role the server knows.
+    expect(kept.find((u) => u.id === 'u1')?.role).toBe('admin');
   });
 
   it('signing out discards the list, also of a page left afterwards', async () => {
