@@ -7,8 +7,9 @@
 <script lang="ts">
   import { onMount } from 'svelte';
   import { tooltip } from '#lib/actions/tooltip.ts';
-  import ErrorView from '#lib/components/ErrorView.svelte';
   import Icon from '#lib/components/Icon.svelte';
+  import MailLoadCard from '#lib/components/MailLoadCard.svelte';
+  import Skeleton from '#lib/components/Skeleton.svelte';
   import { m } from '#lib/paraglide/messages.js';
   import { scrollToSection } from '#lib/sections.ts';
   import { SecurityPage, securityValues, type PwFieldValues } from '#lib/security.svelte.ts';
@@ -191,7 +192,8 @@
 {#snippet codesShown()}
   <div class="codes">
     <div class="codes-hint">
-      <span class="hint-icon"><Icon name="ti-alert-circle" /></span><span>{m.security_rc_hint()}</span>
+      <span class="hint-icon"><Icon name="ti-alert-circle" /></span><span class="hint-text">{m.security_rc_hint()}</span
+      >
     </div>
     <ol aria-label={m.security_rc_title()}>
       {#each v.rcCodes as c (c.n)}
@@ -218,8 +220,15 @@
     <p class="m-lead">{info?.desc}</p>
   {/if}
 
+  {#if v.skSet}<Skeleton kind="set" set="list" {isMobile} note={m.loading_data()} />{/if}
+
   {#if p.status === 'failed'}
-    <div class="failed"><ErrorView code={p.failure} retry={() => p.retry()} /></div>
+    <MailLoadCard
+      icon="ti-cloud-off"
+      title={m.security_load_failed()}
+      text={p.failure}
+      load={{ text: p.failure, retry: true, reauth: false, con: false, onRetry: () => p.retry(), goCon: () => {} }}
+    />
   {:else if p.status === 'ready'}
     <div class="tabs no-scrollbar">
       {#each v.secTabs as t (t.label)}<button type="button" class="tab" onclick={t.onClick}>{t.label}</button>{/each}
@@ -274,7 +283,7 @@
 
     <section data-sec="2fa" class="sec">
       <h2>{m.security_mfa_title()}</h2>
-      <p class="sec-desc">{isMobile ? m.security_mfa_desc_mobile() : m.security_mfa_desc()}</p>
+      <p class="sec-desc mfa">{isMobile ? m.security_mfa_desc_mobile() : m.security_mfa_desc()}</p>
       <div class="box">
         {#each v.tfaEntries as e (e.id)}
           <div>
@@ -330,7 +339,7 @@
           {#if v.rcForm}
             <div class="sep"></div>
             <div class="panel-in">
-              <div class="intro">{m.security_rc_form()}</div>
+              <div class="intro rc-intro">{m.security_rc_form()}</div>
               {@render credentials(v.rcPwVal, v.rcCodeVal, v.onRcPw, v.onRcCode, v.rcKey)}
               {#if isMobile}
                 {#if v.hasRcErr}<div role="alert" class="err">{v.rcErr}</div>{/if}
@@ -421,12 +430,6 @@
     color: var(--mfg);
   }
 
-  .failed {
-    margin-top: 26px;
-    display: flex;
-    flex-direction: column;
-  }
-
   .spin {
     display: grid;
     animation: var(--spin, none);
@@ -510,13 +513,14 @@
   .sec-desc {
     margin: 6px 0 0;
     font-size: 14.5px;
-    line-height: 1.5;
     color: var(--mfg);
-    text-wrap: pretty;
   }
 
+  /* "Recovery codes": line height 1.5, balanced wrapping on desktop only. */
   h3 + .sec-desc {
     margin-top: 4px;
+    line-height: 1.5;
+    text-wrap: pretty;
   }
 
   .mobile .sec-desc {
@@ -526,6 +530,12 @@
 
   .mobile h3 + .sec-desc {
     margin-top: 4px;
+    text-wrap: wrap;
+  }
+
+  /* "Multi-factor authentication" on mobile. */
+  .mobile .sec-desc.mfa {
+    line-height: 1.5;
   }
 
   .box {
@@ -569,6 +579,20 @@
 
   input:focus {
     box-shadow: 0 0 0 3px var(--acc);
+  }
+
+  /* On mobile, fields, tabs, rows and plain buttons change without a transition. */
+  .mobile input,
+  .mobile .tab,
+  .mobile .entry,
+  .mobile .eye,
+  .mobile .icon-btn,
+  .mobile .add,
+  .mobile .cancel,
+  .mobile .regen,
+  .mobile .done,
+  .mobile .others {
+    transition: none;
   }
 
   .mobile input {
@@ -892,6 +916,13 @@
     flex: 1 1 180px;
   }
 
+  /* The summary of the codes wraps instead of being cut off. */
+  .rc-row .entry-name {
+    overflow: visible;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
   .mobile .entry-text,
   .mobile .rc-row .entry-text {
     flex: 1;
@@ -998,6 +1029,11 @@
       color var(--dur, 220ms);
   }
 
+  .add :global(svg) {
+    width: 18px;
+    height: 18px;
+  }
+
   .add:hover {
     background: var(--hov);
     color: var(--fg);
@@ -1006,6 +1042,11 @@
   .mobile .add {
     height: 54px;
     font-size: 15px;
+  }
+
+  .mobile .add :global(svg) {
+    width: 19px;
+    height: 19px;
   }
 
   .mobile .add:hover {
@@ -1113,6 +1154,7 @@
   .mobile .step-text {
     margin-top: 2px;
     font-size: 13.5px;
+    text-wrap: wrap;
   }
 
   .secret {
@@ -1164,6 +1206,11 @@
     padding: 0 4px;
     font-size: 13.5px;
     text-wrap: wrap;
+  }
+
+  /* Form for new recovery codes: the text starts the panel. */
+  .intro.rc-intro {
+    margin-top: 0;
   }
 
   .pair {
@@ -1341,6 +1388,11 @@
     padding: 0 2px;
     font-size: 14px;
     text-wrap: wrap;
+  }
+
+  .hint-text {
+    flex: 1;
+    min-width: 0;
   }
 
   .hint-icon {

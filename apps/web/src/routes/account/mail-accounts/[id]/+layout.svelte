@@ -50,7 +50,6 @@
     margin: 10px 0 0;
     color: var(--mfg);
     font-size: 16px;
-    text-wrap: pretty;
   }
 
   .m-title {

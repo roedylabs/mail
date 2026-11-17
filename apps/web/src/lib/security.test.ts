@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { m } from '#lib/paraglide/messages.js';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
@@ -184,14 +185,14 @@ describe('Loading', () => {
     expect(p2.v().tfaEntries[0]?.sub).toContain('Added on 2026-10-01');
   });
 
-  it('shows the error page if the first load fails, and loads again', async () => {
+  it('shows the load card if the first load fails, and loads again', async () => {
     mockApi({
       'GET auth/totp/devices': [{ status: 500, body: {} }, { body: MFA }],
       'GET auth/sessions': [{ body: { sessions: SESSIONS } }, { body: { sessions: SESSIONS } }],
     });
     const p = new SecurityPage();
     await p.load();
-    expect([p.status, p.failure]).toEqual(['failed', '500']);
+    expect([p.status, p.failure]).toEqual(['failed', m.error_act()]);
     p.retry();
     await vi.waitFor(() => expect(p.status).toBe('ready'));
   });
@@ -203,7 +204,17 @@ describe('Loading', () => {
     );
     const p = new SecurityPage();
     await p.load();
-    expect([p.status, p.failure]).toEqual(['failed', 'offline']);
+    expect([p.status, p.failure]).toEqual(['failed', m.error_offline()]);
+  });
+
+  it('names the wait after too many requests on the first load', async () => {
+    mockApi({
+      'GET auth/totp/devices': [{ status: 429, body: { error: 'rate_limited', retry_after: 30 } }],
+      'GET auth/sessions': [{ body: { sessions: SESSIONS } }],
+    });
+    const p = new SecurityPage();
+    await p.load();
+    expect([p.status, p.failure]).toEqual(['failed', 'Too many requests. Try again in 30 seconds.']);
   });
 
   it('reports a failed reload with an error toast and keeps the list', async () => {

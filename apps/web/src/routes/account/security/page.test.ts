@@ -200,13 +200,17 @@ describe('Security page', () => {
     expect(view.getByRole('button', { name: 'Generate' })).toBeInTheDocument();
   });
 
-  it('shows the error page when loading fails', async () => {
+  it('shows the load card instead of the sections when loading fails', async () => {
     mockApi({
       'GET auth/totp/devices': [{ status: 500, body: {} }],
       'GET auth/sessions': [{ body: { sessions: SESSIONS } }],
     });
     const view = render(Page);
-    expect(await view.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    const card = await view.findByRole('alert');
+    expect(card).toHaveTextContent('Couldn’t load security settings');
+    expect(card).toHaveTextContent('That didn’t work. Please try again.');
+    expect(view.getByRole('button', { name: 'Try again' })).toBeInTheDocument();
+    expect(view.queryByRole('heading', { level: 2 })).toBeNull();
   });
 
   it('shows the sections at once on reopen and keeps them with a toast if loading fails', async () => {

@@ -1456,6 +1456,7 @@
   "security_mfa_desc": "When you sign in, you’ll also be asked for a code from an authenticator app. Every app you add generates valid codes.",
   "security_mfa_desc_mobile": "In addition to your password, you’ll be asked for a code from an authenticator app. Every app you add generates valid codes.",
   "security_mfa_empty": "No authenticator app set up yet",
+  "security_load_failed": "Couldn’t load security settings",
   "security_app_added_at": "Added on {date}",
   "security_app_used": "Last used {ago}",
   "security_app_remove_label": "Remove {name}",
