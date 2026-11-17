@@ -15,6 +15,7 @@ import { timeZoneOf } from '#lib/errors.ts';
 import { modKey } from '#lib/keys.ts';
 import { roleLabel } from '#lib/mailbox-nav.ts';
 import type { TimeContext } from '#lib/mail-list.ts';
+import { openDraft } from '#lib/open-draft.ts';
 import { ALL_ACCOUNTS, mailboxParams } from '#lib/routes.ts';
 import { hitBox, searchCandidates } from '#lib/search-items.ts';
 import {
@@ -28,7 +29,6 @@ import {
   type ResultsValues,
 } from '#lib/search.ts';
 import { accounts } from '#lib/state/accounts.svelte.ts';
-import { compose, draftRef } from '#lib/state/compose.svelte.ts';
 import { contacts } from '#lib/state/contacts.svelte.ts';
 import { mailboxes } from '#lib/state/mailboxes.svelte.ts';
 import { network } from '#lib/state/network.svelte.ts';
@@ -49,11 +49,7 @@ export function openHit(hit: MailHit, box: HitBox): void {
   if (drafts && hit.mailboxIds[drafts]) {
     const list = mailboxParams(hit.account, { role: 'drafts' });
     const ret = { href: resolve('/mailbox/[account]/[...path]', list), label: roleLabel('drafts') };
-    const draft = encodeURIComponent(draftRef({ account: hit.account, id: hit.id }));
-    const at = search.navigations;
-    void compose.openDraft(hit.account, hit.id, ret).then((ok) => {
-      if (ok && search.navigations === at) void goto(resolve('/compose/[draft]', { draft }));
-    });
+    void openDraft(hit.account, hit.id, ret);
     return;
   }
   const { account, path } = mailboxParams(hit.account, box.target);

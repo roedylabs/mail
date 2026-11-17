@@ -846,6 +846,19 @@ export class Search {
     else this.arrived(path);
   }
 
+  /**
+   * Mark for an opening that loads first (`stays()`). `own` navigations it
+   * starts itself meanwhile (closing the reading view) do not count.
+   */
+  mark(own = 0): number {
+    return this.navigations + own;
+  }
+
+  /** No other navigation started since `mark()`. */
+  stays(mark: number): boolean {
+    return this.navigations <= mark;
+  }
+
   /** A navigation ended at `path`: the return path applies only at its target. */
   arrived(path: string): void {
     if (this.ret && this.ret.target !== path) this.ret = null;
