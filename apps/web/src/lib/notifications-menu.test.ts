@@ -32,7 +32,16 @@ function actions(): NotifMenuActions {
 }
 
 function input(over: Partial<NotifMenuInput> = {}): NotifMenuInput {
-  return { isMobile: false, list: [], channels: ON, topics: {}, tz: 'Europe/Berlin', now: NOW, ...over };
+  return {
+    isMobile: false,
+    list: [],
+    loading: false,
+    channels: ON,
+    topics: {},
+    tz: 'Europe/Berlin',
+    now: NOW,
+    ...over,
+  };
 }
 
 describe('visibleNotifications', () => {
@@ -131,10 +140,25 @@ describe('notifMenuValues', () => {
       hasUnread: false,
     });
     expect(notifMenuValues(input({ list: null }), actions())).toMatchObject({
+      notifBusy: true,
       notifHas: false,
       notifEmpty: false,
       notifOff: false,
+      hasUnread: false,
     });
+  });
+
+  it('marks only shown entries busy while a reload runs, without placeholder rows', () => {
+    expect(notifMenuValues(input({ list: [entry('a')], loading: true }), actions())).toMatchObject({
+      notifBusy: false,
+      notifBusyAttr: true,
+      notifHas: true,
+    });
+    expect(notifMenuValues(input({ list: [entry('a')] }), actions()).notifBusyAttr).toBe(false);
+    // Switched off in the app: neither placeholder rows nor a busy list.
+    expect(
+      notifMenuValues(input({ list: null, loading: true, channels: { ...ON, app: false } }), actions()),
+    ).toMatchObject({ notifBusy: false, notifBusyAttr: false, notifOff: true });
   });
 
   it('passes actions through; Enter and space open, "Dismiss" does not open', () => {

@@ -45,6 +45,7 @@
   import NameDialog from '#lib/components/NameDialog.svelte';
   import NotificationsMenu from '#lib/components/NotificationsMenu.svelte';
   import TagList from '#lib/components/TagList.svelte';
+  import TreeSkeleton from '#lib/components/TreeSkeleton.svelte';
   import Toast from '#lib/components/Toast.svelte';
   import { toastLift } from '#lib/toast-lift.svelte.ts';
   import Tooltip from '#lib/components/Tooltip.svelte';
@@ -907,6 +908,7 @@
       {
         isMobile: ui.isMobile,
         list: notifications.list,
+        loading: notifications.loading,
         channels: prefs.values.nCh,
         topics: prefs.values.nMx,
         tz: timeZoneOf(prefs.values),
@@ -1199,8 +1201,14 @@
     const location = mailboxLocation ?? lastMailbox;
     return location && 'role' in location ? location.role : 'inbox';
   });
-  /** Show the folder tree once an account of the view has its mailboxes (empty before instead of "No folders yet"). */
+  /** Show the folder tree once an account of the view has its mailboxes (placeholder rows before instead of "No folders yet"). */
   const treeReady = $derived(scopeAccounts.some((a) => mailboxes.of(a.id)?.status === 'ready'));
+  /** Until the first response of the view's mailboxes: placeholder rows instead of the tree, without "New folder". */
+  const foldersBusy = $derived(
+    !treeReady && scopeAccounts.some((a) => (mailboxes.of(a.id)?.status ?? 'loading') === 'loading'),
+  );
+  /** Until the first response of the tags (with an account): placeholder rows instead of the list, without "New tag". */
+  const tagsBusy = $derived(scopeAccounts.length > 0 && tags.list === null && !tags.failed);
   const activeFolder = $derived.by(() => {
     if (!here || !('folder' in here)) return null;
     const account = here.account === ALL_ACCOUNTS ? here.owner : here.account;
@@ -1504,7 +1512,8 @@
     acctSw,
     allT2,
     // In "All accounts" every account has its "New folder in …" row in the tree.
-    addFShow: !scope.all,
+    addFShow: !scope.all && !foldersBusy,
+    addTShow: !tagsBusy,
     addF: () => addFolder(scope.account?.id ?? null),
     addT: addTag,
     onTab: (t: SidebarTab) => (sbTab = t),
@@ -1739,14 +1748,18 @@
 <svelte:document onmousedown={onDocDown} />
 <svelte:window onkeydown={onKey} />
 
-<!-- Folder tree of the sidebar or the "Mailboxes" sheet; empty until the first load instead of "No folders yet". -->
+<!-- Folder tree of the sidebar or the "Mailboxes" sheet; placeholder rows until the first load instead of "No folders yet". -->
 {#snippet folderTree()}
-  {#if folderValues && treeReady}<FolderTree {...folderValues} {sbBg} />{/if}
+  {#if foldersBusy}
+    <TreeSkeleton kind="folders" isMobile={ui.isMobile} lblOp={ui.isMobile || sbWide ? 1 : 0} />
+  {:else if folderValues && treeReady}<FolderTree {...folderValues} {sbBg} />{/if}
 {/snippet}
 
-<!-- Tag list of the sidebar or the "Mailboxes" sheet; empty until the first load instead of "No tags yet". -->
+<!-- Tag list of the sidebar or the "Mailboxes" sheet; placeholder rows until the first load instead of "No tags yet". -->
 {#snippet tagList()}
-  {#if tagValues}<TagList {...tagValues} {sbBg} />{/if}
+  {#if tagsBusy}
+    <TreeSkeleton kind="tags" isMobile={ui.isMobile} lblOp={ui.isMobile || sbWide ? 1 : 0} />
+  {:else if tagValues}<TagList {...tagValues} {sbBg} />{/if}
 {/snippet}
 
 <!-- Page content; administration without admin rights "Access denied". -->
@@ -1865,7 +1878,8 @@
             {acctSw}
             acctSwOpen={swOpen && accountCount > 0}
             {allT2}
-            addFShow={!scope.all}
+            addFShow={!scope.all && !foldersBusy}
+            addTShow={!tagsBusy}
             addF={() => addFolder(scope.account?.id ?? null)}
             addT={addTag}
             onCreate={openCompose}

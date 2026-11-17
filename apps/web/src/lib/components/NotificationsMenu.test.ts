@@ -44,6 +44,8 @@ function values(patch: Partial<NotifMenuValues> = {}): NotifMenuValues {
         ],
       },
     ],
+    notifBusy: false,
+    notifBusyAttr: false,
     notifHas: true,
     notifEmpty: false,
     notifOff: false,
@@ -217,15 +219,27 @@ describe('notifications', () => {
     expect(notifEnable).toHaveBeenCalledOnce();
   });
 
-  it('shows only the head before the first load', () => {
+  it.each([false, true])('shows placeholder rows before the first load (mobile: %s)', (isMobile) => {
     const { getByRole, queryByText, container } = render(
       NotificationsMenu,
-      values({ notifGroups: [], notifHas: false, hasUnread: false }),
+      values({ isMobile, notifGroups: [], notifBusy: true, notifHas: false, hasUnread: false }),
     );
     expect(getByRole('button', { name: 'Notification settings' })).toBeInTheDocument();
+    const busy = getByRole('status', { name: 'Loading notifications' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy.querySelectorAll('.sk-row')).toHaveLength(3);
     expect(container.querySelector('.scroll')).toBeNull();
     expect(container.querySelector('.state')).toBeNull();
     expect(queryByText('All quiet')).toBeNull();
+  });
+
+  it.each([false, true])('keeps the entries marked busy while reloading (mobile: %s)', async (isMobile) => {
+    const { getByText, queryByRole, rerender } = render(NotificationsMenu, values({ isMobile, notifBusyAttr: true }));
+    const list = getByText('Today').parentElement!.parentElement!;
+    expect(list).toHaveAttribute('aria-busy', 'true');
+    expect(queryByRole('status', { name: 'Loading notifications' })).toBeNull();
+    await rerender({ notifBusyAttr: false });
+    expect(list).toHaveAttribute('aria-busy', 'false');
   });
 
   it('shows the sheet content without a popover on mobile', async () => {

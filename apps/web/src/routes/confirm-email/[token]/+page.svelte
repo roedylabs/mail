@@ -163,6 +163,22 @@
             </div>
           {/if}
         </div>
+      {:else}
+        <!-- Until the response of the check only the skeleton of the card. -->
+        <div class="card">
+          <div class="sk" role="status" aria-busy="true" aria-label={m.ec_checking()}>
+            <span class="sk-tile" aria-hidden="true"></span>
+            <span class="sk-title" aria-hidden="true"></span>
+            <span class="sk-p1" aria-hidden="true"></span>
+            <span class="sk-p2" aria-hidden="true"></span>
+            <div class="sk-addr" aria-hidden="true">
+              <span class="sk-addr-icon"></span>
+              <div class="sk-addr-text"><span class="sk-addr-l"></span><span class="sk-addr-v"></span></div>
+            </div>
+            <span class="sk-btn" aria-hidden="true"></span>
+            <span class="sk-note" aria-hidden="true"></span>
+          </div>
+        </div>
       {/if}
     </main>
 
@@ -282,6 +298,115 @@
 
   main.narrow {
     padding: 16px 0;
+  }
+
+  /* Skeleton of the card until the response of the check */
+  .sk {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 8px 0;
+  }
+
+  /* Without specificity: the delays of the single bars below keep their value. */
+  :where(.sk > span, .sk-addr-text span) {
+    display: block;
+    background: var(--surface2);
+    animation: var(--shim, none);
+  }
+
+  .sk-tile {
+    width: 84px;
+    height: 84px;
+    border-radius: 28px;
+    transform: rotate(-5deg);
+  }
+
+  .sk-title {
+    margin-top: 28px;
+    width: 78%;
+    height: 34px;
+    border-radius: 12px;
+    animation-delay: 100ms;
+  }
+
+  .sk-p1,
+  .sk-p2 {
+    height: 14px;
+    border-radius: 7px;
+  }
+
+  .sk-p1 {
+    margin-top: 16px;
+    width: 92%;
+    animation-delay: 200ms;
+  }
+
+  .sk-p2 {
+    margin-top: 9px;
+    width: 66%;
+    animation-delay: 250ms;
+  }
+
+  .sk-addr {
+    margin-top: 24px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 64px;
+    padding: 6px 16px 6px 6px;
+    border-radius: 24px;
+    background: var(--surface2);
+  }
+
+  .sk-addr-icon {
+    width: 44px;
+    height: 44px;
+    flex-shrink: 0;
+    border-radius: 16px;
+    background: var(--surface);
+  }
+
+  .sk-addr-text {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .sk-addr-text span {
+    background: var(--sunken);
+    animation-delay: 300ms;
+  }
+
+  .sk-addr-l {
+    width: 40%;
+    height: 10px;
+    border-radius: 5px;
+  }
+
+  .sk-addr-v {
+    width: 64%;
+    height: 12px;
+    border-radius: 6px;
+  }
+
+  .sk-btn {
+    margin-top: 28px;
+    width: 100%;
+    height: 56px;
+    border-radius: 9999px;
+    animation-delay: 400ms;
+  }
+
+  .sk-note {
+    margin-top: 18px;
+    width: 84%;
+    height: 12px;
+    border-radius: 6px;
+    animation-delay: 450ms;
   }
 
   .card {

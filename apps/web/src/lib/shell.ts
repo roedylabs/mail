@@ -164,7 +164,9 @@ export interface MailboxMenuValues {
   inTag: boolean;
   acctSw: AccountSwitch;
   allT2: AccountTile[];
+  /** "New folder" and "New tag"; hidden while the tree or the list shows its placeholder rows. */
   addFShow: boolean;
+  addTShow: boolean;
   onTab: (tab: SidebarTab) => void;
   /** "New folder" and "New tag". */
   addF?: () => void;
@@ -218,7 +220,9 @@ export interface SidebarInput {
   acctSw: AccountSwitch;
   acctSwOpen: boolean;
   allT2: AccountTile[];
+  /** "New folder" and "New tag"; hidden while the tree or the list shows its placeholder rows. */
   addFShow: boolean;
+  addTShow: boolean;
 }
 
 const RT = [

@@ -50,6 +50,10 @@ export interface NotifGroup {
 export interface NotifMenuValues {
   isMobile: boolean;
   notifGroups: NotifGroup[];
+  /** Until the first response (channel "In the app" on): placeholder rows with `aria-busy`. */
+  notifBusy: boolean;
+  /** Reload of the shown entries running (`aria-busy` of the list). */
+  notifBusyAttr: boolean;
   notifHas: boolean;
   notifEmpty: boolean;
   notifOff: boolean;
@@ -73,8 +77,10 @@ export interface BellValues {
 
 export interface NotifMenuInput {
   isMobile: boolean;
-  /** Entries; `null` until the first response (then only the header). */
+  /** Entries; `null` until the first response (then placeholder rows). */
   list: readonly AppNotification[] | null;
+  /** A fetch is running: entries already shown stay, marked `aria-busy`, until its response. */
+  loading: boolean;
   /** Channels (`nCh`) and topics (`nMx`) of the settings. */
   channels: Channels;
   topics: Readonly<Record<string, Channels>>;
@@ -153,6 +159,8 @@ export function notifMenuValues(input: NotifMenuInput, actions: NotifMenuActions
     notifGroups: groups
       .filter(([, items]) => items.length > 0)
       .map(([label, items]) => ({ label, items: items.map((n) => item(n, input.now, actions)) })),
+    notifBusy: app && input.list === null,
+    notifBusyAttr: app && input.list !== null && input.loading,
     notifHas: app && visible.length > 0,
     notifEmpty: app && input.list !== null && visible.length === 0,
     notifOff: !app,

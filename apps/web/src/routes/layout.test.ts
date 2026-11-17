@@ -1862,7 +1862,7 @@ describe('Mailboxes in the shell', () => {
   });
 
   /** Two signed-in accounts with their own JMAP server; settings optionally with default "All accounts". */
-  function mockBoth(settings: Record<string, unknown> = {}) {
+  function mockBoth(settings: Record<string, unknown> = {}, pending = false) {
     const JMAP2 = 'https://s2.test/jmap/';
     // All addresses of the session on the account's server.
     const SESSION2 = {
@@ -1910,11 +1910,26 @@ describe('Mailboxes in the shell', () => {
       'GET mail-accounts/a2/token': [
         { body: { accessToken: 't2', expiresAt: '2099-01-01T00:00:00Z', session: SESSION2 } },
       ],
-      'GET tags': [{ body: { tags: tags2 } }],
-      [`POST ${JMAP}`]: [reply('j1', MAILBOXES)],
-      [`POST ${JMAP2}`]: [reply('j2', BOXES2)],
+      'GET tags': [pending ? () => new Promise(() => {}) : { body: { tags: tags2 } }],
+      [`POST ${JMAP}`]: [pending ? () => new Promise(() => {}) : reply('j1', MAILBOXES)],
+      [`POST ${JMAP2}`]: [pending ? () => new Promise(() => {}) : reply('j2', BOXES2)],
     });
   }
+
+  it('shows placeholder rows without “New folder” and “New tag” until the first response', async () => {
+    mockBoth({}, true);
+    const { findByRole, queryByRole } = renderAt('/mailbox/a1/inbox');
+    await fireEvent.click(await findByRole('tab', { name: /Folders/ }));
+    const folders = await findByRole('status', { name: 'Loading folders' });
+    expect(folders).toHaveAttribute('aria-busy', 'true');
+    expect(folders.querySelectorAll('.row')).toHaveLength(4);
+    await fireEvent.click(await findByRole('tab', { name: /Tags/ }));
+    const tagRows = await findByRole('status', { name: 'Loading tags' });
+    expect(tagRows).toHaveAttribute('aria-busy', 'true');
+    expect(tagRows.querySelectorAll('.row')).toHaveLength(3);
+    expect(queryByRole('button', { name: 'New tag', hidden: true })).toBeNull();
+    expect(queryByRole('button', { name: 'New folder', hidden: true })).toBeNull();
+  });
 
   it('shows “All accounts” with the role totals and opens mailboxes with 1–6', async () => {
     const { calls } = mockBoth();

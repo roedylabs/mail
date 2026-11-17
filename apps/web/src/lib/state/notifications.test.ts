@@ -75,6 +75,20 @@ describe('Fetch', () => {
     expect(n.list?.map((x) => x.id)).toEqual(['a', 'b']);
   });
 
+  it('reports a running fetch until its answer, also after an error', async () => {
+    mockApi({ 'GET notifications': [answer(entry('a')), { status: 500 }] });
+    const first = n.load();
+    expect(n.loading).toBe(true);
+    await first;
+    expect(n.loading).toBe(false);
+    const second = n.load();
+    expect(n.loading).toBe(true);
+    await second;
+    expect(n.loading).toBe(false);
+    n.reset();
+    expect(n.loading).toBe(false);
+  });
+
   it('keeps the last state on an error', async () => {
     mockApi({ 'GET notifications': [answer(entry('a')), { status: 500 }] });
     await n.load();

@@ -119,8 +119,10 @@ function untilText(iso: string): string {
 export class InviteFlow {
   token = $state('');
   status = $state<InviteStatus>('loading');
-  /** Loading without a server response (network): error page "offline" instead of 500. */
+  /** Loading without a server response (network): error card "offline" instead of 500. */
   offline = $state(false);
+  /** "Try again" of the error card is running: the card stays with "Checking …". */
+  retrying = $state(false);
   info = $state<InviteInfo | null>(null);
   /** Expired (when loading or `invite_expired` later). */
   expired = $state(false);
@@ -251,6 +253,7 @@ export class InviteFlow {
     clearTimeout(this.doneTimer);
     this.token = token;
     this.status = 'loading';
+    this.retrying = false;
     this.info = null;
     this.expired = false;
     this.step = 1;
@@ -268,12 +271,13 @@ export class InviteFlow {
   }
 
   /**
-   * `GET invites/:token`. As "Try again" of the error page the error
-   * stays until the response is there (otherwise the error page would vanish).
+   * `GET invites/:token`. As "Try again" of the error card the card
+   * stays with "Checking …" until the response is there.
    */
   async load(): Promise<void> {
     const req = ++this.req;
     if (this.status !== 'failed') this.status = 'loading';
+    this.retrying = this.status === 'failed';
     try {
       const info = await api<InviteInfo>('GET', `invites/${encodeURIComponent(this.token)}`);
       if (req !== this.req) return;
@@ -285,6 +289,8 @@ export class InviteFlow {
       if (req !== this.req) return;
       this.status = isApiError(error, 404) ? 'missing' : 'failed';
       this.offline = !(error instanceof ApiError);
+    } finally {
+      if (req === this.req) this.retrying = false;
     }
   }
 

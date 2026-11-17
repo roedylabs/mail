@@ -45,6 +45,7 @@ function input(patch: Partial<SidebarInput> = {}): SidebarInput & { collapsed: b
     acctSwOpen: false,
     allT2: [],
     addFShow: true,
+    addTShow: true,
     ...patch,
   };
 }
