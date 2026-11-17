@@ -8,6 +8,7 @@
   shortcuts.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import '@fontsource-variable/nunito-sans/opsz.css';
   import '@fontsource/young-serif/400.css';
   import '../app.css';
@@ -1730,7 +1731,7 @@
           <main class="card">{@render content()}</main>
         {:else}
           <SettingsNav {...settingsNav} />
-          <main class="card scroll no-scrollbar">
+          <main class="card scroll no-scrollbar" {@attach scrollbar}>
             <div class="panel">{@render content()}</div>
           </main>
         {/if}

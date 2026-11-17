@@ -11,6 +11,7 @@
   sign-in.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
@@ -95,7 +96,7 @@
   );
 </script>
 
-<svelte:element this={tag()} class="error no-scrollbar" class:mobile={ui.isMobile}>
+<svelte:element this={tag()} class="error no-scrollbar" class:mobile={ui.isMobile} {@attach scrollbar}>
   <!-- Centered with `margin: auto`, so that content that is too tall is not cut off at the top -->
   <div class="inner">
     <span class="kicker">{v.er.kicker}</span>

@@ -10,6 +10,7 @@
   page of this device (`#lib/last-page.ts`).
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { afterNavigate, goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { navigating } from '$app/state';
@@ -77,7 +78,7 @@
 {#if !failed || home}
   <Skeleton kind="home" isMobile={ui.isMobile} />
 {:else}
-  <div class="start no-scrollbar" class:mobile={ui.isMobile}>
+  <div class="start no-scrollbar" class:mobile={ui.isMobile} {@attach scrollbar}>
     <div class="content">
       {#if ui.isMobile}
         <div class="art-frame"><div class="art">{@render values.emptyArt()}</div></div>

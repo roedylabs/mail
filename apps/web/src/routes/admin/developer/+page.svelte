@@ -10,6 +10,7 @@
   - There is no beta switch.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
@@ -110,7 +111,7 @@
         {@render logTool('ti-copy', m.dev_log_copy(), v.devLogCopy)}
         {@render logTool('ti-eraser', m.dev_log_clear(), v.devLogClear)}
       </div>
-      <div role="log" aria-label={m.dev_tab_log()} class="log no-scrollbar">
+      <div role="log" aria-label={m.dev_tab_log()} class="log no-scrollbar" {@attach scrollbar}>
         {#each v.devLogRows as e (e.id)}
           <div class="log-row">
             <span class="log-time">{e.time}</span>

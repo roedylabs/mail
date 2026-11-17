@@ -9,6 +9,7 @@
   reports the marked row as `activeId` for `aria-activedescendant`.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { NARROW } from '@roedy/tokens';
   import { tick } from 'svelte';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -188,7 +189,7 @@
     </div>
   {/if}
 
-  <div class="list no-scrollbar" id={listId} role="listbox" aria-label={m.search_kicker()}>
+  <div class="list no-scrollbar" {@attach scrollbar} id={listId} role="listbox" aria-label={m.search_kicker()}>
     {#if rp.idle}
       <div class="idle">
         {#if recent.length}

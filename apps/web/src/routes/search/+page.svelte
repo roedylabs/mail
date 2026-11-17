@@ -16,6 +16,7 @@
   empty text of its own; when the network returns, the server answers.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
@@ -164,7 +165,7 @@
     {#if search.pending}
       <Skeleton kind="srch" />
     {:else}
-      <div class="scroll no-scrollbar" data-scroll>
+      <div class="scroll no-scrollbar" data-scroll {@attach scrollbar}>
         <div class="pad">
           <div class="inner">
             <div class="head">

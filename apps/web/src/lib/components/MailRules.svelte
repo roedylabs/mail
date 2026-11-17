@@ -14,6 +14,7 @@
   `MailLoadCard`; the head by the email account's layout.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { autofocus } from '#lib/actions/autofocus.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -594,6 +595,7 @@
         class="opts"
         class:no-scrollbar={!isMobile}
         use:pickPop
+        {@attach scrollbar}
       >
         {#each a.opts as o, i (o.id)}
           <button

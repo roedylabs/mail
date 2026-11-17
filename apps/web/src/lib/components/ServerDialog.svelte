@@ -7,6 +7,7 @@
   (layout).
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { focustrap } from '#lib/actions/focustrap.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -218,7 +219,7 @@
           ><Icon name="ti-x" /></button
         >
       </div>
-      <div class="body no-scrollbar">
+      <div class="body no-scrollbar" {@attach scrollbar}>
         <div class="grid">
           <label class="field">
             <span class="field-label">{m.server_label()}</span>

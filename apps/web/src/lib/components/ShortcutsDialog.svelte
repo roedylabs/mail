@@ -3,6 +3,7 @@
   click on the backdrop close it.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { focustrap } from '#lib/actions/focustrap.ts';
   import type { ShortcutsDialogValues } from '#lib/shell.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -40,7 +41,7 @@
     </div>
     <!-- Scroll area: reachable via Tab, so that arrow keys and scrolling move it, and named. -->
     <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-    <div class="list" role="region" aria-label={m.shortcuts_title()} tabindex="0">
+    <div class="list no-scrollbar" {@attach scrollbar} role="region" aria-label={m.shortcuts_title()} tabindex="0">
       {#each shortcuts as s (s.d)}
         <div class="row">
           <span class="d">{s.d}</span>
