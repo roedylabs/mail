@@ -1164,21 +1164,12 @@ pub(super) mod tests {
 
     /// `html` declares `lang` on `<html>` and on the outer layout table, so
     /// clients that drop `<html>` (webmailers) keep the language.
-    fn assert_lang(html: &str, lang: &str, name: &str) {
+    fn assert_lang(html: &str, lang: &str) {
         let doctype = format!("<!DOCTYPE html>\n<html lang=\"{lang}\">");
-        assert!(
-            html.starts_with(&doctype),
-            "{name}: <html lang> is not {lang}"
-        );
-        let outer = html
-            .find("<table")
-            .map(|start| &html[start..])
-            .unwrap_or_else(|| panic!("{name}: no table"));
+        assert!(html.starts_with(&doctype), "<html lang> is not {lang}");
+        let outer = &html[html.find("<table").expect("no table")..];
         let table = format!("<table role=\"presentation\" lang=\"{lang}\" width=\"100%\"");
-        assert!(
-            outer.starts_with(&table),
-            "{name}: outer table lang is not {lang}"
-        );
+        assert!(outer.starts_with(&table), "outer table lang is not {lang}");
     }
 
     /// `german` is the German rendering of the same mail as `english`: the
@@ -1212,8 +1203,8 @@ pub(super) mod tests {
         assert_eq!(german.subject, subject, "{name}");
         assert_ne!(german.text, english.text, "{name}: text not translated");
         assert_ne!(german.html, english.html, "{name}: HTML not translated");
-        assert_lang(&german.html, "de", name);
-        assert_lang(&english.html, "en", name);
+        assert_lang(&german.html, "de");
+        assert_lang(&english.html, "en");
         for mail in [english, german] {
             for text in [&mail.subject, &mail.text, &mail.html] {
                 assert!(!has_placeholder(text), "{name}: placeholder in {text}");
