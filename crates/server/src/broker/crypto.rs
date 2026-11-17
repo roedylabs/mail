@@ -128,10 +128,23 @@ impl SecretKey {
     /// known device: without the key it cannot be recovered from a
     /// copy of the database by trial.
     pub fn mac(&self, purpose: &str, parts: &[&[u8]]) -> [u8; 32] {
+        self.mac_state(purpose, parts)
+            .finalize()
+            .into_bytes()
+            .into()
+    }
+
+    /// Whether `tag` is [`Self::mac`] over `parts` for `purpose`; compares in
+    /// constant time.
+    pub fn verify(&self, purpose: &str, parts: &[&[u8]], tag: &[u8]) -> bool {
+        self.mac_state(purpose, parts).verify_slice(tag).is_ok()
+    }
+
+    fn mac_state(&self, purpose: &str, parts: &[&[u8]]) -> Hmac<Sha256> {
         let mut all = Vec::with_capacity(parts.len() + 1);
         all.push(purpose.as_bytes());
         all.extend_from_slice(parts);
-        hmac(&self.mac, &all)
+        hmac_state(&self.mac, &all)
     }
 
     /// 64 hex characters or Base64 (with or without padding) for 32 bytes;
@@ -246,12 +259,18 @@ fn aad(purpose: &str, row: &str) -> Vec<u8> {
 /// HMAC-SHA-256; parts prefixed with their length so that "ab" + "c" does not
 /// equal "a" + "bc".
 fn hmac(key: &[u8], parts: &[&[u8]]) -> [u8; 32] {
+    hmac_state(key, parts).finalize().into_bytes().into()
+}
+
+/// Each part with its length in front, so that no part can shift into the
+/// next one.
+fn hmac_state(key: &[u8], parts: &[&[u8]]) -> Hmac<Sha256> {
     let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("HMAC takes any length");
     for part in parts {
         mac.update(&u64::try_from(part.len()).unwrap_or(u64::MAX).to_be_bytes());
         mac.update(part);
     }
-    mac.finalize().into_bytes().into()
+    mac
 }
 
 fn write_new_private(path: &Path, contents: &[u8]) -> std::io::Result<()> {
@@ -322,6 +341,19 @@ mod tests {
         assert_ne!(a, key.mac("device", &[b"a", b"bc"]));
         assert_ne!(a, key.mac("other", &[b"ab", b"c"]));
         assert_ne!(a, other.mac("device", &[b"ab", b"c"]));
+    }
+
+    #[test]
+    fn verify_accepts_only_the_exact_mac() {
+        let key = SecretKey::random().unwrap();
+        let tag = key.mac("device", &[b"ab", b"c"]);
+        assert!(key.verify("device", &[b"ab", b"c"], &tag));
+        assert!(!key.verify("device", &[b"a", b"bc"], &tag));
+        assert!(!key.verify("other", &[b"ab", b"c"], &tag));
+        assert!(!key.verify("device", &[b"ab", b"c"], &tag[..31]));
+        assert!(!key.verify("device", &[b"ab", b"c"], &[]));
+        let other = SecretKey::random().unwrap();
+        assert!(!other.verify("device", &[b"ab", b"c"], &tag));
     }
 
     #[test]

@@ -225,7 +225,7 @@ Procedure, location, key and manual restore are described in [Operations › Bac
 | Container logs | Docker |
 | other backups | `<ROEDY_DATA_DIR>/backups` |
 
-A file contains exactly `manifest.json` and `roedy.sqlite3`. Secrets such as the credentials of the mail accounts and authenticator apps are encrypted individually in it; names, addresses and the audit log, however, are readable. The files have mode `0600`. That no longer applies to the copy after downloading.
+A file contains exactly `manifest.json` and `roedy.sqlite3`. The manifest (format 2) names format, program and schema version, time, type, a fingerprint of the instance key and an HMAC-SHA-256 with the instance key over all these fields (each with its length in front) and the SHA-256 of `roedy.sqlite3`. The restore checks the HMAC in constant time and rejects a file whose database or manifest was changed, even if the fingerprint was copied from a real backup; the fingerprint only decides whether the error names a different key. Files in format 1 (without HMAC) are rejected. The database unpacks to at most 64 times the size of the file, but always to 64 MiB; beyond that the restore stops and deletes what it unpacked. Secrets such as the credentials of the mail accounts and authenticator apps are encrypted individually in it; names, addresses and the audit log, however, are readable. The files have mode `0600`. That no longer applies to the copy after downloading.
 
 **Download** delivers the file directly, without caching, and is recorded in the audit log. There is no upload in the browser: a file comes in from outside by putting it into `<ROEDY_DATA_DIR>/backups`. It must keep its name (`roedy-mail-<time>-auto|manual-<ulid>.tar.zst`), be a regular file and stay readable for user 65532.
 
@@ -235,7 +235,7 @@ A file contains exactly `manifest.json` and `roedy.sqlite3`. Secrets such as the
 
 **Notices:** Events only exist for scheduled backups, to all active administrators in the System topic. "Backup created" can trigger the system notice "Backup completed", "Backup failed" comes via the digest. Email is off by default for this topic. The cause of a failure is only in the log. Only one backup or restore runs at a time; meanwhile nothing can be deleted either.
 
-**After a restore**, in addition to [Operations](../ops.md#backup-and-restore): all sessions except your own end, and with them the web push subscriptions. Notification emails already sent since the backup may arrive again. The audit log is at the state of the backup, plus the entry about the restore.
+**After a restore**, in addition to [Operations](../ops.md#backup-and-restore): all sessions except your own end, and with them the web push subscriptions. Notification emails already sent since the backup may arrive again. The audit log is not reset: entries since the backup (such as downloads of backups and exports of the audit log) stay, plus the entry about the restore. Entries of people the backup does not know keep their name, but no longer link to a user.
 
 ### Storage
 
@@ -300,12 +300,12 @@ Details about GitHub only appear at level `debug`: `ROEDY_LOG=info,roedy_mail_se
 | Start fails: `The database schema (version …) is newer than this program version` | An older version on a newer database | Start the newer version; going back only with a backup from before, by hand as in [Operations](../ops.md#backup-and-restore) |
 | Button "Running …" | A backup or restore is already running (`backup_running`) | Wait; the page checks again by itself |
 | "Back up now" reports the general error, entry "Backup failed" | Log `internal error`, for scheduled backups `backup failed`: no space or no permissions in the `backups` directory | Free up space, check owner `65532` |
-| "Restore" reports the general error | The page does not distinguish. In the browser's network tab: 422 `backup_invalid` (damaged; log `backup not readable` or `backup database not readable`), 409 `backup_newer` (from a newer program version), 409 `backup_other_key` (different instance key), 500 (for example no space). In each of these cases nothing was changed. | Use another backup, update the program, use the matching key or free up space |
+| "Restore" reports the general error | The page does not distinguish. In the browser's network tab: 422 `backup_invalid` (damaged or changed; log `backup not readable`, `backup database not readable`, `backup not authentic` or `backup database larger than the limit`), 422 `backup_older` (format 1 without HMAC), 409 `backup_newer` (from a newer program version), 409 `backup_other_key` (different instance key), 500 (for example no space). In each of these cases nothing was changed. | Use another backup, update the program, use the matching key or free up space |
 | Copied backup missing from the list | Name changed, or not a regular file (link) | Use the original name, a file instead of a link |
 | Backups do not load, Storage shows none | Log `backups not readable`: permissions on the directory | Check owner `65532` |
 | Mailbox looks empty after a restore, tile with a dot, the email account shows "Sign-in required" | The stored refresh token is older than the rotation in Stalwart; the mailbox itself does not show the state yet | "Sign in again" under the email account |
 | "Compact" reports the general error | Log `internal error`: no space in `/tmp` or in the data directory | Free up space, check the size of the tmpfs |
 | `-wal` file stays large after compacting | Log `checkpoint blocked, the -wal file stays large for now` | Compact again later |
-| Entries missing in the audit log | Older than the retention, or a restored backup brought back an older state | Check the period; before the deletion run it can be taken back |
+| Entries missing in the audit log | Older than the retention (a restore keeps the audit log, but brings back the retention setting of the backup) | Check the period; before the deletion run it can be taken back |
 | App shows "Offline" despite a connection | Offline simulation of the Developer page | "End simulation" in the notice bar or reload the tab |
 | New emails only arrive after up to a minute, the browser reports no outage | Only the mail server was gone: after errors, sync falls back to polling every minute, push is only retried after 5 minutes. If the browser itself reports the end of an outage, the app syncs immediately. | Wait or reload the page |

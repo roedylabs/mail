@@ -247,6 +247,9 @@ fn refused(error: anyhow::Error) -> ApiError {
             ApiError::rejected(StatusCode::UNPROCESSABLE_ENTITY, "backup_invalid")
         }
         Some(Refused::Newer) => ApiError::rejected(StatusCode::CONFLICT, "backup_newer"),
+        Some(Refused::Older) => {
+            ApiError::rejected(StatusCode::UNPROCESSABLE_ENTITY, "backup_older")
+        }
         Some(Refused::OtherKey) => ApiError::rejected(StatusCode::CONFLICT, "backup_other_key"),
         Some(Refused::Unauthorized) => ApiError::Unauthorized,
         Some(Refused::Forbidden) => ApiError::Forbidden,

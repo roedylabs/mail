@@ -293,16 +293,55 @@ impl Env {
         jobs::backup::run(self.state.clone()).await.unwrap();
     }
 
-    /// Changes the database in the file of `backup`.
+    /// Changes the database in the file of `backup` and signs it again, as
+    /// only this instance can.
     fn rewrite(&self, backup: &Backup, change: impl FnOnce(&Connection)) {
         let tmp = tempfile::tempdir().unwrap();
         let database = tmp.path().join("copy");
         let path = self.state.backups.path(backup);
-        let manifest = archive::read(&path, &database).unwrap();
+        let manifest = archive::read(&path, &database, &self.state.secrets).unwrap();
         change(&Connection::open(&database).unwrap());
         std::fs::remove_file(&path).unwrap();
-        archive::write(&database, &manifest, &path).unwrap();
+        archive::write(&database, &manifest, &self.state.secrets, &path).unwrap();
     }
+
+    /// `(action, actor_id, actor_name)` of all audit log entries, oldest first.
+    async fn audit_rows(&self) -> Vec<(String, Option<String>, Option<String>)> {
+        db::call(&self.state.db, |conn| {
+            let rows = conn
+                .prepare("SELECT action, actor_id, actor_name FROM audit_log ORDER BY id")?
+                .query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            Ok(rows)
+        })
+        .await
+        .unwrap()
+    }
+}
+
+/// The entries `(name, content)` of a backup file, read like anyone who can
+/// read the file can: without the instance key.
+fn entries(path: &Path) -> Vec<(String, Vec<u8>)> {
+    let decoder = zstd::Decoder::new(std::fs::File::open(path).unwrap()).unwrap();
+    let mut tar = tar::Archive::new(decoder);
+    tar.entries()
+        .unwrap()
+        .map(|entry| {
+            let mut entry = entry.unwrap();
+            let name = entry.path().unwrap().to_string_lossy().into_owned();
+            let mut data = Vec::new();
+            std::io::Read::read_to_end(&mut entry, &mut data).unwrap();
+            (name, data)
+        })
+        .collect()
+}
+
+/// The content of the entry `name` in a backup file.
+fn entry(path: &Path, name: &str) -> Vec<u8> {
+    entries(path)
+        .into_iter()
+        .find_map(|(entry, data)| (entry == name).then_some(data))
+        .unwrap()
 }
 
 #[tokio::test]
@@ -354,7 +393,12 @@ async fn a_backup_holds_database_and_manifest() {
 
     let tmp = tempfile::tempdir().unwrap();
     let database = tmp.path().join("copy");
-    let manifest = archive::read(&env.state.backups.path(backup), &database).unwrap();
+    let manifest = archive::read(
+        &env.state.backups.path(backup),
+        &database,
+        &env.state.secrets,
+    )
+    .unwrap();
     assert!(!manifest.auto);
     assert_eq!(manifest.schema, migrations::latest_version());
     let copy = Connection::open(&database).unwrap();
@@ -655,10 +699,18 @@ async fn restoring_brings_back_the_data_and_what_the_server_keeps_in_memory() {
         assert_eq!(reply.status, StatusCode::UNAUTHORIZED);
     }
 
-    // The audit log has the state of the backup plus the new entry.
-    let audit = env.audit().await;
-    assert_eq!(audit.len(), 1);
-    assert_eq!(audit[0].0, "backups.restore");
+    // The audit log is not reset: everything since the backup stays, plus
+    // the new entry.
+    let audit: Vec<_> = env.audit().await.into_iter().map(|(a, _)| a).collect();
+    assert_eq!(
+        audit,
+        [
+            "backups.create",
+            "backups.schedule",
+            "backups.create",
+            "backups.restore"
+        ]
+    );
 
     // The file is what counts, not the connection.
     let reopened = db::open_existing(env.tmp.path()).unwrap();
@@ -950,10 +1002,10 @@ async fn a_damaged_database_changes_nothing() {
     let tmp = tempfile::tempdir().unwrap();
     let database = tmp.path().join("copy");
     let path = env.state.backups.path(&backup);
-    let manifest = archive::read(&path, &database).unwrap();
+    let manifest = archive::read(&path, &database, &env.state.secrets).unwrap();
     std::fs::write(&database, "not a database, but long enough for a header").unwrap();
     std::fs::remove_file(&path).unwrap();
-    archive::write(&database, &manifest, &path).unwrap();
+    archive::write(&database, &manifest, &env.state.secrets, &path).unwrap();
 
     let reply = env.restore(&id).await;
 
@@ -1006,6 +1058,183 @@ async fn a_backup_with_another_key_changes_nothing() {
     assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.body);
     assert_eq!(reply.error(), "backup_other_key");
     untouched(&env).await;
+}
+
+/// Whoever can write to the backup directory and read a backup, but does not
+/// have the instance key, smuggles in no database: neither a changed one nor
+/// one with an administrator of their own, packed with the copied manifest
+/// (and with it the copied `key`).
+#[tokio::test]
+async fn a_forged_backup_with_a_copied_key_changes_nothing() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    let path = env.state.backups.path(&env.list()[0]);
+    let manifest = entry(&path, "manifest.json");
+
+    // A database of their own instance, with their own administrator.
+    let other = self::env().await;
+    other
+        .add_user("mallory", "Mallory Example", Role::Admin)
+        .await;
+    other.create().await;
+    let theirs = entry(&other.state.backups.path(&other.list()[0]), db::DB_FILE);
+    // The real database, with one more administrator.
+    let tmp = tempfile::tempdir().unwrap();
+    let changed = tmp.path().join("changed");
+    std::fs::write(&changed, entry(&path, db::DB_FILE)).unwrap();
+    Connection::open(&changed)
+        .unwrap()
+        .execute("UPDATE users SET role = 'admin' WHERE username = 'ben'", [])
+        .unwrap();
+    let changed = std::fs::read(&changed).unwrap();
+
+    for database in [theirs, changed] {
+        archive::pack(
+            &path,
+            &[("manifest.json", &manifest), (db::DB_FILE, &database)],
+        )
+        .unwrap();
+        assert_eq!(env.list().len(), 1, "still in the list");
+
+        let reply = env.restore(&id).await;
+
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{}",
+            reply.body
+        );
+        assert_eq!(reply.error(), "backup_invalid");
+        untouched(&env).await;
+        let ben: String = db::call(&env.state.db, |conn| {
+            Ok(
+                conn.query_row("SELECT role FROM users WHERE username = 'ben'", [], |row| {
+                    row.get(0)
+                })?,
+            )
+        })
+        .await
+        .unwrap();
+        assert_eq!(ben, "user");
+    }
+}
+
+/// A file that unpacks to more than the limit stops early and leaves nothing
+/// behind; zstd packs these 64 MiB into a few kilobytes.
+#[tokio::test]
+async fn a_backup_that_unpacks_too_large_changes_nothing() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    let path = env.state.backups.path(&env.list()[0]);
+    let manifest = entry(&path, "manifest.json");
+    let zeros = vec![0; usize::try_from(archive::MIN_LIMIT).unwrap() + 1];
+    archive::pack(
+        &path,
+        &[("manifest.json", &manifest), (db::DB_FILE, &zeros)],
+    )
+    .unwrap();
+    assert!(std::fs::metadata(&path).unwrap().len() < 1024 * 1024);
+
+    let reply = env.restore(&id).await;
+
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.body
+    );
+    assert_eq!(reply.error(), "backup_invalid");
+    untouched(&env).await;
+}
+
+/// The first format had no MAC; nothing shows where its database came from.
+#[tokio::test]
+async fn a_backup_in_the_old_format_changes_nothing() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    let path = env.state.backups.path(&env.list()[0]);
+    let mut manifest: Value = serde_json::from_slice(&entry(&path, "manifest.json")).unwrap();
+    manifest["format"] = json!(1);
+    manifest.as_object_mut().unwrap().remove("mac");
+    let manifest = serde_json::to_vec(&manifest).unwrap();
+    let database = entry(&path, db::DB_FILE);
+    archive::pack(
+        &path,
+        &[("manifest.json", &manifest), (db::DB_FILE, &database)],
+    )
+    .unwrap();
+
+    let reply = env.restore(&id).await;
+
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.body
+    );
+    assert_eq!(reply.error(), "backup_older");
+    untouched(&env).await;
+}
+
+/// The audit log is not reset: downloads, exports and sign-ins since the
+/// backup stay. Entries of people the backup does not know keep the name, but
+/// lose the reference.
+#[tokio::test]
+async fn restoring_keeps_the_audit_log_since_the_backup() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    let download = env
+        .raw(
+            Method::GET,
+            &format!("{BACKUPS}/{id}/download"),
+            None,
+            Some(&env.admin),
+        )
+        .await;
+    assert_eq!(download.status(), StatusCode::OK);
+    let export = env
+        .as_admin(Method::POST, "/admin/audit/export", None)
+        .await;
+    assert_eq!(export.status, StatusCode::OK, "{}", export.body);
+    env.add_user("lena", "Lena Newman", Role::Admin).await;
+    env.session("lena").await;
+    let lena: String = db::call(&env.state.db, |conn| {
+        Ok(
+            conn.query_row("SELECT id FROM users WHERE username = 'lena'", [], |row| {
+                row.get(0)
+            })?,
+        )
+    })
+    .await
+    .unwrap();
+    let before = env.audit_rows().await;
+    for action in ["backups.create", "backups.download", "audit.export"] {
+        assert!(before.iter().any(|row| row.0 == action), "{action}");
+    }
+    assert!(
+        before
+            .iter()
+            .any(|row| row.0 == "auth.login" && row.1.as_ref() == Some(&lena))
+    );
+
+    let reply = env.restore(&id).await;
+
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(env.usernames().await, ["anna", "ben", "mia"]);
+    let after = env.audit_rows().await;
+    let (restore, kept) = after.split_last().unwrap();
+    assert_eq!(restore.0, "backups.restore");
+    let expected: Vec<_> = before
+        .into_iter()
+        .map(|(action, actor, name)| (action, actor.filter(|id| *id != lena), name))
+        .collect();
+    assert_eq!(kept, expected);
+    assert!(kept.iter().any(|row| row.0 == "auth.login"
+        && row.1.is_none()
+        && row.2.as_deref() == Some("Lena Newman")));
 }
 
 #[tokio::test]

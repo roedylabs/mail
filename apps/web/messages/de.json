@@ -2666,6 +2666,7 @@
   "maintenance_bk_running": "Gerade läuft eine Sicherung. Versuchen Sie es gleich noch einmal.",
   "maintenance_bk_invalid": "Diese Sicherung ist beschädigt und lässt sich nicht wiederherstellen.",
   "maintenance_bk_newer": "Diese Sicherung stammt aus einer neueren Version und lässt sich erst nach einem Update wiederherstellen.",
+  "maintenance_bk_older": "Diese Sicherung stammt aus einer früheren Version in einem Format, das sich nicht mehr wiederherstellen lässt.",
   "maintenance_bk_other_key": "Diese Sicherung gehört zu einer Instanz mit einem anderen Schlüssel (secret.key). Ohne ihn wären Multi-Faktor und Mailkonten unbrauchbar.",
   "maintenance_bk_restore_ok": "Wiederherstellen",
   "maintenance_bk_restore_word": "WIEDERHERSTELLEN",

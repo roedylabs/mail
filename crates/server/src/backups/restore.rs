@@ -4,17 +4,22 @@
 //! copy it into the live database in one step. Until then nothing changes,
 //! afterwards everything is done: the shared connection has nothing else to do
 //! meanwhile, and SQLite writes the pages in one transaction.
+//!
+//! Only a backup of this instance gets that far: [`archive::read`] checks the
+//! MAC over manifest and database. The audit log is not reset: it is the
+//! history of the instance, including the restore itself.
 
 use std::{collections::HashMap, error::Error, fmt, path::Path};
 
 use anyhow::Context as _;
-use rusqlite::Connection;
+use rusqlite::{Connection, params_from_iter, types::Value};
 
-use super::{Backup, Workspace, archive, key_mark};
+use super::{Backup, Workspace, archive};
 use crate::{
     api::{ApiError, users::admin_holds},
     app::AppState,
     auth::AuthUser,
+    broker::crypto::SecretKey,
     db::{
         self, migrations,
         repo::{
@@ -30,10 +35,14 @@ use crate::{
 /// Why a backup does not fit this instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
-    /// Not a readable archive, or a damaged database.
+    /// Not a readable archive, a damaged database, too large to unpack, or
+    /// changed since it was created (the MAC does not fit).
     Invalid,
     /// Created with a newer program version.
     Newer,
+    /// In the first format, without MAC: where its database comes from cannot
+    /// be checked.
+    Older,
     /// Created with a different instance key: secrets such as multi-factor and
     /// mail account credentials would not be readable.
     OtherKey,
@@ -48,6 +57,7 @@ impl fmt::Display for Refused {
         f.write_str(match self {
             Self::Invalid => "backup not readable",
             Self::Newer => "backup from a newer program version",
+            Self::Older => "backup in an older format without MAC",
             Self::OtherKey => "backup with a different instance key",
             Self::Unauthorized => "session ended",
             Self::Forbidden => "no longer an administrator",
@@ -68,10 +78,10 @@ pub async fn restore(
 ) -> anyhow::Result<()> {
     let backups = state.backups.clone();
     let path = backups.path(backup);
-    let key = key_mark(&state.secrets);
+    let secrets = state.secrets.clone();
     let (work, mut copy) = db::blocking(move || {
         let work = Workspace::new(&backups)?;
-        let copy = prepare(work.path(), &path, &key)?;
+        let copy = prepare(work.path(), &path, &secrets)?;
         Ok((work, copy))
     })
     .await?;
@@ -88,7 +98,7 @@ pub async fn restore(
         let kept = sessions::stored(live, &admin.session_id)?;
         let version = instance::load_client_cache_version(live)?;
         let invitations = invitations(live)?;
-        finish(&mut copy, kept.as_ref(), version, &invitations, entry)?;
+        finish(&mut copy, live, kept.as_ref(), version, &invitations, entry)?;
         db::copy(&copy, live)?;
         drop(copy);
         // On the database thread, so that no request reads the new state
@@ -111,10 +121,9 @@ pub async fn restore(
 
 /// Unpacks and checks the backup and migrates the working copy to the schema
 /// of this program version.
-fn prepare(work: &Path, archive: &Path, key: &str) -> anyhow::Result<Connection> {
+fn prepare(work: &Path, archive: &Path, secrets: &SecretKey) -> anyhow::Result<Connection> {
     let database = db::db_path(work);
-    let manifest = archive::read(archive, &database)?;
-    anyhow::ensure!(manifest.key == key, Refused::OtherKey);
+    archive::read(archive, &database, secrets)?;
     let mut copy = open_checked(&database)?;
     migrations::run(&mut copy).context("working copy of the backup not prepared")?;
     Ok(copy)
@@ -161,10 +170,12 @@ fn invitations_of(conn: &Connection) -> rusqlite::Result<Vec<String>> {
 /// accepted or demoted ones would be valid again. The cache version rises
 /// above the live one (`version`), so that all browsers discard the old state.
 /// The installed version is the running one, otherwise the next start after an
-/// older backup would report an update. If the backup does not know the acting
-/// person, the audit log keeps their name.
+/// older backup would report an update. The audit log is the one of the live
+/// state (`live`, see [`keep_audit_log`]). If the backup does not know the
+/// acting person, the audit log keeps their name.
 fn finish(
     copy: &mut Connection,
+    live: &Connection,
     kept: Option<&sessions::Stored>,
     version: u64,
     invitations: &Invitations,
@@ -189,6 +200,7 @@ fn finish(
     let version = version.max(instance::load_client_cache_version(&tx)?) + 1;
     app_settings::set(&tx, CLIENT_CACHE_VERSION, &version)?;
     update_state::set_installed(&tx, updates::VERSION)?;
+    keep_audit_log(&tx, live)?;
     if let Some(actor) = &entry.actor_id
         && users::credentials_by_id(&tx, actor)?.is_none()
     {
@@ -196,5 +208,39 @@ fn finish(
     }
     audit_log::insert(&tx, &entry)?;
     tx.commit()?;
+    Ok(())
+}
+
+/// Replaces the audit log of the working copy with the live one, row by row
+/// with all columns and IDs: entries since the backup stay (downloads,
+/// exports, sign-ins), the older ones are the same in both. Entries of people
+/// the backup does not know keep the name, but lose the reference
+/// (`actor_id`), as after deleting a user.
+fn keep_audit_log(copy: &Connection, live: &Connection) -> rusqlite::Result<()> {
+    let mut select = live.prepare("SELECT * FROM audit_log ORDER BY id")?;
+    let columns: Vec<String> = select
+        .column_names()
+        .map(|name| format!("\"{}\"", name.replace('"', "\"\"")))
+        .collect();
+    let marks: Vec<String> = (1..=columns.len()).map(|i| format!("?{i}")).collect();
+    copy.execute("DELETE FROM audit_log", [])?;
+    // The references are fixed below, before the commit.
+    copy.pragma_update(None, "defer_foreign_keys", true)?;
+    let mut insert = copy.prepare(&format!(
+        "INSERT INTO audit_log ({}) VALUES ({})",
+        columns.join(", "),
+        marks.join(", ")
+    ))?;
+    let mut rows = select.query([])?;
+    while let Some(row) = rows.next()? {
+        let values = (0..columns.len())
+            .map(|i| row.get::<_, Value>(i))
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        insert.execute(params_from_iter(values))?;
+    }
+    copy.execute(
+        "UPDATE audit_log SET actor_id = NULL WHERE actor_id NOT IN (SELECT id FROM users)",
+        [],
+    )?;
     Ok(())
 }
