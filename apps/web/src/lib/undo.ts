@@ -62,6 +62,9 @@ export interface UndoableAction {
 /** Display duration without undo. */
 export const TOAST_MS = 3200;
 
+/** Display duration of an error toast (`error()`). */
+export const ERROR_TOAST_MS = 4600;
+
 /** Display duration with undo per setting `gUndo` (`UNDO_MS`). */
 export const UNDO_MS = { '3 s': 3000, '5 s': 5000, '10 s': 10000 } as const;
 
@@ -101,7 +104,7 @@ export class Toasts {
   /** Error toast without undo, e.g. when an action fails on the server. */
   error(text: string): void {
     void this.flush();
-    this.#open(text, false, TOAST_MS, true);
+    this.#open(text, false, ERROR_TOAST_MS, true);
   }
 
   /** Toast with undo; the call to the server follows when it expires. */
