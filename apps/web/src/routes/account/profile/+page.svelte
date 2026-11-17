@@ -438,6 +438,11 @@
     max-width: 55%;
   }
 
+  /* A long name never pushes the label narrower than its longest word; the name wraps instead. */
+  .mobile .name-row .row-text {
+    min-width: min-content;
+  }
+
   .val {
     min-width: 0;
     font-size: 15px;
