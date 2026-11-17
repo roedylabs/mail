@@ -17,7 +17,7 @@
   import { resolve } from '$app/paths';
   import { tablist } from '#lib/actions/tablist.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
-  import ErrorView from '#lib/components/ErrorView.svelte';
+  import FirstLoad from '#lib/components/FirstLoad.svelte';
   import DirtyBar from '#lib/components/DirtyBar.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import MailLoadCard from '#lib/components/MailLoadCard.svelte';
@@ -161,202 +161,188 @@
     <p class="m-lead">{info?.desc}</p>
   {/if}
 
-  {#if p.status === 'failed'}
-    <div class="failed"><ErrorView code={p.failure} retry={() => p.retry()} /></div>
-  {:else}
+  <FirstLoad
+    status={p.status}
+    slow={p.loading.slow}
+    title={m.system_mail_load_failed()}
+    text={p.failure}
+    onRetry={() => void p.retry()}
+    {isMobile}
+  >
     <div class="tabs no-scrollbar">
       {#each v.mailTabs as t (t.label)}<button type="button" class="tab" onclick={t.onClick}>{t.label}</button>{/each}
     </div>
 
-    {#if p.status === 'ready'}
-      <section data-sec="status" class="sec first">
-        <h2 class="sec-title">{m.system_mail_status_title()}</h2>
-        <div class="status st-{v.mSt.key}">
-          <span class="st-tile"><Icon name={v.mSt.icon} /></span>
-          <div class="st-text">
-            <div class="st-title">{v.mSt.title}</div>
-            <div class="st-sub">{v.mSt.sub}</div>
-          </div>
-          <button
-            type="button"
-            class="test"
-            class:busy={v.mailBusy}
-            aria-disabled={v.mailBusy}
-            aria-busy={v.mailBusy}
-            onclick={v.mailTest}
-            ><span class="test-icon" style:--rot="{v.mailRot}deg"><Icon name="ti-refresh" /></span>{v.mailBtn}</button
-          >
+    <section data-sec="status" class="sec first">
+      <h2 class="sec-title">{m.system_mail_status_title()}</h2>
+      <div class="status st-{v.mSt.key}">
+        <span class="st-tile"><Icon name={v.mSt.icon} /></span>
+        <div class="st-text">
+          <div class="st-title">{v.mSt.title}</div>
+          <div class="st-sub">{v.mSt.sub}</div>
         </div>
-        {#if v.mailOk}
-          <div class="box rows">
-            {#each v.mailRows as r (r.k)}
-              <div>
-                {#if r.sep}<div class="sep"></div>{/if}
-                <div class="kv">
-                  <span class="kv-k">{r.k}</span>
-                  <span class="kv-v">{r.v}</span>
-                </div>
+        <button
+          type="button"
+          class="test"
+          class:busy={v.mailBusy}
+          aria-disabled={v.mailBusy}
+          aria-busy={v.mailBusy}
+          onclick={v.mailTest}
+          ><span class="test-icon" style:--rot="{v.mailRot}deg"><Icon name="ti-refresh" /></span>{v.mailBtn}</button
+        >
+      </div>
+      {#if v.mailOk}
+        <div class="box rows">
+          {#each v.mailRows as r (r.k)}
+            <div>
+              {#if r.sep}<div class="sep"></div>{/if}
+              <div class="kv">
+                <span class="kv-k">{r.k}</span>
+                <span class="kv-v">{r.v}</span>
               </div>
-            {/each}
-          </div>
-        {/if}
-      </section>
-
-      <section data-sec="conn" class="sec">
-        <h2 class="sec-title">{m.system_mail_tab_conn()}</h2>
-        <p class="sec-desc">{m.system_mail_conn_desc()}</p>
-        <div class="box">
-          <div class="row">
-            {@render rowText(m.system_mail_srv_title(), v.mailSrvSub, srvIds.label)}
-            <div class="srv">
-              {#if v.mailSrvHas}{@render select(v.selMailSrv)}{/if}
-              <button type="button" class="srv-go" onclick={v.mailSrvGo}
-                >{#if v.mailSrvNone && !isMobile}<Icon name="ti-plus" />{/if}{m.system_mail_srv_manage()}<Icon
-                  name="ti-arrow-right"
-                /></button
-              >
             </div>
-          </div>
-          <div class="sep"></div>
-          <div class="row">
-            {@render rowText(m.system_mail_auth_label(), m.system_mail_auth_desc())}
-            <div role="group" aria-label={m.system_mail_auth_label()} class="seg">
-              {#each v.mailAuthOpts as o (o.value)}
-                <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
-              {/each}
-            </div>
-          </div>
-          {#if v.mailIsPw}
-            <div class="sep"></div>
-            <div class="row">
-              {@render rowText(m.system_mail_user_label(), m.system_mail_user_desc())}
-              <input
-                type="text"
-                value={v.mailF.user}
-                placeholder={m.system_mail_user_ph()}
-                aria-label={m.system_mail_user_label()}
-                autocomplete="username"
-                autocapitalize="off"
-                spellcheck="false"
-                oninput={(e) => v.mailOn.user(e.currentTarget.value)}
-              />
-            </div>
-          {/if}
-          <div class="sep"></div>
-          <div class="row">
-            {@render rowText(v.mailSecret.label, v.mailSecret.desc)}
-            <div class="secret">
-              <input
-                type={v.mailSecret.type}
-                value={v.mailSecret.value}
-                placeholder={v.mailSecret.ph}
-                autocomplete={v.mailSecret.ac}
-                aria-label={v.mailSecret.label}
-                autocapitalize="off"
-                spellcheck="false"
-                oninput={(e) => v.mailSecret.onChange(e.currentTarget.value)}
-              />
-              <button
-                type="button"
-                class="eye"
-                aria-label={v.mailSecret.eyeTip}
-                use:tooltip={isMobile ? undefined : v.mailSecret.eyeTip}
-                onclick={v.mailSecret.onEye}><Icon name={v.mailSecret.eyeIcon} /></button
-              >
-            </div>
-          </div>
+          {/each}
         </div>
-      </section>
+      {/if}
+    </section>
 
-      <section data-sec="sender" class="sec">
-        <h2 class="sec-title">{m.system_mail_tab_sender()}</h2>
-        <p class="sec-desc">{m.system_mail_sender_desc()}</p>
-        <div class="box">
-          <div class="row">
-            {@render rowText(m.system_mail_name_label(), m.system_mail_name_desc())}
-            <input
-              type="text"
-              value={v.mailF.name}
-              placeholder={v.mailNamePh}
-              aria-label={m.system_mail_name_label()}
-              oninput={(e) => v.mailOn.name(e.currentTarget.value)}
-            />
-          </div>
-          <div class="sep"></div>
-          <div class="row">
-            {@render rowText(m.system_mail_reply_label(), m.system_mail_reply_desc())}
-            <input
-              type="email"
-              value={v.mailF.replyTo}
-              placeholder={m.system_mail_reply_ph()}
-              aria-label={m.system_mail_reply_label()}
-              autocapitalize="off"
-              spellcheck="false"
-              oninput={(e) => v.mailOn.replyTo(e.currentTarget.value)}
-            />
-          </div>
-          <div class="sep"></div>
-          <div class="preview">
-            <span class="row-label">{m.system_mail_preview()}</span>
-            <span class="preview-from">{v.mailFrom}</span>
-          </div>
-        </div>
-      </section>
-
-      <section data-sec="delivery" class="sec">
-        <h2 class="sec-title">{m.system_mail_tab_delivery()}</h2>
-        <p class="sec-desc">{m.system_mail_delivery_desc()}</p>
-        <div class="box">
-          <div class="row toggle">
-            {@render rowText(m.system_mail_keep_sent(), m.system_mail_keep_sent_desc())}
-            <button
-              type="button"
-              role="switch"
-              class="switch"
-              class:on={v.tgMailSent.on}
-              aria-checked={v.tgMailSent.on}
-              aria-label={m.system_mail_keep_sent()}
-              onclick={v.tgMailSent.onClick}><span class="knob"></span></button
+    <section data-sec="conn" class="sec">
+      <h2 class="sec-title">{m.system_mail_tab_conn()}</h2>
+      <p class="sec-desc">{m.system_mail_conn_desc()}</p>
+      <div class="box">
+        <div class="row">
+          {@render rowText(m.system_mail_srv_title(), v.mailSrvSub, srvIds.label)}
+          <div class="srv">
+            {#if v.mailSrvHas}{@render select(v.selMailSrv)}{/if}
+            <button type="button" class="srv-go" onclick={v.mailSrvGo}
+              >{#if v.mailSrvNone && !isMobile}<Icon name="ti-plus" />{/if}{m.system_mail_srv_manage()}<Icon
+                name="ti-arrow-right"
+              /></button
             >
           </div>
         </div>
-      </section>
-
-      <section data-sec="test" class="sec">
-        <h2 class="sec-title">{m.system_mail_test_title()}</h2>
-        <p class="sec-desc">{m.system_mail_test_desc()}</p>
-        <div class="box">
-          <div class="row">
-            {@render rowText(m.system_mail_to_label(), m.system_mail_to_desc())}
-            <div class="to">
-              <input
-                type="email"
-                value={v.mailToVal}
-                aria-label={m.system_mail_to_label()}
-                autocapitalize="off"
-                spellcheck="false"
-                oninput={(e) => v.onMailTo(e.currentTarget.value)}
-                onkeydown={v.mailToKey}
-              />
-              {#if !isMobile}
-                <button
-                  type="button"
-                  class="send"
-                  class:on={!v.mailSendDis}
-                  aria-disabled={v.mailSendDis}
-                  onclick={v.mailSend}><Icon name="ti-send" />{v.mailSendLabel}</button
-                >
-              {/if}
-            </div>
+        <div class="sep"></div>
+        <div class="row">
+          {@render rowText(m.system_mail_auth_label(), m.system_mail_auth_desc())}
+          <div role="group" aria-label={m.system_mail_auth_label()} class="seg">
+            {#each v.mailAuthOpts as o (o.value)}
+              <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
+            {/each}
           </div>
-          {#if !isMobile}
-            {#if v.mailNotOk}
-              <div class="sep"></div>
-              <div class="hint"><Icon name="ti-info-circle" />{m.system_mail_send_hint()}</div>
-            {/if}
-          {:else}
-            <div class="m-send">
-              {#if v.mailNotOk}<div class="hint"><Icon name="ti-info-circle" />{m.system_mail_send_hint()}</div>{/if}
+        </div>
+        {#if v.mailIsPw}
+          <div class="sep"></div>
+          <div class="row">
+            {@render rowText(m.system_mail_user_label(), m.system_mail_user_desc())}
+            <input
+              type="text"
+              value={v.mailF.user}
+              placeholder={m.system_mail_user_ph()}
+              aria-label={m.system_mail_user_label()}
+              autocomplete="username"
+              autocapitalize="off"
+              spellcheck="false"
+              oninput={(e) => v.mailOn.user(e.currentTarget.value)}
+            />
+          </div>
+        {/if}
+        <div class="sep"></div>
+        <div class="row">
+          {@render rowText(v.mailSecret.label, v.mailSecret.desc)}
+          <div class="secret">
+            <input
+              type={v.mailSecret.type}
+              value={v.mailSecret.value}
+              placeholder={v.mailSecret.ph}
+              autocomplete={v.mailSecret.ac}
+              aria-label={v.mailSecret.label}
+              autocapitalize="off"
+              spellcheck="false"
+              oninput={(e) => v.mailSecret.onChange(e.currentTarget.value)}
+            />
+            <button
+              type="button"
+              class="eye"
+              aria-label={v.mailSecret.eyeTip}
+              use:tooltip={isMobile ? undefined : v.mailSecret.eyeTip}
+              onclick={v.mailSecret.onEye}><Icon name={v.mailSecret.eyeIcon} /></button
+            >
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section data-sec="sender" class="sec">
+      <h2 class="sec-title">{m.system_mail_tab_sender()}</h2>
+      <p class="sec-desc">{m.system_mail_sender_desc()}</p>
+      <div class="box">
+        <div class="row">
+          {@render rowText(m.system_mail_name_label(), m.system_mail_name_desc())}
+          <input
+            type="text"
+            value={v.mailF.name}
+            placeholder={v.mailNamePh}
+            aria-label={m.system_mail_name_label()}
+            oninput={(e) => v.mailOn.name(e.currentTarget.value)}
+          />
+        </div>
+        <div class="sep"></div>
+        <div class="row">
+          {@render rowText(m.system_mail_reply_label(), m.system_mail_reply_desc())}
+          <input
+            type="email"
+            value={v.mailF.replyTo}
+            placeholder={m.system_mail_reply_ph()}
+            aria-label={m.system_mail_reply_label()}
+            autocapitalize="off"
+            spellcheck="false"
+            oninput={(e) => v.mailOn.replyTo(e.currentTarget.value)}
+          />
+        </div>
+        <div class="sep"></div>
+        <div class="preview">
+          <span class="row-label">{m.system_mail_preview()}</span>
+          <span class="preview-from">{v.mailFrom}</span>
+        </div>
+      </div>
+    </section>
+
+    <section data-sec="delivery" class="sec">
+      <h2 class="sec-title">{m.system_mail_tab_delivery()}</h2>
+      <p class="sec-desc">{m.system_mail_delivery_desc()}</p>
+      <div class="box">
+        <div class="row toggle">
+          {@render rowText(m.system_mail_keep_sent(), m.system_mail_keep_sent_desc())}
+          <button
+            type="button"
+            role="switch"
+            class="switch"
+            class:on={v.tgMailSent.on}
+            aria-checked={v.tgMailSent.on}
+            aria-label={m.system_mail_keep_sent()}
+            onclick={v.tgMailSent.onClick}><span class="knob"></span></button
+          >
+        </div>
+      </div>
+    </section>
+
+    <section data-sec="test" class="sec">
+      <h2 class="sec-title">{m.system_mail_test_title()}</h2>
+      <p class="sec-desc">{m.system_mail_test_desc()}</p>
+      <div class="box">
+        <div class="row">
+          {@render rowText(m.system_mail_to_label(), m.system_mail_to_desc())}
+          <div class="to">
+            <input
+              type="email"
+              value={v.mailToVal}
+              aria-label={m.system_mail_to_label()}
+              autocapitalize="off"
+              spellcheck="false"
+              oninput={(e) => v.onMailTo(e.currentTarget.value)}
+              onkeydown={v.mailToKey}
+            />
+            {#if !isMobile}
               <button
                 type="button"
                 class="send"
@@ -364,125 +350,142 @@
                 aria-disabled={v.mailSendDis}
                 onclick={v.mailSend}><Icon name="ti-send" />{v.mailSendLabel}</button
               >
-            </div>
-          {/if}
-        </div>
-      </section>
-
-      <section data-sec="tpl" class="sec">
-        <h2 class="sec-title">{m.system_mail_tpl_title()}</h2>
-        <p class="sec-desc tpl-lead">{isMobile ? m.system_mail_tpl_lead_mobile() : m.system_mail_tpl_lead()}</p>
-        <div role="tablist" aria-label={m.system_mail_tpl_title()} class="tpl-tabs no-scrollbar" use:tablist>
-          {#each mv.mvTabs as t (t.key)}
-            <button
-              type="button"
-              role="tab"
-              id="tpl-tab-{t.key}"
-              aria-selected={t.on}
-              aria-controls="tpl-panel"
-              tabindex={t.on ? 0 : -1}
-              class="tpl-tab"
-              class:on={t.on}
-              onclick={t.onClick}>{t.label}</button
-            >
-          {/each}
-        </div>
-        <div class="tpl-ctrl">
-          {#if mv.mvVarSeg}
-            <div role="group" aria-label={m.system_mail_tpl_variant()} class="tseg var-seg no-scrollbar">
-              {#each mv.mvVarOpts as o (o.value)}
-                <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
-              {/each}
-            </div>
-          {/if}
-          {#if mv.mvVarList && mv.mvVarSel}{@render select(mv.mvVarSel, m.system_mail_tpl_variant())}{/if}
-          {#if !isMobile}<span class="spacer"></span>{/if}
-          <div class="tpl-fmt">
-            <div role="group" class="tseg">
-              {#each mv.mvModeOpts as o (o.value)}
-                <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
-              {/each}
-            </div>
-            {#if mv.mvThemeOn}
-              <div role="group" class="tseg">
-                {#each mv.mvThemeOpts as o (o.value)}
-                  <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
-                {/each}
-              </div>
             {/if}
           </div>
         </div>
-        <div role="tabpanel" id="tpl-panel" aria-labelledby="tpl-tab-{mv.mvTabs.find((t) => t.on)?.key}">
-          {#if mv.mvLoad.fail}
-            <div class="tpl-load">
-              <MailLoadCard
-                icon="ti-cloud-off"
-                title={mv.mvLoad.title}
-                text={mv.mvLoad.text}
-                load={{
-                  text: mv.mvLoad.text,
-                  retry: true,
-                  reauth: false,
-                  con: false,
-                  onRetry: mv.mvLoad.onRetry,
-                  goCon: () => {},
-                }}
-              />
-            </div>
+        {#if !isMobile}
+          {#if v.mailNotOk}
+            <div class="sep"></div>
+            <div class="hint"><Icon name="ti-info-circle" />{m.system_mail_send_hint()}</div>
           {/if}
-          {#if mv.mvLoad.show}
-            <div class="box tpl-box" aria-busy={mv.mvLoad.busy}>
-              <div class="tpl-head">
-                <div class="tpl-kv">
-                  <span class="tpl-k">{m.system_mail_tpl_from()}</span>
-                  {#if mv.mvFromOk}<span class="tpl-v">{mv.mvFrom}</span>{/if}
-                  {#if mv.mvFromNo}
-                    <span class="tpl-v from-none"><Icon name="ti-info-circle" /><span>{mv.mvFromHint}</span></span>
-                  {/if}
-                </div>
-                <div class="tpl-kv">
-                  <span class="tpl-k">{m.system_mail_tpl_to()}</span>
-                  {#if mv.mvLoad.ok}<span class="tpl-v">{mv.mvTo}</span>{/if}
-                </div>
-                <div class="tpl-kv">
-                  <span class="tpl-k">{m.system_mail_tpl_subject()}</span>
-                  {#if mv.mvLoad.ok}<span class="tpl-v subj">{mv.mvSubj}</span>{/if}
-                </div>
-              </div>
-              <div class="tpl-stage">
-                {#if mv.mvLoad.spin}
-                  <!-- Announced like the frame of the audit log (`role="status"`), not only `aria-busy` on the box -->
-                  <span class="tpl-pill" role="status"><Icon name="ti-loader-2" />{m.system_mail_tpl_loading()}</span>
-                {/if}
-                {#if mv.mvLoad.first}<div class="tpl-empty"></div>{/if}
-                {#if mv.mvLoad.ok}
-                  <!-- Text in `--surface`, HTML in the mail's fixed page colour (`CL.page`) per theme; the loading state as `dim`. -->
-                  <div
-                    class="tpl-frame"
-                    class:text={mv.mvText !== null}
-                    class:dark={mv.mvText === null && mv.mvScheme === 'dark'}
-                    class:dim={mv.mvLoad.dim}
-                  >
-                    <div class="tpl-scroll no-scrollbar">
-                      {#if mv.mvDoc !== null}
-                        <TemplateFrame doc={mv.mvDoc} title={mv.mvSubj} scheme={mv.mvScheme} />
-                      {:else if mv.mvText !== null}
-                        <pre class="tpl-text">{mv.mvText}</pre>
-                      {/if}
-                    </div>
-                  </div>
-                {/if}
-              </div>
+        {:else}
+          <div class="m-send">
+            {#if v.mailNotOk}<div class="hint"><Icon name="ti-info-circle" />{m.system_mail_send_hint()}</div>{/if}
+            <button
+              type="button"
+              class="send"
+              class:on={!v.mailSendDis}
+              aria-disabled={v.mailSendDis}
+              onclick={v.mailSend}><Icon name="ti-send" />{v.mailSendLabel}</button
+            >
+          </div>
+        {/if}
+      </div>
+    </section>
+
+    <section data-sec="tpl" class="sec">
+      <h2 class="sec-title">{m.system_mail_tpl_title()}</h2>
+      <p class="sec-desc tpl-lead">{isMobile ? m.system_mail_tpl_lead_mobile() : m.system_mail_tpl_lead()}</p>
+      <div role="tablist" aria-label={m.system_mail_tpl_title()} class="tpl-tabs no-scrollbar" use:tablist>
+        {#each mv.mvTabs as t (t.key)}
+          <button
+            type="button"
+            role="tab"
+            id="tpl-tab-{t.key}"
+            aria-selected={t.on}
+            aria-controls="tpl-panel"
+            tabindex={t.on ? 0 : -1}
+            class="tpl-tab"
+            class:on={t.on}
+            onclick={t.onClick}>{t.label}</button
+          >
+        {/each}
+      </div>
+      <div class="tpl-ctrl">
+        {#if mv.mvVarSeg}
+          <div role="group" aria-label={m.system_mail_tpl_variant()} class="tseg var-seg no-scrollbar">
+            {#each mv.mvVarOpts as o (o.value)}
+              <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
+            {/each}
+          </div>
+        {/if}
+        {#if mv.mvVarList && mv.mvVarSel}{@render select(mv.mvVarSel, m.system_mail_tpl_variant())}{/if}
+        {#if !isMobile}<span class="spacer"></span>{/if}
+        <div class="tpl-fmt">
+          <div role="group" class="tseg">
+            {#each mv.mvModeOpts as o (o.value)}
+              <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
+            {/each}
+          </div>
+          {#if mv.mvThemeOn}
+            <div role="group" class="tseg">
+              {#each mv.mvThemeOpts as o (o.value)}
+                <button type="button" class:on={o.on} aria-pressed={o.on} onclick={o.onClick}>{o.label}</button>
+              {/each}
             </div>
           {/if}
         </div>
-      </section>
+      </div>
+      <div role="tabpanel" id="tpl-panel" aria-labelledby="tpl-tab-{mv.mvTabs.find((t) => t.on)?.key}">
+        {#if mv.mvLoad.fail}
+          <div class="tpl-load">
+            <MailLoadCard
+              icon="ti-cloud-off"
+              title={mv.mvLoad.title}
+              text={mv.mvLoad.text}
+              load={{
+                text: mv.mvLoad.text,
+                retry: true,
+                reauth: false,
+                con: false,
+                onRetry: mv.mvLoad.onRetry,
+                goCon: () => {},
+              }}
+            />
+          </div>
+        {/if}
+        {#if mv.mvLoad.show}
+          <div class="box tpl-box" aria-busy={mv.mvLoad.busy}>
+            <div class="tpl-head">
+              <div class="tpl-kv">
+                <span class="tpl-k">{m.system_mail_tpl_from()}</span>
+                {#if mv.mvFromOk}<span class="tpl-v">{mv.mvFrom}</span>{/if}
+                {#if mv.mvFromNo}
+                  <span class="tpl-v from-none"><Icon name="ti-info-circle" /><span>{mv.mvFromHint}</span></span>
+                {/if}
+              </div>
+              <div class="tpl-kv">
+                <span class="tpl-k">{m.system_mail_tpl_to()}</span>
+                {#if mv.mvLoad.ok}<span class="tpl-v">{mv.mvTo}</span>{/if}
+              </div>
+              <div class="tpl-kv">
+                <span class="tpl-k">{m.system_mail_tpl_subject()}</span>
+                {#if mv.mvLoad.ok}<span class="tpl-v subj">{mv.mvSubj}</span>{/if}
+              </div>
+            </div>
+            <div class="tpl-stage">
+              {#if mv.mvLoad.spin}
+                <!-- Announced like the frame of the audit log (`role="status"`), not only `aria-busy` on the box -->
+                <span class="tpl-pill" role="status"><Icon name="ti-loader-2" />{m.system_mail_tpl_loading()}</span>
+              {/if}
+              {#if mv.mvLoad.first}<div class="tpl-empty"></div>{/if}
+              {#if mv.mvLoad.ok}
+                <!-- Text in `--surface`, HTML in the mail's fixed page colour (`CL.page`) per theme; the loading state as `dim`. -->
+                <div
+                  class="tpl-frame"
+                  class:text={mv.mvText !== null}
+                  class:dark={mv.mvText === null && mv.mvScheme === 'dark'}
+                  class:dim={mv.mvLoad.dim}
+                >
+                  <div class="tpl-scroll no-scrollbar">
+                    {#if mv.mvDoc !== null}
+                      <TemplateFrame doc={mv.mvDoc} title={mv.mvSubj} scheme={mv.mvScheme} />
+                    {:else if mv.mvText !== null}
+                      <pre class="tpl-text">{mv.mvText}</pre>
+                    {/if}
+                  </div>
+                </div>
+              {/if}
+            </div>
+          </div>
+        {/if}
+      </div>
+    </section>
 
-      {#if v.mailDirty}
-        <DirtyBar onDiscard={v.mailDiscard} onSave={v.mailSave} {isMobile} />
-      {/if}
+    {#if v.mailDirty}
+      <DirtyBar onDiscard={v.mailDiscard} onSave={v.mailSave} {isMobile} />
     {/if}
-  {/if}
+  </FirstLoad>
 </div>
 
 <style>
@@ -513,12 +516,6 @@
     font-size: 15px;
     line-height: 1.5;
     color: var(--mfg);
-  }
-
-  .failed {
-    margin-top: 26px;
-    display: flex;
-    flex-direction: column;
   }
 
   /* Section tabs */

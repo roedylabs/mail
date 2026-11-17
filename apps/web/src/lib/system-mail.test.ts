@@ -341,7 +341,7 @@ describe('Loading and status', () => {
     expect(values(p).mSt.title).toBe('Not checked');
   });
 
-  it('an error while loading shows the error page; 403 reloads the account', async () => {
+  it('an error while loading shows the card; 403 reloads the account', async () => {
     const api = mockApi({
       'GET admin/system-mail': [{ status: 403, body: { error: 'forbidden' } }],
       'GET admin/servers': [{ body: { servers: SERVERS } }],
@@ -350,7 +350,7 @@ describe('Loading and status', () => {
     const p = new SystemMailPage();
     await p.load();
     expect(p.status).toBe('failed');
-    expect(p.failure).toBe('500');
+    expect(p.failure).toBe('That didn’t work. Please try again.');
     await vi.waitFor(() => expect(session.isAdmin).toBe(false));
     expect(sent(api.calls)).toContain('GET auth/me');
   });

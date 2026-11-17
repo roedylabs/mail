@@ -4,11 +4,12 @@
  * Plus the text of the error toast when an action fails on the server.
  */
 import { isJmapError } from '@roedy/jmap';
-import { NetworkError } from '#lib/api.ts';
+import { isApiError, NetworkError, retryAfter } from '#lib/api.ts';
 import type { IconName } from '#lib/icons.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { redactPath } from '#lib/routes.ts';
 import { browserTimeZone, displayZone, type Settings } from '#lib/state/prefs.svelte.ts';
+import { waitText } from '#lib/wait.ts';
 
 interface ErrorPage {
   icon: IconName;
@@ -71,6 +72,11 @@ export function isOffline(error: unknown): boolean {
  */
 export function failText(error: unknown, text: string = m.error_act()): string {
   return isOffline(error) ? m.error_offline() : text;
+}
+
+/** Text of a "Couldn’t load …" card: the wait time after 429, "No connection" without a response, otherwise "That didn’t work". */
+export function loadFailText(error: unknown): string {
+  return isApiError(error, 429) ? m.error_limit({ wait: waitText(retryAfter(error)) }) : failText(error);
 }
 
 /** Values of the error page; `isMobile` comes from `ui`. */

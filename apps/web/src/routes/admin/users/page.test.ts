@@ -155,6 +155,18 @@ describe('Users page', () => {
     await vi.waitFor(() => expect(field).toHaveFocus());
   });
 
+  it('focuses "Email addresses" once the list is shown when "Invite user" opens it during the first load', async () => {
+    let answer: (value: { body: { users: typeof USERS } }) => void = () => {};
+    mockApi({ 'GET users': [() => new Promise((resolve) => (answer = resolve))] });
+    ui.userInvite = true;
+    const view = render(Page);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(view.queryByLabelText('Email addresses')).toBeNull();
+    answer({ body: { users: USERS } });
+    const field = await view.findByLabelText('Email addresses');
+    await vi.waitFor(() => expect(field).toHaveFocus());
+  });
+
   it('reports a name over 100 characters instead of cutting it off', async () => {
     const view = renderPage();
     await view.findByText('Alice Brown');
@@ -335,11 +347,24 @@ describe('Users page', () => {
     expect(view.queryByRole('button', { name: 'Extend' })).toBeNull();
   });
 
-  it('shows the error page when the list does not load, and reloads', async () => {
+  it('shows the skeleton until the first response, without search and list', async () => {
+    mockApi({ 'GET users': [() => new Promise(() => {})] });
+    const view = render(Page);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Users');
+    expect(view.queryByText('Loading data …')).toBeNull();
+    expect(await view.findByText('Loading data …')).toBeInTheDocument();
+    expect(view.queryByRole('textbox')).toBeNull();
+    expect(view.queryByRole('button')).toBeNull();
+  });
+
+  it('shows the card instead of the list when the first load fails, and reloads', async () => {
     const view = renderPage({
       'GET users': [{ status: 500, body: { error: 'internal' } }, { body: { users: USERS } }],
     });
-    expect(await view.findByText('Something went wrong')).toBeInTheDocument();
+    const card = await view.findByRole('alert');
+    expect(card).toHaveTextContent('Couldn’t load users');
+    expect(card).toHaveTextContent('That didn’t work. Please try again.');
+    expect(view.queryByRole('textbox')).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Try again' }));
     expect(await view.findByText('Alice Brown')).toBeInTheDocument();
   });

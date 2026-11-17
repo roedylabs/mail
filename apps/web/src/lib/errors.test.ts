@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { JmapError } from '@roedy/jmap';
 import { ApiError, NetworkError } from '#lib/api.ts';
-import { ERRS, errorCodeOf, errorDetails, failText, isOffline, timeText } from './errors.ts';
+import { ERRS, errorCodeOf, errorDetails, failText, isOffline, loadFailText, timeText } from './errors.ts';
 
 describe('errorCodeOf', () => {
   it('maps HTTP statuses to the error pages', () => {
@@ -76,5 +76,13 @@ describe('text of the error toast', () => {
     expect(failText(new NetworkError(new TypeError('Failed to fetch')), 'The list could not be refreshed.')).toBe(
       'No connection. Please try again.',
     );
+  });
+
+  it('names the wait time after 429 on a "Couldn’t load …" card, otherwise like the toast', () => {
+    expect(loadFailText(new ApiError(429, { error: 'rate_limited', retry_after: 30 }))).toBe(
+      'Too many requests. Try again in 30 seconds.',
+    );
+    expect(loadFailText(answered)).toBe('That didn’t work. Please try again.');
+    expect(loadFailText(new NetworkError(new TypeError('Failed to fetch')))).toBe('No connection. Please try again.');
   });
 });

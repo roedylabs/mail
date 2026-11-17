@@ -31,12 +31,12 @@ import { api, ApiError, isApiError, retryAfter } from '#lib/api.ts';
 import { ago } from '#lib/ago.ts';
 import type { SegOption } from '#lib/appearance.ts';
 import { isEmail } from '#lib/email.ts';
-import { failText } from '#lib/errors.ts';
+import { failText, loadFailText } from '#lib/errors.ts';
 import type { IconName } from '#lib/icons.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { segOptions, selectValues, type SelectContext, type SelectState, type SelectValues } from '#lib/select.ts';
 import { session } from '#lib/state/session.svelte.ts';
-import { ui } from '#lib/state/ui.svelte.ts';
+import { Loading, ui } from '#lib/state/ui.svelte.ts';
 import { hostOf } from '#lib/url.ts';
 import { waitText } from '#lib/wait.ts';
 
@@ -327,7 +327,10 @@ async function settle(): Promise<void> {
 
 export class SystemMailPage {
   status = $state<'loading' | 'ready' | 'failed'>('loading');
-  failure = $state<'offline' | '500'>('500');
+  /** Reason the first load failed (text of the card). */
+  failure = $state('');
+  /** Skeleton only after the skeleton delay. */
+  readonly loading = new Loading();
   /** Stored state (after `PUT` the response). */
   saved = $state.raw<SystemMail>(NO_MAIL);
   servers = $state.raw<MailServer[]>([]);
@@ -383,12 +386,16 @@ export class SystemMailPage {
   async load(): Promise<void> {
     const seq = ++this.#seq;
     try {
-      // A save from before is still waiting for its toast: send it first, otherwise the page would show the old state.
-      if (unsettled()) await settle();
-      const [mail, list] = await Promise.all([
-        api<SystemMail>('GET', 'admin/system-mail'),
-        api<{ servers: MailServer[] }>('GET', 'admin/servers'),
-      ]);
+      const [mail, list] = await this.loading.run(
+        (async () => {
+          // A save from before is still waiting for its toast: send it first, otherwise the page would show the old state.
+          if (unsettled()) await settle();
+          return Promise.all([
+            api<SystemMail>('GET', 'admin/system-mail'),
+            api<{ servers: MailServer[] }>('GET', 'admin/servers'),
+          ]);
+        })(),
+      );
       if (seq !== this.#seq || this.#disposed) return;
       this.servers = list.servers.map(({ id, label, url }) => ({ id, label, url }));
       this.identities = mail.identities;
@@ -399,12 +406,12 @@ export class SystemMailPage {
       if (seq !== this.#seq || this.#disposed) return;
       // Without a session or role: reload the account, the layout then shows the sign-in or "Access denied".
       if (isApiError(error, 401) || isApiError(error, 403)) void session.refreshUser().catch(() => {});
-      this.failure = error instanceof ApiError ? '500' : 'offline';
+      this.failure = loadFailText(error);
       this.status = 'failed';
     }
   }
 
-  /** "Try again" of the error page. */
+  /** "Try again" of the card: skeleton again until the response. */
   retry(): Promise<void> {
     this.status = 'loading';
     return this.load();

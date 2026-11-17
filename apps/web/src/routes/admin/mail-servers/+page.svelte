@@ -8,7 +8,7 @@
 <script lang="ts">
   import { onMount, untrack } from 'svelte';
   import { tooltip } from '#lib/actions/tooltip.ts';
-  import ErrorView from '#lib/components/ErrorView.svelte';
+  import FirstLoad from '#lib/components/FirstLoad.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import ServerDialog from '#lib/components/ServerDialog.svelte';
   import { m } from '#lib/paraglide/messages.js';
@@ -119,9 +119,14 @@
     <p class="m-lead">{info?.desc}</p>
   {/if}
 
-  {#if p.status === 'failed'}
-    <div class="failed"><ErrorView code={p.failure} retry={() => p.retry()} /></div>
-  {:else}
+  <FirstLoad
+    status={p.status}
+    slow={p.loading.slow}
+    title={m.server_load_failed()}
+    text={p.failure}
+    onRetry={() => void p.retry()}
+    {isMobile}
+  >
     <div class="tabs no-scrollbar">
       {#each v.srvTabs as t (t.label)}<button class="tab" onclick={t.onClick}>{t.label}</button>{/each}
     </div>
@@ -136,7 +141,7 @@
           <button class="add" onclick={v.srvAdd}><Icon name="ti-plus" />{m.server_add()}</button>
         {/if}
       </div>
-      {#if p.status === 'ready' && v.srvHas}
+      {#if v.srvHas}
         <div class="box">
           {#if !isMobile}<div class="sum">{v.srvSum}</div>{/if}
           {#each v.srvRows as r (r.id)}
@@ -230,7 +235,7 @@
           {/each}
           <button class="dashed" onclick={v.srvAdd}><Icon name="ti-plus" />{m.server_add()}</button>
         </div>
-      {:else if p.status === 'ready'}
+      {:else}
         <div class="empty">
           <span class="empty-tile"><Icon name="ti-server-2" /></span>
           <div class="empty-title">{m.server_empty_title()}</div>
@@ -243,41 +248,39 @@
     <section data-sec="policy" class="sec policy">
       <h2>{m.server_policy_title()}</h2>
       <p class="sec-desc">{m.server_policy_desc()}</p>
-      {#if p.status === 'ready'}
-        <div class="box">
-          <div class="pol-row">
-            <div class="pol-text">
-              <div class="pol-title">{isMobile ? m.server_own_mobile() : m.server_own()}</div>
-              <div class="pol-sub pretty">{v.srvOwnSum}</div>
-            </div>
-            <button
-              role="switch"
-              class="switch"
-              class:on={v.tgSrvOwn.on}
-              aria-checked={v.tgSrvOwn.on}
-              aria-label={m.server_own()}
-              onclick={v.tgSrvOwn.onClick}><span class="knob"></span></button
-            >
+      <div class="box">
+        <div class="pol-row">
+          <div class="pol-text">
+            <div class="pol-title">{isMobile ? m.server_own_mobile() : m.server_own()}</div>
+            <div class="pol-sub pretty">{v.srvOwnSum}</div>
           </div>
-          <div class="sep"></div>
-          {#if !isMobile}
-            <div class="pol-row wrap">
-              <div class="pol-text uri-text">
-                <div class="pol-title">{m.server_redirect()}</div>
-                <div class="pol-sub">{m.server_redirect_desc()}</div>
-              </div>
-              <div class="uri"><span class="mono">{v.srvRedirect}</span>{@render copyButton()}</div>
-            </div>
-          {:else}
-            <div class="m-uri">
-              <div class="pol-title">{m.server_redirect()}</div>
-              <div class="uri"><span class="mono">{v.srvRedirect}</span>{@render copyButton()}</div>
-            </div>
-          {/if}
+          <button
+            role="switch"
+            class="switch"
+            class:on={v.tgSrvOwn.on}
+            aria-checked={v.tgSrvOwn.on}
+            aria-label={m.server_own()}
+            onclick={v.tgSrvOwn.onClick}><span class="knob"></span></button
+          >
         </div>
-      {/if}
+        <div class="sep"></div>
+        {#if !isMobile}
+          <div class="pol-row wrap">
+            <div class="pol-text uri-text">
+              <div class="pol-title">{m.server_redirect()}</div>
+              <div class="pol-sub">{m.server_redirect_desc()}</div>
+            </div>
+            <div class="uri"><span class="mono">{v.srvRedirect}</span>{@render copyButton()}</div>
+          </div>
+        {:else}
+          <div class="m-uri">
+            <div class="pol-title">{m.server_redirect()}</div>
+            <div class="uri"><span class="mono">{v.srvRedirect}</span>{@render copyButton()}</div>
+          </div>
+        {/if}
+      </div>
     </section>
-  {/if}
+  </FirstLoad>
 </div>
 
 <style>
@@ -308,12 +311,6 @@
     font-size: 15px;
     line-height: 1.5;
     color: var(--mfg);
-  }
-
-  .failed {
-    margin-top: 26px;
-    display: flex;
-    flex-direction: column;
   }
 
   .spin {

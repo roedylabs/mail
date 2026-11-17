@@ -216,7 +216,7 @@ describe('List', () => {
     expect(ctx.scrollTo).toHaveBeenCalledWith('policy');
   });
 
-  it('shows the error page if the first load fails (offline or error)', async () => {
+  it('shows the card if the first load fails (offline or error)', async () => {
     mockApi({
       'GET admin/servers': [{ status: 500, body: { error: 'internal' } }],
       'GET admin/servers/policy': [POLICY],
@@ -224,14 +224,14 @@ describe('List', () => {
     const p = new ServersPage();
     await p.load();
     expect(p.status).toBe('failed');
-    expect(p.failure).toBe('500');
+    expect(p.failure).toBe('That didn’t work. Please try again.');
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.reject(new TypeError('offline'))),
     );
     const q = new ServersPage();
     await q.load();
-    expect(q.failure).toBe('offline');
+    expect(q.failure).toBe('No connection. Please try again.');
   });
 
   it('reloads the account without a session (sign-in or "Access denied")', async () => {

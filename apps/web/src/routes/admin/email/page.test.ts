@@ -118,18 +118,14 @@ const hint = 'Available after a successful connection test.';
 const templates = () => heading2('Templates').closest('section') as HTMLElement;
 
 describe('Administration › Email page', () => {
-  it('shows only heading, description and tabs while loading', () => {
+  it('shows heading, description and the skeleton until the first response, without tabs', async () => {
     mockApi({ 'GET admin/system-mail': [() => new Promise(() => {})], 'GET admin/servers': [{ body: SERVERS }] });
     const view = render(Page);
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Email');
     expect(view.getByText('Sending system emails via JMAP.')).toBeInTheDocument();
-    expect(view.getAllByRole('button').map((b) => b.textContent)).toEqual([
-      'Connection',
-      'Sender',
-      'Delivery',
-      'Test',
-      'Templates',
-    ]);
+    expect(view.queryByText('Loading data …')).toBeNull();
+    expect(await view.findByText('Loading data …')).toBeInTheDocument();
+    expect(view.queryByRole('button')).toBeNull();
     expect(view.queryByRole('heading', { level: 2 })).toBeNull();
   });
 
@@ -346,12 +342,14 @@ describe('Administration › Email page', () => {
     expect(ui.pick?.().opts.map((o) => o.label)).toEqual(['VPS 1', 'VPS 2']);
   });
 
-  it('shows the error page when the account does not load, and reloads', async () => {
+  it('shows the card instead of tabs and sections when the first load fails, and reloads', async () => {
     const view = renderPage(mail(), {
       'GET admin/system-mail': [{ status: 500, body: { error: 'internal' } }, { body: mail() }],
       'GET admin/servers': [{ body: SERVERS }, { body: SERVERS }],
     });
-    expect(await view.findByText('Something went wrong')).toBeInTheDocument();
+    const card = await view.findByRole('alert');
+    expect(card).toHaveTextContent('Couldn’t load the email settings');
+    expect(card).toHaveTextContent('That didn’t work. Please try again.');
     expect(view.queryByRole('button', { name: 'Connection' })).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Try again' }));
     expect(await view.findByText('Connected')).toBeInTheDocument();
