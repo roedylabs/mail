@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { ERROR_TOAST_MS, TOAST_MS, Toasts, type Toast } from './undo.ts';
+import { ERROR_TOAST_MS, TOAST_MS, Toasts, type Toast } from '#lib/undo.ts';
 
 let shown: (Toast | null)[];
 let toasts: Toasts;
