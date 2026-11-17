@@ -285,6 +285,8 @@
 
   // Without a mail account: no sidebar and no tab bar (`noAcctV`); likewise while unknown.
   const noAccounts = $derived(!mailAccountCount && chrome === 'main');
+  // The search takes the full width: sidebar slid out and no sidebar toggle, as without a mail account.
+  const sbHidden = $derived(noAccounts || path === SEARCH);
   let searchInput: HTMLInputElement | undefined = $state();
 
   const dark = $derived(ui.dark);
@@ -902,7 +904,7 @@
     isMobile: ui.isMobile,
     appName: session.appName,
     logo: session.logo,
-    sbToggleOn: !noAccounts,
+    sbToggleOn: !sbHidden,
     hdrQ: search.q,
     hdrHasQ: search.q.length > 0,
     searchPlaceholder: m.shell_search_placeholder({ app: session.appName }),
@@ -1805,7 +1807,7 @@
           <Sidebar
             wide={!ui.collapsed}
             collapsed={ui.collapsed}
-            hidden={noAccounts}
+            hidden={sbHidden}
             {sbTab}
             navRows={mailRows}
             inFolder={folderValues?.inFolder ?? false}
