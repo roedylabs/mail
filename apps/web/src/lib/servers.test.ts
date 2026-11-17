@@ -4,7 +4,8 @@ import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
-import { dialogValues, ServersPage, serversValues, type AdminServer } from './servers.svelte.ts';
+import { forgetAccount } from '#lib/state/account.ts';
+import { dialogValues, keptServers, ServersPage, serversValues, type AdminServer } from './servers.svelte.ts';
 
 const NOW = Date.parse('2026-10-26T12:00:00Z');
 const minutesAgo = (n: number) => new Date(NOW - n * 60_000).toISOString();
@@ -88,6 +89,7 @@ afterEach(() => {
   prefs.reset();
   ui.reset();
   csp.stale = false;
+  keptServers.forget();
 });
 
 /** Loaded page with the test data; further responses per route. */
@@ -1287,5 +1289,62 @@ describe('Dialog', () => {
     expect(sd()).not.toBeNull();
     sd()?.overlay({ target: scrim, currentTarget: scrim, preventDefault: () => {} });
     expect(sd()).toBeNull();
+  });
+});
+
+describe('Reopening', () => {
+  it('shows list and policy of the last open page at once and replaces them with the new ones', async () => {
+    const { p } = await loaded({
+      'GET admin/servers/policy': [{ body: { allow_custom_servers: true } }],
+    });
+    p.dispose();
+    mockApi({ 'GET admin/servers': [list([S1], { system_mail_server: null })], 'GET admin/servers/policy': [POLICY] });
+    const q = new ServersPage();
+    expect([q.status, q.rows.map((s) => s.id), q.redirectUri, q.systemServer, q.allowOwn]).toEqual([
+      'ready',
+      ['s1', 's2'],
+      REDIRECT,
+      's1',
+      true,
+    ]);
+    await q.load();
+    expect([q.rows.map((s) => s.id), q.systemServer, q.allowOwn]).toEqual([['s1'], null, false]);
+  });
+
+  it('keeps the list with the toast "Couldn’t update the list." if loading fails, also without a connection', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const fails = [
+      () =>
+        mockApi({
+          'GET admin/servers': [{ status: 500, body: { error: 'internal' } }],
+          'GET admin/servers/policy': [POLICY],
+        }),
+      () =>
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(() => Promise.reject(new TypeError('offline'))),
+        ),
+    ];
+    for (const fail of fails) {
+      fail();
+      const q = new ServersPage();
+      await q.load();
+      expect(q.status).toBe('ready');
+      expect(q.rows.map((s) => s.id)).toEqual(['s1', 's2']);
+      expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true });
+      ui.reset();
+      q.dispose();
+    }
+  });
+
+  it('signing out discards list and policy, also of a page left afterwards', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const { p: open } = await loaded();
+    forgetAccount();
+    open.dispose();
+    const q = new ServersPage();
+    expect([q.status, q.rows]).toEqual(['loading', []]);
   });
 });

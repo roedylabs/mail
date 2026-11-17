@@ -7,6 +7,10 @@
  * of the toast (`ui.toasts.defer`); whatever requires password and code goes
  * immediately. App passwords and API keys are not managed here. Errors without
  * a text of their own show the generic error toast.
+ *
+ * Apps, codes and devices stay for the session (`keptSecurity`): a reopened
+ * page shows them at once and loads again in the background; if that fails,
+ * they stay with the toast "Couldn’t update the list.".
  */
 import { SvelteSet } from 'svelte/reactivity';
 import { ago } from '#lib/ago.ts';
@@ -22,6 +26,7 @@ import { m } from '#lib/paraglide/messages.js';
 import { PW_RULES, tooLong, type PasswordRuleId } from '#lib/password.ts';
 import { qrSymbol, type QrSymbol } from '#lib/qr.ts';
 import { CODE_LENGTH, reauthError, type ReauthError } from '#lib/reauth.ts';
+import { Kept } from '#lib/state/kept.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
@@ -85,6 +90,15 @@ function ms(value: string | null | undefined, now: number): number {
   return Number.isNaN(t) ? now : t;
 }
 
+/** Apps, codes and devices of the last open page of the session. */
+export interface KeptSecurity {
+  devices: TotpDevice[];
+  recovery: RecoverySummary | null;
+  sessions: ListedSession[];
+}
+
+export const keptSecurity = new Kept<KeptSecurity>();
+
 export class SecurityPage {
   status = $state<ListStatus>('loading');
   /** First load failed: "offline" without a response, otherwise "500". */
@@ -132,6 +146,19 @@ export class SecurityPage {
   #seq = 0;
   #enrollSeq = 0;
   #disposed = false;
+  /** Reopened with the kept data: the next load reports a failure only as "Couldn’t update the list.". */
+  #reopened = false;
+  readonly #keep = keptSecurity.keeper();
+
+  constructor() {
+    const kept = keptSecurity.value;
+    if (!kept) return;
+    this.devices = kept.devices;
+    this.recovery = kept.recovery;
+    this.sessions = kept.sessions;
+    this.status = 'ready';
+    this.#reopened = true;
+  }
 
   get mfa(): boolean {
     return this.devices.length > 0;
@@ -144,6 +171,8 @@ export class SecurityPage {
   /** Loads apps, codes and sessions; after the first load the page stays as it is on an error. */
   async load(): Promise<void> {
     const seq = ++this.#seq;
+    const reopened = this.#reopened;
+    this.#reopened = false;
     try {
       const [mfa, list] = await Promise.all([
         api<MfaOverview>('GET', 'auth/totp/devices'),
@@ -160,7 +189,7 @@ export class SecurityPage {
         this.failure = error instanceof ApiError ? '500' : 'offline';
         this.status = 'failed';
       } else if (!isApiError(error, 401)) {
-        ui.toasts.error(failText(error, m.error_list()));
+        ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
       }
     }
   }
@@ -171,8 +200,13 @@ export class SecurityPage {
     void this.load();
   }
 
-  /** Leave the page: late responses change nothing any more. */
+  /** Leave the page: keep apps, codes and devices; late responses change nothing any more. */
   dispose(): void {
+    if (this.status === 'ready' && !this.#disposed) {
+      // As shown: without devices whose sign-out with undo is pending.
+      const sessions = this.sessions.filter((s) => !this.hidden.has(s.id));
+      this.#keep($state.snapshot({ devices: this.devices, recovery: this.recovery, sessions }));
+    }
     this.#disposed = true;
     this.#enrollSeq++;
   }

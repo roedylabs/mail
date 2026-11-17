@@ -3,7 +3,8 @@ import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
-import { UsersPage, rowsValues, usersValues, type ListedUser } from './users.svelte.ts';
+import { forgetAccount } from '#lib/state/account.ts';
+import { UsersPage, keptUsers, rowsValues, usersValues, type ListedUser } from './users.svelte.ts';
 
 const NOW = Date.parse('2026-10-26T12:00:00Z');
 const before = (hours: number) => new Date(NOW - hours * 3600_000).toISOString();
@@ -83,6 +84,7 @@ afterEach(() => {
   session.user = null;
   prefs.reset();
   ui.reset();
+  keptUsers.forget();
 });
 
 /** Loaded page with the test data. */
@@ -1088,5 +1090,76 @@ describe('Actions per row', () => {
     await vi.waitFor(() => expect(session.isAdmin).toBe(false));
     // Instead of reloading the list, the layout then shows "Access denied".
     expect(sent(calls).filter((c) => c === 'GET users')).toHaveLength(1);
+  });
+});
+
+describe('Reopening', () => {
+  const offline = () =>
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('offline'))),
+    );
+
+  it('shows the list of the last open page at once and replaces it with the new one', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const later = USERS.filter((u) => u.id !== 'u3');
+    mockApi({ 'GET users': [{ body: { users: later } }] });
+    const q = new UsersPage();
+    expect(q.status).toBe('ready');
+    expect(q.rows.map((u) => u.id)).toEqual(USERS.map((u) => u.id));
+    await q.load();
+    expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id));
+  });
+
+  it('keeps the list with the toast "Couldn’t update the list." if loading fails, also without a connection', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    for (const fail of [() => mockApi({ 'GET users': [{ status: 500, body: { error: 'internal' } }] }), offline]) {
+      fail();
+      const q = new UsersPage();
+      await q.load();
+      expect(q.status).toBe('ready');
+      expect(q.rows).toHaveLength(USERS.length);
+      expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true });
+      ui.reset();
+      q.dispose();
+    }
+  });
+
+  it('a later reload of the open page still reports "No connection" without a connection', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    mockApi({ 'GET users': [{ body: { users: USERS } }] });
+    const q = new UsersPage();
+    await q.load();
+    offline();
+    await q.load();
+    expect(ui.toast?.text).toBe('No connection. Please try again.');
+  });
+
+  it('keeps local changes of the page', async () => {
+    const { p } = await loaded({ 'DELETE users/u3': [{ status: 204 }] });
+    const u3 = p.rows.find((u) => u.id === 'u3');
+    if (!u3) throw new Error('no u3');
+    p.remove(u3);
+    ui.confirmOk();
+    p.dispose();
+    expect(new UsersPage().rows.map((u) => u.id)).not.toContain('u3');
+  });
+
+  it('signing out discards the list, also of a page left afterwards', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const { p: open } = await loaded();
+    forgetAccount();
+    open.dispose();
+    const q = new UsersPage();
+    expect([q.status, q.rows]).toEqual(['loading', []]);
+  });
+
+  it('keeps nothing from a page that has not loaded', () => {
+    new UsersPage().dispose();
+    expect(new UsersPage().status).toBe('loading');
   });
 });

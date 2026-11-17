@@ -9,6 +9,10 @@
  *
  * Removal runs immediately after confirmation, without undo. Errors show the
  * error toast; diagnosis and registration texts depend on the reason.
+ *
+ * List and policy stay for the session (`keptServers`): a reopened page shows
+ * them at once and loads again in the background; if that fails, they stay
+ * with the toast "Couldn’t update the list.".
  */
 import { SvelteMap, SvelteSet } from 'svelte/reactivity';
 import { ago } from '#lib/ago.ts';
@@ -34,6 +38,7 @@ import type { IconName } from '#lib/icons.ts';
 import type { KeyInput } from '#lib/keys.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { overlayClose, type OverlayEvent } from '#lib/shell.ts';
+import { Kept } from '#lib/state/kept.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import { MAX_DOMAINS, domainsOf, hostOf, httpOther, isDomain, localHttp } from '#lib/url.ts';
@@ -157,6 +162,16 @@ function urlError(url: string, empty: string): string | undefined {
   return undefined;
 }
 
+/** List and policy of the last open page of the session. */
+export interface KeptServers {
+  rows: AdminServer[];
+  redirectUri: string | null;
+  systemServer: string | null;
+  allowOwn: boolean;
+}
+
+export const keptServers = new Kept<KeptServers>();
+
 export class ServersPage {
   rows = $state<AdminServer[]>([]);
   status = $state<ListStatus>('loading');
@@ -207,12 +222,28 @@ export class ServersPage {
   #policySeq = 0;
   #policy: Promise<unknown> = Promise.resolve();
   #disposed = false;
+  /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
+  #reopened = false;
+  readonly #keep = keptServers.keeper();
+
+  constructor() {
+    const kept = keptServers.value;
+    if (!kept) return;
+    this.rows = kept.rows;
+    this.redirectUri = kept.redirectUri;
+    this.systemServer = kept.systemServer;
+    this.allowOwn = kept.allowOwn;
+    this.status = 'ready';
+    this.#reopened = true;
+  }
 
   /** Loads list and policy; after the first load the list stays as it is on an error. */
   async load(): Promise<void> {
     const seq = ++this.#seq;
     const policySeq = this.#policySeq;
     const changes = this.#changes;
+    const reopened = this.#reopened;
+    this.#reopened = false;
     try {
       const [list, policy] = await Promise.all([
         api<ServerList>('GET', 'admin/servers'),
@@ -221,6 +252,7 @@ export class ServersPage {
       if (seq !== this.#seq || this.#disposed) return;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
       if (changes !== this.#changes) {
+        this.#reopened = reopened;
         void this.load();
         return;
       }
@@ -247,7 +279,7 @@ export class ServersPage {
         this.failure = error instanceof ApiError ? '500' : 'offline';
         this.status = 'failed';
       } else {
-        ui.toasts.error(failText(error, m.error_list()));
+        ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
       }
     }
   }
@@ -257,8 +289,12 @@ export class ServersPage {
     await this.load();
   }
 
-  /** Leave the page: late responses change nothing any more. */
+  /** Leave the page: keep list and policy; late responses change nothing any more. */
   dispose(): void {
+    if (this.status === 'ready' && !this.#disposed) {
+      const { rows, redirectUri, systemServer, allowOwn } = this;
+      this.#keep({ rows: $state.snapshot(rows), redirectUri, systemServer, allowOwn });
+    }
     this.#disposed = true;
     this.#regSeq++;
     this.regLock.stop();

@@ -1,6 +1,6 @@
 import { fireEvent, render, within } from '@testing-library/svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { MfaOverview } from '#lib/security.svelte.ts';
+import { keptSecurity, type MfaOverview } from '#lib/security.svelte.ts';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
@@ -71,6 +71,7 @@ afterEach(() => {
   session.user = null;
   prefs.reset();
   ui.reset();
+  keptSecurity.forget();
   window.dispatchEvent(new Event('resize'));
 });
 
@@ -206,5 +207,20 @@ describe('Security page', () => {
     });
     const view = render(Page);
     expect(await view.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
+  });
+
+  it('shows the sections at once on reopen and keeps them with a toast if loading fails', async () => {
+    const first = renderPage();
+    expect(await first.findByText('Added on 01.10.2026')).toBeInTheDocument();
+    first.unmount();
+    mockApi({
+      'GET auth/totp/devices': [{ status: 500, body: {} }],
+      'GET auth/sessions': [{ body: { sessions: SESSIONS } }],
+    });
+    const view = render(Page);
+    expect(view.getByText('Added on 01.10.2026')).toBeInTheDocument();
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true }));
+    expect(view.queryByRole('button', { name: 'Try again' })).toBeNull();
+    expect(view.getByText('Added on 01.10.2026')).toBeInTheDocument();
   });
 });

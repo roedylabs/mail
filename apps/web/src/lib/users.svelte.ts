@@ -10,6 +10,10 @@
  * confirmation, without undo. Errors without a text of their own show the
  * generic error toast and reload the list. Local changes the server does not
  * know yet also apply to reloaded lists until their call is through.
+ *
+ * The list stays for the session (`keptUsers`): a reopened page shows it at
+ * once and loads again in the background; if that fails, the list stays with
+ * the toast "Couldn’t update the list.".
  */
 import { AV } from '@roedy/tokens';
 import { SvelteSet } from 'svelte/reactivity';
@@ -25,6 +29,7 @@ import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { pickList, type SelectValues } from '#lib/select.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
+import { Kept } from '#lib/state/kept.ts';
 import { initialsOf, session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import { waitText } from '#lib/wait.ts';
@@ -153,6 +158,9 @@ type ChipKind = 'ok' | 'bad' | 'dup';
 /** Key in a field (`#lib/keys.ts`). */
 export type { KeyInput };
 
+/** List of the last open page of the session. */
+export const keptUsers = new Kept<ListedUser[]>();
+
 export class UsersPage {
   rows = $state<ListedUser[]>([]);
   status = $state<ListStatus>('loading');
@@ -184,6 +192,17 @@ export class UsersPage {
   #seq = 0;
   #formId = 0;
   #disposed = false;
+  /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
+  #reopened = false;
+  readonly #keep = keptUsers.keeper();
+
+  constructor() {
+    const kept = keptUsers.value;
+    if (!kept) return;
+    this.rows = kept;
+    this.status = 'ready';
+    this.#reopened = true;
+  }
 
   me = $derived(session.user?.id ?? null);
   /** System emails set up (from `auth/me`). */
@@ -258,6 +277,8 @@ export class UsersPage {
   /** Loads the list; after the first load it stays as it is on an error. */
   async load(): Promise<void> {
     const seq = ++this.#seq;
+    const reopened = this.#reopened;
+    this.#reopened = false;
     try {
       const { users } = await api<{ users: ListedUser[] }>('GET', 'users');
       if (seq !== this.#seq || this.#disposed) return;
@@ -276,7 +297,7 @@ export class UsersPage {
         this.failure = error instanceof ApiError ? '500' : 'offline';
         this.status = 'failed';
       } else {
-        ui.toasts.error(failText(error, m.error_list()));
+        ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
       }
     }
   }
@@ -305,8 +326,9 @@ export class UsersPage {
     await this.load();
   }
 
-  /** Leave the page: late responses and errors after a toast expires load nothing any more. */
+  /** Leave the page: keep the list; late responses and errors after a toast expires load nothing any more. */
   dispose(): void {
+    if (this.status === 'ready' && !this.#disposed) this.#keep($state.snapshot(this.rows));
     this.#disposed = true;
     this.inviteLock.stop();
   }

@@ -3,7 +3,9 @@ import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
+import { forgetAccount } from '#lib/state/account.ts';
 import {
+  keptSecurity,
   SecurityPage,
   securityValues,
   type ListedSession,
@@ -97,6 +99,7 @@ afterEach(() => {
   session.user = null;
   prefs.reset();
   ui.reset();
+  keptSecurity.forget();
 });
 
 async function loaded(routes: Parameters<typeof mockApi>[0] = {}, mfa = MFA, sessions = SESSIONS) {
@@ -687,5 +690,64 @@ describe('Edge cases', () => {
     const late = { ...IPHONE, created_at: '2026-10-01T20:00:00Z' };
     const { v } = await loaded({}, { ...MFA, devices: [late] });
     expect(v().tfaEntries[0]?.sub).toContain('Added on 02.10.2026');
+  });
+});
+
+describe('Reopening', () => {
+  it('shows apps, codes and devices of the last open page at once and replaces them with the new ones', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const later = SESSIONS.slice(0, 2);
+    mockApi({
+      'GET auth/totp/devices': [{ body: NO_MFA }],
+      'GET auth/sessions': [{ body: { sessions: later } }],
+    });
+    const q = new SecurityPage();
+    expect([q.status, q.devices, q.recovery, q.sessions]).toEqual(['ready', MFA.devices, MFA.recovery, SESSIONS]);
+    await q.load();
+    expect([q.devices, q.recovery, q.sessions]).toEqual([[], null, later]);
+  });
+
+  it('keeps the page with the toast "Couldn’t update the list." if loading fails, also without a connection', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const fails = [
+      () =>
+        mockApi({
+          'GET auth/totp/devices': [{ status: 500, body: {} }],
+          'GET auth/sessions': [{ body: { sessions: SESSIONS } }],
+        }),
+      () =>
+        vi.stubGlobal(
+          'fetch',
+          vi.fn(() => Promise.reject(new TypeError('offline'))),
+        ),
+    ];
+    for (const fail of fails) {
+      fail();
+      const q = new SecurityPage();
+      await q.load();
+      expect([q.status, q.sessions]).toEqual(['ready', SESSIONS]);
+      expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true });
+      ui.reset();
+      q.dispose();
+    }
+  });
+
+  it('keeps the devices as shown, without one whose sign-out with undo is pending', async () => {
+    const { p } = await loaded();
+    p.revoke('s1');
+    p.dispose();
+    expect(new SecurityPage().sessions.map((s) => s.id)).toEqual(['s0', 's2']);
+  });
+
+  it('signing out discards the data, also of a page left afterwards', async () => {
+    const { p } = await loaded();
+    p.dispose();
+    const { p: open } = await loaded();
+    forgetAccount();
+    open.dispose();
+    const q = new SecurityPage();
+    expect([q.status, q.sessions]).toEqual(['loading', []]);
   });
 });
