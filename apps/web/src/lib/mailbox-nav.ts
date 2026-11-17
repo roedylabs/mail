@@ -78,19 +78,19 @@ export interface ActiveInput {
   location: MailboxLocation | null;
   /** Last opened mailbox, folder or tag. */
   lastMailbox: MailboxLocation | null;
-  /** Last page outside compose; `null` when compose was the first page. */
-  lastPage: string | null;
+  /** Search results open (`search.resultsOpen`). */
+  results: boolean;
 }
 
 /**
  * Mailbox, folder or tag the sidebar marks as active, if it belongs to the
  * view: that of the address. Compose keeps the one the user came from,
- * without one the view's inbox (the start view); opened from the search
- * results none, like on the search itself.
+ * without one the view's inbox (the start view); with the search results
+ * open (also across the settings) none, like on the search itself.
  */
 export function activeLocation(scope: SidebarScope, at: ActiveInput): MailboxLocation | null {
   let location = at.location;
-  if (!location && at.path.startsWith('/compose/') && at.lastPage !== '/search')
+  if (!location && at.path.startsWith('/compose/') && !at.results)
     location = at.lastMailbox ?? (scope.key ? { account: scope.key, role: 'inbox', thread: null } : null);
   return inScope(scope, location) ? location : null;
 }

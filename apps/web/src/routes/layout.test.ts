@@ -1635,6 +1635,47 @@ describe('Mailboxes in the shell', () => {
     expect(rows.map((r) => r.classList.contains('on'))).toEqual([true, false, false, false, false, false]);
   });
 
+  describe('search results open', () => {
+    afterEach(() => search.reset());
+
+    it('marks nothing in compose, also after the settings', async () => {
+      mockMail();
+      // Results page, then the settings: the results stay open.
+      search.resultsOpen = true;
+      const { findByRole, container } = renderAt('/compose/new');
+      await findByRole('button', { name: /Inbox/ });
+      const rows = [...container.querySelectorAll('.panel.rows .row')];
+      expect(rows).toHaveLength(6);
+      expect(rows.some((r) => r.classList.contains('on'))).toBe(false);
+    });
+
+    it('opens them on the results page and closes them in a mailbox', async () => {
+      mockMail();
+      const view = renderAt('/search');
+      await view.findByText('Page content');
+      expect(search.resultsOpen).toBe(true);
+      view.unmount();
+      mockMail();
+      renderAt('/mailbox/a1/inbox');
+      await vi.waitFor(() => expect(search.resultsOpen).toBe(false));
+    });
+
+    it('closes them with a jump to an administration page (⇧M)', async () => {
+      mockApi({
+        'GET public/config': [{ body: CONFIG }],
+        'GET auth/me': [{ body: me('admin') }],
+        'GET settings': [{ body: SETTINGS }],
+        'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+      });
+      const { findByText, goto } = renderAt('/settings/general');
+      await findByText('Page content');
+      search.resultsOpen = true;
+      await fireEvent.keyDown(window, { key: 'M', shiftKey: true });
+      expect(goto).toHaveBeenCalledWith('/admin/mail-servers');
+      expect(search.resultsOpen).toBe(false);
+    });
+  });
+
   it('shows the tree without roles and “Tags” in the “Folders” tab, expands and opens folders', async () => {
     mockMail();
     const { findByRole, findByText, queryByText, getByRole, goto, container } = renderAt('/mailbox/a1/f/mu');

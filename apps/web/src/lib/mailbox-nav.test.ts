@@ -74,11 +74,11 @@ describe('mailboxes in sidebar and palette', () => {
     const sent = { account: 'a2', role: 'sent' as const, thread: null };
     const folder = { account: 'a2', folder: 'f1', thread: 'th1' };
     const tag = { account: 'all', tag: 't1', thread: null };
-    const at = (path: string, lastMailbox: ActiveInput['lastMailbox'], lastPage: string | null = null) => ({
+    const at = (path: string, lastMailbox: ActiveInput['lastMailbox'], results = false): ActiveInput => ({
       path,
       location: null,
       lastMailbox,
-      lastPage,
+      results,
     });
 
     it('is that of the address', () => {
@@ -91,17 +91,9 @@ describe('mailboxes in sidebar and palette', () => {
     });
 
     it('stays the folder, tag or mailbox the user came from while compose is open', () => {
-      expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent, '/mailbox/a2/sent'))).toEqual(
-        sent,
-      );
-      expect(
-        activeLocation(sidebarScope(LIST, 'a1', folder), at('/compose/d1', folder, '/mailbox/a2/f/f1/th1')),
-      ).toEqual(folder);
-      expect(activeLocation(sidebarScope(LIST, 'a1', tag), at('/compose/new', tag, '/mailbox/all/t/t1'))).toEqual(tag);
-      // Via settings or another page the last mailbox stays too.
-      expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent, '/settings/general'))).toEqual(
-        sent,
-      );
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent))).toEqual(sent);
+      expect(activeLocation(sidebarScope(LIST, 'a1', folder), at('/compose/d1', folder))).toEqual(folder);
+      expect(activeLocation(sidebarScope(LIST, 'a1', tag), at('/compose/new', tag))).toEqual(tag);
     });
 
     it('is the inbox of the view when compose is opened without a previous mailbox', () => {
@@ -110,7 +102,7 @@ describe('mailboxes in sidebar and palette', () => {
         role: 'inbox',
         thread: null,
       });
-      expect(activeLocation(sidebarScope(LIST, 'all', null), at('/compose/new', null, '/settings/general'))).toEqual({
+      expect(activeLocation(sidebarScope(LIST, 'all', null), at('/compose/new', null))).toEqual({
         account: 'all',
         role: 'inbox',
         thread: null,
@@ -118,11 +110,12 @@ describe('mailboxes in sidebar and palette', () => {
       expect(activeLocation(sidebarScope(null, null, null), at('/compose/new', null))).toBeNull();
     });
 
-    it('is none on other pages and in compose opened from the search results', () => {
+    it('is none on other pages and in compose with the search results open', () => {
       const scope = sidebarScope(LIST, 'a1', sent);
-      expect(activeLocation(scope, at('/search', sent, '/search'))).toBeNull();
-      expect(activeLocation(scope, at('/compose/new', sent, '/search'))).toBeNull();
-      expect(activeLocation(scope, at('/settings/general', sent, '/settings/general'))).toBeNull();
+      expect(activeLocation(scope, at('/search', sent, true))).toBeNull();
+      expect(activeLocation(scope, at('/compose/new', sent, true))).toBeNull();
+      expect(activeLocation(scope, at('/compose/new', null, true))).toBeNull();
+      expect(activeLocation(scope, at('/settings/general', sent))).toBeNull();
     });
   });
 
