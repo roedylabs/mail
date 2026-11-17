@@ -53,7 +53,9 @@ describe('mailboxes (mobile)', () => {
 
     const panels = getAllByRole('tabpanel', { hidden: true });
     expect(panels.map((p) => p.getAttribute('aria-hidden'))).toEqual(['false', 'true', 'true']);
-    expect(panels[1]).toHaveClass('off');
+    // Hidden panels rest faded out and at 96 %; the tab swipe overrides both while dragging.
+    expect(panels[1]?.getAttribute('style')).toContain('opacity: var(--gp1o, 0)');
+    expect(panels[1]?.getAttribute('style')).toContain('transform: var(--gp1t, scale(.96))');
     const inbox = getByRole('button', { name: 'Inbox' });
     expect(inbox).toHaveClass('on');
     expect(inbox).toHaveStyle({ fontWeight: '800' });
