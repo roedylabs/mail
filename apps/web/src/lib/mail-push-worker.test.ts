@@ -69,7 +69,7 @@ function setup(options: Setup = {}) {
     write: () => Promise.resolve(),
     renewedAt: () => Promise.resolve(options.renewedAt ?? NOW),
     markRenewed,
-    clear: () => Promise.resolve(),
+    clear: () => Promise.resolve(true),
   };
   const show = vi.fn((title: string, shownOptions: Shown['options']) => {
     const index = shown.findIndex((item) => item.options.tag === shownOptions.tag);

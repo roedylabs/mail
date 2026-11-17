@@ -231,6 +231,7 @@ describe('return via /oauth/callback', () => {
       code: 'c',
       code_verifier: 'v'.repeat(43),
       client_id: 'roedy',
+      user_id: 'u1',
     });
     expect(accounts.count).toBe(1);
     // The attempt is used up.

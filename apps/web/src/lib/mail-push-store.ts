@@ -36,8 +36,11 @@ export interface MailPushStore {
   /** Last check of the flow, otherwise 0. */
   renewedAt(accountId: string): Promise<number>;
   markRenewed(accountId: string, at: number): Promise<void>;
-  /** Removes everything; also the database, so that nothing remains for the storage measurement. */
-  clear(): Promise<void>;
+  /**
+   * Removes everything; also the database, so that nothing remains for the storage measurement.
+   * Never rejects; `false` if the deletion failed or is blocked (it may still happen later).
+   */
+  clear(): Promise<boolean>;
 }
 
 const DATABASE = 'roedy-mail-push';
@@ -88,8 +91,8 @@ export const mailPushStore: MailPushStore = {
     new Promise((resolve) => {
       const request = indexedDB.deleteDatabase(DATABASE);
       // Blocked or failed: the entry goes with the next sign-out.
-      request.onsuccess = () => resolve();
-      request.onerror = () => resolve();
-      request.onblocked = () => resolve();
+      request.onsuccess = () => resolve(true);
+      request.onerror = () => resolve(false);
+      request.onblocked = () => resolve(false);
     }),
 };

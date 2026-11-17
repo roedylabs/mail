@@ -400,7 +400,9 @@ export class MailPush {
     const generation = this.#generation;
     const stored = await this.env.store.read().catch(() => undefined);
     if (stored === undefined || generation !== this.#generation || this.#shared !== null) return;
-    if (stored !== null && stored.user !== user) await this.env.store.clear().catch(() => {});
+    // Only once the foreign copy is gone does this user count as checked; otherwise the next
+    // `resume`/`share` tries again.
+    if (stored !== null && stored.user !== user && !(await this.env.store.clear().catch(() => false))) return;
     if (generation === this.#generation) this.#owner = user;
   }
 

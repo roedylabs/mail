@@ -463,6 +463,8 @@ export function failureOf(error: unknown, kind: AuthKind): Failure {
   const account = isRecord(body.account) ? body.account : {};
   const email = typeof account.email === 'string' ? account.email : '';
   switch (error.code) {
+    case 'session_changed':
+      return { error: 'expired' };
     case 'dup':
       return { error: 'dup', as: email, ...(typeof account.id === 'string' ? { account: account.id } : {}) };
     case 'other_account':
@@ -666,8 +668,11 @@ export async function complete(pending: Pending, params: CallbackParams, deps: L
     if (!ownAttempt(pending, deps)) return fail('expired');
     credentials = { ...tokens };
   }
+  // The backend refuses (`session_changed`) if another app user signed in meanwhile in this
+  // browser: the cookie, not this tab's state, decides whose account it becomes.
   return submit(pending.purpose, pending.form.email, { id: pending.serverId, url: pending.url }, 'oauth', {
     ...credentials,
     client_id: pending.clientId,
+    user_id: pending.user,
   });
 }

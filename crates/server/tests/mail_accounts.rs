@@ -2282,3 +2282,39 @@ async fn local_reset_is_only_logged() {
         ("settings".into(), Some(max), Some("203.0.113.9".into()))
     );
 }
+
+/// The browser names the app user it started the sign-in for; if another
+/// user signed in in the same browser meanwhile, nothing is exchanged or
+/// stored (409 `session_changed`).
+#[tokio::test]
+async fn a_sign_in_started_for_another_app_user_is_refused() {
+    let fake = Server::start(Options {
+        client_secret: Some(CLIENT_SECRET),
+        ..Options::default()
+    })
+    .await;
+    let s = setup().await;
+    let server = register_confidential(&s, &fake.url).await;
+    let me = send(&s.state, Method::GET, "/auth/me", Some(&s.user), None).await;
+    let user_id = me.json()["id"].as_str().unwrap().to_owned();
+
+    let mut body = code(&server, CODE);
+    body["user_id"] = json!("another-user");
+    let refused = add(&s, &s.user, body).await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.body);
+    assert_eq!(refused.json()["error"], "session_changed");
+    assert!(fake.token_requests().is_empty());
+
+    let mut body = code(&server, CODE);
+    body["user_id"] = json!(user_id);
+    let created = add(&s, &s.user, body).await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_owned();
+
+    let body =
+        json!({ "code": fake.new_code(), "code_verifier": VERIFIER, "user_id": "another-user" });
+    let refused = reauth(&s, &s.user, &id, body).await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.body);
+    assert_eq!(refused.json()["error"], "session_changed");
+    assert_eq!(fake.token_requests().len(), 1);
+}

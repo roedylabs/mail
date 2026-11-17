@@ -423,7 +423,17 @@ describe('return', () => {
       refresh_token: 'rt',
       expires_in: 3600,
       client_id: 'roedy',
+      user_id: USER,
     });
+  });
+
+  it('reports a sign-in refused for another app user (session_changed) as expired', async () => {
+    // Another app user signed in in this browser between the check here and the request.
+    const { fetch } = net({
+      [`POST ${METADATA.token_endpoint}`]: [json(TOKENS)],
+      [`POST ${api('mail-accounts')}`]: [json({ error: 'session_changed' }, 409)],
+    });
+    expect(await complete(pending(), ok, deps(fetch))).toEqual({ ok: false, error: 'expired' });
   });
 
   it('does not complete an attempt for another app user', async () => {
@@ -486,7 +496,12 @@ describe('return', () => {
     const p = pending({ backendExchange: true, purpose: { kind: 're', account: 'a1' } });
     expect((await complete(p, ok, deps(fetch))).ok).toBe(true);
     expect(seen).toHaveLength(1);
-    expect(JSON.parse(seen[0]?.body ?? '')).toEqual({ code: 'c', code_verifier: 'v'.repeat(43), client_id: 'roedy' });
+    expect(JSON.parse(seen[0]?.body ?? '')).toEqual({
+      code: 'c',
+      code_verifier: 'v'.repeat(43),
+      client_id: 'roedy',
+      user_id: USER,
+    });
   });
 
   it('discards responses with a wrong or missing iss', async () => {

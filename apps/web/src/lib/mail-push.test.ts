@@ -158,13 +158,14 @@ function fakeManager(endpoint: string, existing?: string) {
 
 type FakeRegistration = ServiceWorkerRegistration & { unregister: ReturnType<typeof vi.fn> };
 
-type FakeStore = MailPushStore & { copy: MailPushCopy | null; writes: number };
+type FakeStore = MailPushStore & { copy: MailPushCopy | null; writes: number; clearFails: boolean };
 
 /** Service worker storage in memory. */
 function fakeStore(): FakeStore {
   const store: FakeStore = {
     copy: null,
     writes: 0,
+    clearFails: false,
     read: () => Promise.resolve(store.copy),
     write: (copy) => {
       store.copy = copy;
@@ -174,8 +175,9 @@ function fakeStore(): FakeStore {
     renewedAt: () => Promise.resolve(0),
     markRenewed: () => Promise.resolve(),
     clear: () => {
+      if (store.clearFails) return Promise.resolve(false);
       store.copy = null;
-      return Promise.resolve();
+      return Promise.resolve(true);
     },
   };
   return store;
@@ -906,6 +908,18 @@ describe('mailPush', () => {
       delete unbound.user;
       browser.store.copy = unbound as MailPushCopy;
       await mailPushWith(browser, 1000).resume();
+      expect(browser.store.copy).toBeNull();
+    });
+
+    it('tries again to remove the copy of the previous app user if deleting it failed', async () => {
+      browser.store.copy = copy;
+      browser.store.clearFails = true;
+      browser.user = 'u2';
+      const module = mailPushWith(browser, 1000);
+      await module.resume();
+      expect(browser.store.copy).toEqual(copy);
+      browser.store.clearFails = false;
+      await module.resume();
       expect(browser.store.copy).toBeNull();
     });
 
