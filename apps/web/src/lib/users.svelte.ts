@@ -499,6 +499,8 @@ export class UsersPage {
         role: form.role,
         ...(name ? { name } : {}),
       });
+      // Also for a page already left: a reopened page's load may be older.
+      keptUsers.changed();
       if (this.#disposed) return;
       const unsent = res.invites.filter((i) => !i.sent).map((i) => i.id);
       if (current()) this.invite = null;
@@ -720,12 +722,11 @@ export class UsersPage {
     this.busy.add(u.id);
     try {
       const res = await api<{ invite: ListedUser | null }>('POST', `invites/${u.id}/resend`);
+      // Also for a page already left: a reopened page's load may be older.
+      keptUsers.changed();
       if (this.#disposed) return;
       const now = res.invite;
-      if (now) {
-        keptUsers.changed();
-        this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
-      }
+      if (now) this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
       if (this.sendFail === u.id) this.sendFail = null;
       ui.toasts.show(m.users_resent());
     } catch (error) {
@@ -745,12 +746,11 @@ export class UsersPage {
     this.busy.add(u.id);
     try {
       const res = await api<{ invite: ListedUser | null }>('POST', `invites/${u.id}/renew`);
+      // Also for a page already left: a reopened page's load may be older.
+      keptUsers.changed();
       if (this.#disposed) return;
       const now = res.invite;
-      if (now) {
-        keptUsers.changed();
-        this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
-      }
+      if (now) this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
       // A failed "Resend" before no longer applies: the invitation is valid again.
       if (this.sendFail === u.id) this.sendFail = null;
       const until = now?.expires_at ?? null;

@@ -1208,6 +1208,29 @@ describe('Reopening', () => {
     await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
   });
 
+  it('an extension the left page confirms later makes the reopened page load again', async () => {
+    const old = invite('i3', 'old@example.com', { expires_at: before(1), expired: true });
+    const renewed = { ...old, expires_at: before(-168), expired: false };
+    let done: (reply: { body: { invite: ListedUser } }) => void = () => {};
+    let answer: (reply: { body: { users: ListedUser[] } }) => void = () => {};
+    const { p } = await loaded({ 'POST invites/i3/renew': [() => new Promise((resolve) => (done = resolve))] }, [
+      ...USERS,
+      old,
+    ]);
+    const extending = p.extend(old);
+    p.dispose();
+    mockApi({
+      'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: [...USERS, renewed] } }],
+    });
+    const q = new UsersPage();
+    const load = q.load();
+    done({ body: { invite: renewed } });
+    await extending;
+    answer({ body: { users: [...USERS, old] } });
+    await load;
+    await vi.waitFor(() => expect(q.rows.find((u) => u.id === 'i3')?.expired).toBe(false));
+  });
+
   it('signing out discards the list, also of a page left afterwards', async () => {
     const { p } = await loaded();
     p.dispose();

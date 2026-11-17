@@ -5,7 +5,8 @@ import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import { forgetAccount } from '#lib/state/account.ts';
-import { dialogValues, keptServers, ServersPage, serversValues, type AdminServer } from './servers.svelte.ts';
+import { forgetRegistered } from '#lib/state/forget.ts';
+import { dialogValues, ServersPage, serversValues, type AdminServer } from './servers.svelte.ts';
 
 const NOW = Date.parse('2026-10-26T12:00:00Z');
 const minutesAgo = (n: number) => new Date(NOW - n * 60_000).toISOString();
@@ -89,7 +90,8 @@ afterEach(() => {
   prefs.reset();
   ui.reset();
   csp.stale = false;
-  keptServers.forget();
+  // Kept list and the toggles of the policy still on their way.
+  forgetRegistered();
 });
 
 /** Loaded page with the test data; further responses per route. */
@@ -1385,6 +1387,43 @@ describe('Reopening', () => {
     p.dispose();
     const q = new ServersPage();
     expect([q.rows.map((s) => s.id), q.allowOwn]).toEqual([['s1'], true]);
+  });
+
+  it('a save the left page confirms later makes the reopened page load again', async () => {
+    let saved: (reply: { body: AdminServer }) => void = () => {};
+    let answer: (reply: ReturnType<typeof list>) => void = () => {};
+    const { p } = await loaded({ 'PATCH admin/servers/s1': [() => new Promise((resolve) => (saved = resolve))] });
+    p.openDialog(S1);
+    p.setLabel('New');
+    const saving = p.save();
+    p.dispose();
+    mockApi({
+      'GET admin/servers': [() => new Promise((resolve) => (answer = resolve)), list([{ ...S1, label: 'New' }, S2])],
+      'GET admin/servers/policy': [POLICY, POLICY],
+    });
+    const q = new ServersPage();
+    const load = q.load();
+    saved({ body: { ...S1, label: 'New' } });
+    await saving;
+    answer(list([S1, S2]));
+    await load;
+    await vi.waitFor(() => expect(q.rows.find((s) => s.id === 's1')?.label).toBe('New'));
+  });
+
+  it('a reopened page asks for the policy only after a toggle of the left page', async () => {
+    let done: (reply: { body: { allow_custom_servers: boolean } }) => void = () => {};
+    const { p, calls } = await loaded({
+      'PUT admin/servers/policy': [() => new Promise((resolve) => (done = resolve))],
+    });
+    p.toggleOwn();
+    p.dispose();
+    const q = new ServersPage();
+    const load = q.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'GET admin/servers/policy')).toHaveLength(1);
+    done({ body: { allow_custom_servers: true } });
+    await load;
+    expect(sent(calls).slice(-2)).toEqual(['PUT admin/servers/policy', 'GET admin/servers/policy']);
   });
 
   it('signing out discards list and policy, also of a page left afterwards', async () => {

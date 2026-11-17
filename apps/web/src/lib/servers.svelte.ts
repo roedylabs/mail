@@ -38,6 +38,7 @@ import type { IconName } from '#lib/icons.ts';
 import type { KeyInput } from '#lib/keys.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { overlayClose, type OverlayEvent } from '#lib/shell.ts';
+import { onForget } from '#lib/state/forget.ts';
 import { Kept } from '#lib/state/kept.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
@@ -172,6 +173,12 @@ export interface KeptServers {
 
 export const keptServers = new Kept<KeptServers>();
 
+/** Toggles of the policy of every page, one after the other: a load of a reopened page also asks only after them. */
+let policyWrites: Promise<unknown> = Promise.resolve();
+onForget(() => {
+  policyWrites = Promise.resolve();
+});
+
 export class ServersPage {
   rows = $state<AdminServer[]>([]);
   status = $state<ListStatus>('loading');
@@ -222,7 +229,6 @@ export class ServersPage {
   /** Stored servers that are tested after the running test. */
   #queue: string[] = [];
   #policySeq = 0;
-  #policy: Promise<unknown> = Promise.resolve();
   #disposed = false;
   /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
   #reopened = false;
@@ -250,7 +256,7 @@ export class ServersPage {
       const [list, policy] = await Promise.all([
         api<ServerList>('GET', 'admin/servers'),
         // After toggles still on their way: otherwise the response could be older than a confirmed one.
-        this.#policy.catch(() => {}).then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
+        policyWrites.catch(() => {}).then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
       ]);
       if (seq !== this.#seq || this.#disposed) return;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
@@ -333,7 +339,6 @@ export class ServersPage {
 
   /** Take over a server from a response (add, edit, test). */
   #put(server: AdminServer): void {
-    keptServers.changed();
     const known = this.rows.some((s) => s.id === server.id);
     this.rows = known ? this.rows.map((s) => (s.id === server.id ? server : s)) : [...this.rows, server];
   }
@@ -374,6 +379,8 @@ export class ServersPage {
         reasons?: DiagReasons;
         retry_after?: number;
       }>('POST', `admin/servers/${id}/test`);
+      // Also for a page already left: a reopened page's load may be older.
+      keptServers.changed();
       if (this.#disposed) return;
       // Saved or removed in the meantime: the response may be older than the state of the list.
       if ((this.#edits[id] ?? 0) !== stamp || !this.rows.some((s) => s.id === id)) return;
@@ -457,7 +464,7 @@ export class ServersPage {
     // Only once switched on does the CSP allow more; already before the response in case of an immediate navigation.
     if (on) csp.stale = true;
     // One after the other so that the last chosen state also arrives last.
-    this.#policy = this.#policy
+    policyWrites = policyWrites
       .catch(() => {})
       .then(() => api('PUT', 'admin/servers/policy', { allow_custom_servers: on }))
       .then(() => {
@@ -767,6 +774,8 @@ export class ServersPage {
       const server = d.id
         ? await api<AdminServer>('PATCH', `admin/servers/${d.id}`, body)
         : await api<AdminServer>('POST', 'admin/servers', body);
+      // Also for a page already left: a reopened page's load may be older.
+      keptServers.changed();
       if (this.#disposed) return;
       this.#edited(server.id);
       this.#put(server);
