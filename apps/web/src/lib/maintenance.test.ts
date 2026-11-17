@@ -654,6 +654,29 @@ describe('backups', () => {
     expect(api.calls).toHaveLength(before + 1);
   });
 
+  it('keeps a newer state of maintenance mode over a late maintenance_required', async () => {
+    let answer: (reply: { status: number; body: unknown }) => void = () => {};
+    const { p } = await restorable({
+      'POST admin/backups/b1/restore': [() => new Promise((resolve) => (answer = resolve))],
+      'PUT admin/maintenance': [{ body: MODE }, { body: ON }],
+    });
+    maintenanceValues(p, INPUT, CTX).bkRows[1]?.onRestore();
+    ui.confirm?.run();
+    await vi.advanceTimersByTimeAsync(0);
+    // Off and on again while the restore is still running.
+    p.toggle();
+    await vi.advanceTimersByTimeAsync(0);
+    p.toggle();
+    ui.confirm?.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p.on).toBe(true);
+    answer({ status: 409, body: { error: 'maintenance_required' } });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ui.toast?.text).toBe('Maintenance mode is no longer on. Turn it back on to restore the backup.');
+    expect(p.on).toBe(true);
+    expect(session.config?.maintenance.on).toBe(true);
+  });
+
   it('reports a restore without a connection with the offline text', async () => {
     const { v } = await restorable();
     vi.stubGlobal(

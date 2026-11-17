@@ -236,6 +236,8 @@ export class MaintenancePage {
   #viewGen = 0;
   #disposed = false;
   #switching = false;
+  /** Counts adopted states of maintenance mode: an older observation does not overwrite a newer one. */
+  #modeGen = 0;
   #waiting: ReturnType<typeof setTimeout> | undefined;
 
   #modeSaver = new Saver<MaintenanceMode>((body) => this.#sendMode(body));
@@ -292,6 +294,7 @@ export class MaintenancePage {
 
   /** Saved state: the notice bar follows immediately. */
   #adoptMode(mode: MaintenanceMode): void {
+    this.#modeGen++;
     if (this.#modeSaver.pending.on === undefined) this.on = mode.on;
     session.setMaintenance(mode);
   }
@@ -405,8 +408,6 @@ export class MaintenancePage {
       }
       checkAccess(error);
       ui.toasts.error(failed(error));
-      // Turned off elsewhere in the meantime: the page shows the server's state.
-      if (isApiError(error, 409, 'maintenance_required')) this.#adoptMode({ on: false, message: null });
       // The file is gone, e.g. due to retention: the row should not stay.
       if (isApiError(error, 404)) await this.#refreshBackups();
     }
@@ -459,7 +460,17 @@ export class MaintenancePage {
       word: m.maintenance_bk_restore_word(),
       run: () =>
         void this.#run('restore', async () => {
-          await api('POST', `${BACKUPS}/${id}/restore`);
+          const gen = this.#modeGen;
+          try {
+            await api('POST', `${BACKUPS}/${id}/restore`);
+          } catch (error) {
+            // Turned off elsewhere in the meantime: the page shows the server's state,
+            // unless a newer one arrived while the restore was running.
+            if (isApiError(error, 409, 'maintenance_required') && gen === this.#modeGen) {
+              this.#adoptMode({ on: false, message: null });
+            }
+            throw error;
+          }
           ui.toasts.show(m.maintenance_bk_restored());
           await this.#reloadAll();
         }),

@@ -30,6 +30,7 @@ use crate::{
     },
     instance::{self, CLIENT_CACHE_VERSION},
     updates,
+    web::maintenance::Mode,
 };
 
 /// Why a backup does not fit this instance.
@@ -50,6 +51,9 @@ pub enum Refused {
     Unauthorized,
     /// The administrator was demoted during preparation.
     Forbidden,
+    /// Maintenance mode was turned off during preparation: people could have
+    /// changed data that the copy would silently discard.
+    Maintenance,
 }
 
 impl fmt::Display for Refused {
@@ -61,6 +65,7 @@ impl fmt::Display for Refused {
             Self::OtherKey => "backup with a different instance key",
             Self::Unauthorized => "session ended",
             Self::Forbidden => "no longer an administrator",
+            Self::Maintenance => "maintenance mode off",
         })
     }
 }
@@ -95,6 +100,9 @@ pub async fn restore(
             Err(ApiError::Forbidden) => return Err(Refused::Forbidden.into()),
             Err(_) => return Err(Refused::Unauthorized.into()),
         }
+        // Likewise maintenance mode: switching it runs on this thread too, so
+        // it stays on until the copy is done.
+        anyhow::ensure!(Mode::load(live)?.on, Refused::Maintenance);
         let kept = sessions::stored(live, &admin.session_id)?;
         let version = instance::load_client_cache_version(live)?;
         let invitations = invitations(live)?;

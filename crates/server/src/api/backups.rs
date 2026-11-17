@@ -242,6 +242,10 @@ fn chunks(file: File) -> impl Stream<Item = io::Result<Bytes>> {
     })
 }
 
+fn maintenance_required() -> ApiError {
+    ApiError::rejected(StatusCode::CONFLICT, "maintenance_required")
+}
+
 fn refused(error: anyhow::Error) -> ApiError {
     match error.downcast_ref::<Refused>() {
         Some(Refused::Invalid) => {
@@ -254,6 +258,7 @@ fn refused(error: anyhow::Error) -> ApiError {
         Some(Refused::OtherKey) => ApiError::rejected(StatusCode::CONFLICT, "backup_other_key"),
         Some(Refused::Unauthorized) => ApiError::Unauthorized,
         Some(Refused::Forbidden) => ApiError::Forbidden,
+        Some(Refused::Maintenance) => maintenance_required(),
         None => error.into(),
     }
 }
@@ -264,7 +269,8 @@ fn refused(error: anyhow::Error) -> ApiError {
 ///
 /// Only in maintenance mode, so that nobody changes data while it is being
 /// reset; otherwise 409 `maintenance_required` (the page shows the switch as
-/// off). Like every refused restore, this changes nothing and writes no audit
+/// off), also if it is turned off before the copy
+/// ([`backups::restore`] checks again). Like every refused restore, this changes nothing and writes no audit
 /// entry.
 async fn restore(
     State(state): State<AppState>,
@@ -275,10 +281,7 @@ async fn restore(
     let guard = state.backups.try_begin().ok_or_else(running)?;
     let backup = find(&state, id).await?;
     if !state.maintenance.is_on() {
-        return Err(ApiError::rejected(
-            StatusCode::CONFLICT,
-            "maintenance_required",
-        ));
+        return Err(maintenance_required());
     }
     let entry = audit_entry(Category::System, "backups.restore", &user, ip)
         .details(json!({ "at": backup.at.to_string() }));

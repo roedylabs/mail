@@ -976,6 +976,48 @@ async fn restoring_needs_the_rights_until_the_copy() {
     assert!(env.usernames().await.contains(&"lena".to_owned()));
 }
 
+/// The handler checks maintenance mode before the preparation, the restore
+/// again right before the copy: turned off in between, nothing is reset.
+#[tokio::test]
+async fn restoring_needs_maintenance_mode_until_the_copy() {
+    let env = env().await;
+    env.create().await;
+    let backup = env.list().remove(0);
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    let anna = db::call(&env.state.db, |conn| {
+        Ok(conn.query_row(
+            "SELECT u.id, s.id FROM users AS u JOIN sessions AS s ON s.user_id = u.id \
+             WHERE u.username = 'anna'",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?)
+    })
+    .await
+    .unwrap();
+    let admin = AuthUser {
+        id: anna.0,
+        username: "anna".into(),
+        email: "anna@example.com".into(),
+        display_name: "Anna Becker".into(),
+        role: Role::Admin,
+        session_id: anna.1,
+    };
+    env.maintenance(true).await;
+    env.maintenance(false).await;
+
+    let error = backups::restore(
+        &env.state,
+        &backup,
+        admin,
+        Entry::new(Category::System, "backups.restore"),
+    )
+    .await
+    .unwrap_err();
+
+    assert_eq!(error.downcast_ref(), Some(&Refused::Maintenance));
+    untouched(&env).await;
+}
+
 #[tokio::test]
 async fn an_admin_unknown_to_the_backup_loses_the_session() {
     let env = env().await;
