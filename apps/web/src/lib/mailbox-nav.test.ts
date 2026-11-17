@@ -120,6 +120,10 @@ describe('mailboxes in sidebar and palette', () => {
       expect(activeLocation(sidebarScope(LIST, 'a1', sent), { ...at('/admin/users', sent), error: true })).toEqual(
         sent,
       );
+      // A router error on the search page.
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), { ...at('/search', sent, true), error: true })).toEqual(
+        sent,
+      );
     });
 
     it('is the inbox of the view on the error page without a previous mailbox (the start view)', () => {

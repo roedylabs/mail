@@ -1144,10 +1144,12 @@
   $effect(() => {
     if (mailboxLocation) lastMailbox = mailboxLocation;
   });
-  // The results page opens the search results (desktop), a mailbox and an error page close them.
+  /** Error page in the app frame instead of the page: router error, "Access denied". */
+  const errorPage = $derived(!!page.error || forbidden);
+  // The results page opens the search results (desktop), a mailbox and an error page (also on `/search`) close them.
   $effect(() => {
-    if (path === SEARCH) search.resultsOpen = !ui.isMobile;
-    else if (mailboxLocation || page.error || forbidden) search.resultsOpen = false;
+    if (mailboxLocation || errorPage) search.resultsOpen = false;
+    else if (path === SEARCH) search.resultsOpen = !ui.isMobile;
   });
   /** View of the sidebar (`curA`, `allMode`): account or "All accounts" of the mailbox, otherwise the default. */
   const scope = $derived(sidebarScope(accounts.list, prefs.values.defaultAccount, mailboxLocation ?? lastMailbox));
@@ -1160,7 +1162,7 @@
       location: mailboxLocation,
       lastMailbox,
       results: search.resultsOpen,
-      error: !!page.error || forbidden,
+      error: errorPage,
     }),
   );
   /** Mailbox an account switch opens (`curF`): the open one, otherwise the inbox. */
@@ -1491,7 +1493,7 @@
       else if (scope.key) openMailbox(scope.key, { role: 'inbox' });
       else go(HOME);
     }),
-    navItem(m.tabbar_search(), 'ti-search', path === '/search', () => go(SEARCH)),
+    navItem(m.tabbar_search(), 'ti-search', path === SEARCH && !errorPage, () => go(SEARCH)),
   ]);
   const tabsR = $derived([
     navItem(m.tabbar_compose(), 'ti-pencil-plus', false, openCompose),
