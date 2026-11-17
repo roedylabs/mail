@@ -9,7 +9,6 @@
  */
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
-import { page } from '$app/state';
 import { untrack } from 'svelte';
 import { api } from '#lib/api.ts';
 import { timeZoneOf } from '#lib/errors.ts';
@@ -42,8 +41,8 @@ import type { ListedUser } from '#lib/users.svelte.ts';
 
 /**
  * Open a found email: thread in its folder. An email in the account's drafts
- * opens compose, back to "Drafts" (`select` + `pfOpen`); not if another page
- * opened meanwhile.
+ * opens compose, back to "Drafts" (`select` + `pfOpen`); not after another
+ * navigation meanwhile.
  */
 export function openHit(hit: MailHit, box: HitBox): void {
   const drafts = mailboxes.role(hit.account, 'drafts')?.id;
@@ -51,9 +50,9 @@ export function openHit(hit: MailHit, box: HitBox): void {
     const list = mailboxParams(hit.account, { role: 'drafts' });
     const ret = { href: resolve('/mailbox/[account]/[...path]', list), label: roleLabel('drafts') };
     const draft = encodeURIComponent(draftRef({ account: hit.account, id: hit.id }));
-    const at = page.url.pathname;
+    const at = search.navigations;
     void compose.openDraft(hit.account, hit.id, ret).then((ok) => {
-      if (ok && page.url.pathname === at) void goto(resolve('/compose/[draft]', { draft }));
+      if (ok && search.navigations === at) void goto(resolve('/compose/[draft]', { draft }));
     });
     return;
   }

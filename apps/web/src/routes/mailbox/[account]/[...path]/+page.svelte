@@ -311,7 +311,7 @@
 
   /**
    * Compose with a draft, back to `from`: from an open conversation "Back to message" (`r.pfMsg`), otherwise the view.
-   * Without `from` (row, J/K) only as long as the address stays: paging on while the draft loads opens nothing.
+   * Without `from` (row, J/K) only without another navigation meanwhile: paging on while the draft loads opens nothing.
    */
   async function openDraft(account: string, id: string, sendAt?: number, from?: string) {
     const here = page.url.pathname + page.url.search;
@@ -320,8 +320,9 @@
       href,
       label: opened && href === here ? m.compose_back_message() : (view?.title ?? m.mailbox_inbox()),
     };
+    const at = search.navigations;
     const ok = await compose.openDraft(account, id, ret, sendAt);
-    if (ok && (from !== undefined || page.url.pathname + page.url.search === here))
+    if (ok && (from !== undefined || search.navigations === at))
       void goto(resolve('/compose/[draft]', { draft: encodeURIComponent(draftRef({ account, id })) }));
   }
 
