@@ -15,22 +15,8 @@
   it. Swipe gestures on the rows on mobile and tablet (`swL`/`swR`) like the
   row's quick actions; "Move to folder" opens the move dialog without back.
 -->
-<script module lang="ts">
-  import { DEFAULT_SORT, draftOf, type ListSort, type Segment } from '#lib/mail-list.ts';
-
-  /**
-   * Segment (`pfFilter`) and sorting of the "Compact" form (`pfSort`, `pfDir`):
-   * apply to all mailboxes until the page is left –
-   * also across the switch between the layout's desktop and mobile branch, which
-   * recreates the page.
-   */
-  const kept = $state<{ segment: Segment; sort: ListSort }>({ segment: 'all', sort: DEFAULT_SORT });
-  /** Another route followed: the next instance starts with the default (the old one does not ask again). */
-  const nav = { left: false };
-</script>
-
 <script lang="ts">
-  import { goto, onNavigate } from '$app/navigation';
+  import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import { untrack } from 'svelte';
@@ -49,6 +35,7 @@
   import Skeleton from '#lib/components/Skeleton.svelte';
   import { failText, isOffline, timeZoneOf } from '#lib/errors.ts';
   import {
+    draftOf,
     baseValues,
     listNotice,
     bySendAt,
@@ -59,7 +46,9 @@
     threadRef,
     type BulkAction,
     type ListRow,
+    type ListSort,
     type ListThread,
+    type Segment,
     type TimeContext,
   } from '#lib/mail-list.ts';
   import { SvelteSet } from 'svelte/reactivity';
@@ -124,6 +113,7 @@
   import { TagFixError, tags } from '#lib/state/tags.svelte.ts';
   import { tagFixError } from '#lib/tag-fix.ts';
   import { threads, type ThreadList } from '#lib/state/threads.svelte.ts';
+  import { listView } from '#lib/state/list-view.svelte.ts';
   import { Loading, ui } from '#lib/state/ui.svelte.ts';
 
   const location = $derived(parseMailboxPath(page.url.pathname));
@@ -132,22 +122,22 @@
   const viewAccounts = $derived(scope.all ? (accounts.list ?? []) : scope.account ? [scope.account] : []);
   const view = $derived(location && accounts.list ? appListView(location, viewAccounts, scope.all) : null);
 
-  /** Segment of the view: the selected one, as long as there is one there. */
-  const segment = $derived(view && segmentsOf(view.kind).includes(kept.segment) ? kept.segment : 'all');
-  if (nav.left) Object.assign(kept, { segment: 'all', sort: DEFAULT_SORT });
-  nav.left = false;
-  onNavigate(({ from, to }) => {
-    if (to?.route.id !== from?.route.id) nav.left = true;
+  /** Segment of the view: the selected one, as long as there is one there; "All" after choosing the view (`listView`). */
+  const chosenSegment = $derived(listView.segmentAt(page.url.pathname));
+  const segment = $derived(view && segmentsOf(view.kind).includes(chosenSegment) ? chosenSegment : 'all');
+  $effect(() => {
+    const here = page.url.pathname;
+    untrack(() => listView.reached(here));
   });
 
   const compact = $derived(prefs.values.pfDesign === 'compact');
   /** Column header of the last click: the list is recreated and gives the focus back to it until the view changes. */
   let sortFocus = $state<ListSort['key'] | null>(null);
   $effect(() => {
-    void [page.url.pathname, kept.segment, compact];
+    void [page.url.pathname, segment, compact];
     sortFocus = null;
   });
-  const order = $derived(view ? listOrder(view.kind, compact, kept.sort) : null);
+  const order = $derived(view ? listOrder(view.kind, compact, listView.sort) : null);
 
   /** Key of the list: the same sources keep the same list, even if mailbox counters change. */
   const key = $derived(
@@ -218,19 +208,19 @@
 
   /**
    * Selected conversations (`pfSel`, `threadRef()`); only those of the list
-   * count. Another view or another segment starts without (`setF`),
-   * another sorting keeps them.
+   * count. Another view, another segment (`setF`) or choosing the view again
+   * (`select`) starts without, another sorting keeps them.
    */
   let selected = $state.raw<ReadonlySet<string>>(new Set());
-  const selectionKey = $derived(JSON.stringify([view?.sources ?? null, segment]));
+  const selectionKey = $derived(JSON.stringify([view?.sources ?? null, segment, listView.chosen]));
   $effect(() => {
     void selectionKey;
     selected = new Set();
   });
 
-  /** Last opened or ↑/↓-selected conversation (`pfFocus`); another view starts without. */
+  /** Last opened or ↑/↓-selected conversation (`pfFocus`); another view or choosing it again starts without. */
   let focus = $state<string | null>(null);
-  const focusKey = $derived(JSON.stringify(view?.sources ?? null));
+  const focusKey = $derived(JSON.stringify([view?.sources ?? null, listView.chosen]));
   $effect(() => {
     void focusKey;
     focus = null;
@@ -259,7 +249,7 @@
       tagOf: (account, box) => tagMaps[account]?.get(box),
       time,
       compact,
-      sort: kept.sort,
+      sort: listView.sort,
       sendAt,
       outboxOf,
       swipe: ui.swipeOn ? { left: prefs.values.swL, right: prefs.values.swR } : null,
@@ -1668,9 +1658,9 @@
         isMobile={ui.isMobile}
         {rot}
         hasMore={!!list && !view?.unavailable && list.hasMore}
-        onSegment={(s: Segment) => (kept.segment = s)}
+        onSegment={(s: Segment) => (listView.segment = s)}
         onSort={(k: ListSort['key']) => {
-          kept.sort = nextSort(kept.sort, k);
+          listView.sort = nextSort(listView.sort, k);
           sortFocus = k;
         }}
         focusSort={sortFocus}
@@ -1699,7 +1689,7 @@
         isMobile={ui.isMobile}
         {rot}
         hasMore={!!list && !view?.unavailable && list.hasMore}
-        onSegment={(s: Segment) => (kept.segment = s)}
+        onSegment={(s: Segment) => (listView.segment = s)}
         onOpen={open}
         onRefresh={refresh}
         onMore={more}

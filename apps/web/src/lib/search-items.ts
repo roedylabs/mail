@@ -209,7 +209,7 @@ function contactItems(input: SearchItemsInput): Candidate[] {
 
 function folderItems(input: SearchItemsInput): Candidate[] {
   const out: Candidate[] = [];
-  const { go } = input.actions;
+  const go = input.actions.mailbox;
   for (const a of input.accounts) {
     const list = input.mailboxes(a.id);
     for (const role of ROLE_IDS) {
@@ -259,7 +259,7 @@ function tagItems(input: SearchItemsInput): Candidate[] {
         tile: tagColors(t.color),
         path: (parents.length ? `${parents.join(' › ')} · ` : '') + messagesText(t.total),
         extra: parents.join(' '),
-        run: () => input.actions.go(mailboxPath(account, { tag: t.id })),
+        run: () => input.actions.mailbox(mailboxPath(account, { tag: t.id })),
       });
       walk(t.children, [...parents, t.name]);
     }

@@ -137,6 +137,7 @@
   import { notifications, POLL_MS } from '#lib/state/notifications.svelte.ts';
   import { tags, type TagFix, type TagProblem } from '#lib/state/tags.svelte.ts';
   import { threads } from '#lib/state/threads.svelte.ts';
+  import { listView } from '#lib/state/list-view.svelte.ts';
   import { tagFixError, tagFixToast, tagFixValues } from '#lib/tag-fix.ts';
   import { devLog } from '#lib/state/devlog.svelte.ts';
   import { browserTimeZone, displayZone, prefs } from '#lib/state/prefs.svelte.ts';
@@ -550,11 +551,12 @@
     return goto(to);
   }
 
-  /** Mailbox, folder or tag of an account */
+  /** Mailbox, folder or tag of an account; its list starts with the segment "All" (`select`, `swPick`). */
   function openMailbox(account: string, target: MailboxTarget, keepMenu = false) {
     const to = resolve('/mailbox/[account]/[...path]', mailboxParams(account, target));
     // Choosing a mailbox, folder or tag closes the drawer, the same one again too.
     ui.drawer = false;
+    listView.choose(to, path);
     // The same mailbox again (row, 1–6) adds no further history entry.
     if (to !== path) go(to, keepMenu);
     else if (!keepMenu) ui.closeMenu();
@@ -739,6 +741,10 @@
   // Search hits operate the shell (`#lib/search-items.ts`).
   search.actions = {
     go: (to) => go(to),
+    mailbox: (to) => {
+      listView.choose(to, path);
+      go(to);
+    },
     section: (to, sec) => void goSection(to, sec),
     compose: () => openCompose(),
     toggleTheme: () => {

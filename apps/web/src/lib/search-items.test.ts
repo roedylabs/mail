@@ -73,6 +73,7 @@ function tag(id: string, name: string, over: Partial<TagNode> = {}): TagNode {
 function actions(): SearchActions {
   return {
     go: vi.fn(),
+    mailbox: vi.fn(),
     section: vi.fn(),
     compose: vi.fn(),
     toggleTheme: vi.fn(),
@@ -145,8 +146,8 @@ describe('searchCandidates › folders', () => {
     expect(byLabel(list, 'Alpha')?.extra).toBe('Projects');
     byLabel(list, 'Inbox')!.run();
     byLabel(list, 'Alpha')!.run();
-    expect(inp.actions.go).toHaveBeenNthCalledWith(1, '/mailbox/k1/inbox');
-    expect(inp.actions.go).toHaveBeenNthCalledWith(2, '/mailbox/k1/f/al');
+    expect(inp.actions.mailbox).toHaveBeenNthCalledWith(1, '/mailbox/k1/inbox');
+    expect(inp.actions.mailbox).toHaveBeenNthCalledWith(2, '/mailbox/k1/f/al');
   });
 
   it('an account without loaded mailboxes returns nothing', () => {
@@ -167,7 +168,7 @@ describe('searchCandidates › tags', () => {
     ]);
     expect(list[0]).toMatchObject({ icon: 'ti-tag', tile: tagColors(1) });
     list[1]!.run();
-    expect(inp.actions.go).toHaveBeenCalledWith('/mailbox/all/t/t2');
+    expect(inp.actions.mailbox).toHaveBeenCalledWith('/mailbox/all/t/t2');
   });
 
   it('no hits without an account for tags', () => {
