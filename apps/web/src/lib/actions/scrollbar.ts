@@ -212,6 +212,8 @@ export class OverlayScrollbar {
       this.el,
       'wheel',
       (e) => {
+        // Ctrl + wheel stays the browser's zoom.
+        if (e.ctrlKey) return;
         e.preventDefault();
         this.#edge(e.deltaY);
         c.scrollTop += e.deltaY * (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? c.clientHeight : 1);
@@ -226,11 +228,12 @@ export class OverlayScrollbar {
       this.#observe();
     }
     if (typeof MutationObserver !== 'undefined') {
-      this.#mo = new MutationObserver(() => {
-        this.#observe();
+      // Content added deeper down can change the overflow without resizing an observed box.
+      this.#mo = new MutationObserver((records) => {
+        if (records.some((r) => r.target === c)) this.#observe();
         this.#schedule();
       });
-      this.#mo.observe(c, { childList: true });
+      this.#mo.observe(c, { childList: true, subtree: true, characterData: true });
     }
     this.layout();
   }
@@ -286,7 +289,7 @@ export class OverlayScrollbar {
     clearTimeout(this.#sqT);
     this.#sqT = setTimeout(() => {
       this.#sq = 0;
-      t.transition = SQUASH_BACK;
+      t.transition = this.#env.motion() ? SQUASH_BACK : 'none';
       t.transform = 'none';
     }, 110);
   }
@@ -417,11 +420,13 @@ export class OverlayScrollbar {
     e.stopPropagation();
     const r = this.el.getBoundingClientRect();
     const k = r.height / this.el.offsetHeight || 1;
-    const sAt = (ev: PointerEvent) => Math.min(Math.max((ev.clientY - r.top) / k - g.yS - 2, 0), g.L);
+    // Track and thumb from the current layout: a resize during the drag replaces both together.
+    const geo = () => this.#g ?? g;
+    const sAt = (ev: PointerEvent) => Math.min(Math.max((ev.clientY - r.top) / k - geo().yS - 2, 0), geo().L);
     const s0 = sAt(e);
     const off = onHit ? Math.min(Math.max(s0 - this.#s, 0), this.#tL) : this.#tL / 2;
     const go = (sv: number) => {
-      const span = Math.max(1, g.L - this.#tL);
+      const span = Math.max(1, geo().L - this.#tL);
       c.scrollTop = (Math.min(Math.max(sv - off, 0), span) / span) * (c.scrollHeight - c.clientHeight);
     };
     if (!onHit) go(s0);

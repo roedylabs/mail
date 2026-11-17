@@ -223,6 +223,54 @@ describe('OverlayScrollbar', () => {
     expect(c.scrollTop).toBe(100);
   });
 
+  it('leaves Ctrl + wheel over the bar to the browser zoom', () => {
+    const { c, bar } = area();
+    const event = new WheelEvent('wheel', { bubbles: true, cancelable: true, deltaY: 100, ctrlKey: true });
+    bar.zone.dispatchEvent(event);
+    expect(event.defaultPrevented).toBe(false);
+    expect(c.scrollTop).toBe(0);
+  });
+
+  it('springs back without a transition when animations turn off during the squash', () => {
+    let motion = true;
+    const parent = document.createElement('div');
+    const c = document.createElement('div');
+    parent.append(c);
+    document.body.append(parent);
+    geometry(c, { offsetWidth: 400, offsetHeight: 300, clientHeight: 300, scrollHeight: 1200, scrollTop: 0 });
+    const bar = new OverlayScrollbar(c, { profile: () => 'desk', motion: () => motion });
+    bars.push(bar);
+    wheel(c, -90);
+    motion = false;
+    vi.advanceTimersByTime(110);
+    expect(bar.thumb.style.transform).toBe('none');
+    expect(bar.thumb.style.transition).toBe('none');
+  });
+
+  it('keeps dragging consistent when the area resizes mid-drag', () => {
+    const { c, bar } = area();
+    pointer('pointerdown', bar.hit, 12 + 10);
+    // Taller view: track 576 px, thumb 576 × 600 / 1200 = 288 px, 300 px left to scroll.
+    geometry(c, { offsetHeight: 600, clientHeight: 600 });
+    bar.layout();
+    pointer('pointermove', bar.hit, 12 + 10 + 2);
+    expect(c.scrollTop).toBeCloseTo((2 / 288) * 600);
+  });
+
+  it('notices overflow from content added deeper down', async () => {
+    const { c, bar } = area({ height: 300 });
+    const child = document.createElement('div');
+    c.append(child);
+    await Promise.resolve();
+    vi.runOnlyPendingTimers();
+    expect(bar.can).toBe(false);
+    geometry(c, { scrollHeight: 1200 });
+    child.append(document.createElement('p'));
+    await Promise.resolve();
+    vi.advanceTimersByTime(20);
+    expect(bar.can).toBe(true);
+  });
+
   it('has no transitions and no squash with animations off', () => {
     const { c, bar } = area({ motion: false });
     c.dispatchEvent(new MouseEvent('mouseenter'));
