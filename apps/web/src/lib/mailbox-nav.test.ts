@@ -94,12 +94,14 @@ describe('mailboxes in sidebar and palette', () => {
       expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent, '/mailbox/a2/sent'))).toEqual(
         sent,
       );
-      expect(activeLocation(sidebarScope(LIST, 'a1', folder), at('/compose/d1', folder, '/mailbox/a2/f/f1/th1'))).toEqual(
-        folder,
-      );
+      expect(
+        activeLocation(sidebarScope(LIST, 'a1', folder), at('/compose/d1', folder, '/mailbox/a2/f/f1/th1')),
+      ).toEqual(folder);
       expect(activeLocation(sidebarScope(LIST, 'a1', tag), at('/compose/new', tag, '/mailbox/all/t/t1'))).toEqual(tag);
       // Via settings or another page the last mailbox stays too.
-      expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent, '/settings/general'))).toEqual(sent);
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), at('/compose/new', sent, '/settings/general'))).toEqual(
+        sent,
+      );
     });
 
     it('is the inbox of the view when compose is opened without a previous mailbox', () => {
