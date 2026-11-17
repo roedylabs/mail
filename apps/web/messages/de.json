@@ -1456,6 +1456,7 @@
   "security_mfa_desc": "Bei der Anmeldung wird zusätzlich ein Code aus einer Authenticator-App abgefragt. Jede hinzugefügte App erzeugt gültige Codes.",
   "security_mfa_desc_mobile": "Zusätzlich zum Passwort wird ein Code aus einer Authenticator-App abgefragt. Jede hinzugefügte App erzeugt gültige Codes.",
   "security_mfa_empty": "Noch keine Authenticator-App eingerichtet",
+  "security_load_failed": "Die Sicherheitseinstellungen konnten nicht geladen werden",
   "security_app_added_at": "Hinzugefügt am {date}",
   "security_app_used": "Zuletzt verwendet {ago}",
   "security_app_remove_label": "{name} entfernen",

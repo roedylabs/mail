@@ -833,6 +833,10 @@
     font-size: 17px;
   }
 
+  .mobile .note-go {
+    transition: none;
+  }
+
   .mobile .note-go:hover {
     background: var(--surface);
   }
@@ -1073,6 +1077,7 @@
   .mobile .keep {
     gap: 12px;
     padding: 12px;
+    transition: none;
   }
 
   /* Toggle */

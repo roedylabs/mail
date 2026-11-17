@@ -14,7 +14,7 @@
  */
 import { SvelteSet } from 'svelte/reactivity';
 import { ago } from '#lib/ago.ts';
-import { ApiError, api, fieldsOf, isApiError } from '#lib/api.ts';
+import { api, fieldsOf, isApiError, retryAfter } from '#lib/api.ts';
 import { copyText } from '#lib/clipboard.svelte.ts';
 import { formatDate } from '#lib/date.ts';
 import { downloadCodes } from '#lib/download.ts';
@@ -29,7 +29,8 @@ import { CODE_LENGTH, reauthError, type ReauthError } from '#lib/reauth.ts';
 import { Kept } from '#lib/state/kept.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
-import { ui } from '#lib/state/ui.svelte.ts';
+import { Loading, ui } from '#lib/state/ui.svelte.ts';
+import { waitText } from '#lib/wait.ts';
 
 export type ListStatus = 'loading' | 'ready' | 'failed';
 /** Sections of the page. */
@@ -101,8 +102,10 @@ export const keptSecurity = new Kept<KeptSecurity>();
 
 export class SecurityPage {
   status = $state<ListStatus>('loading');
-  /** First load failed: "offline" without a response, otherwise "500". */
-  failure = $state<'offline' | '500'>('500');
+  /** Reason the first load failed (text of the card). */
+  failure = $state('');
+  /** Skeleton only after 150 ms. */
+  loading = new Loading();
   devices = $state<TotpDevice[]>([]);
   recovery = $state<RecoverySummary | null>(null);
   sessions = $state<ListedSession[]>([]);
@@ -175,10 +178,12 @@ export class SecurityPage {
     this.#reopened = false;
     const changes = keptSecurity.changes;
     try {
-      const [mfa, list] = await Promise.all([
-        api<MfaOverview>('GET', 'auth/totp/devices'),
-        api<{ sessions: ListedSession[] }>('GET', 'auth/sessions'),
-      ]);
+      const [mfa, list] = await this.loading.run(
+        Promise.all([
+          api<MfaOverview>('GET', 'auth/totp/devices'),
+          api<{ sessions: ListedSession[] }>('GET', 'auth/sessions'),
+        ]),
+      );
       if (seq !== this.#seq || this.#disposed) return;
       // Changed in the meantime (app added or removed, devices signed out): the response is older, so reload.
       if (changes !== keptSecurity.changes) {
@@ -194,7 +199,7 @@ export class SecurityPage {
       if (seq !== this.#seq || this.#disposed) return;
       if (isApiError(error, 401)) void session.refreshUser().catch(() => {});
       if (this.status !== 'ready') {
-        this.failure = error instanceof ApiError ? '500' : 'offline';
+        this.failure = isApiError(error, 429) ? m.error_limit({ wait: waitText(retryAfter(error)) }) : failText(error);
         this.status = 'failed';
       } else if (!isApiError(error, 401)) {
         ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
@@ -202,7 +207,7 @@ export class SecurityPage {
     }
   }
 
-  /** "Try again" of the error page. */
+  /** "Try again" of the card. */
   retry(): void {
     this.status = 'loading';
     void this.load();
@@ -686,6 +691,8 @@ export interface SessionValues {
 }
 
 export interface SecurityValues {
+  /** Skeleton while the first load takes longer than 150 ms. */
+  skSet: boolean;
   secTabs: { label: string; onClick: () => void }[];
   /** Single sign-on is not supported; always `false`. */
   secSso: boolean;
@@ -847,6 +854,7 @@ export function securityValues(p: SecurityPage, ctx: SecurityContext, now = Date
   const setup = p.totpMode === 'setup';
   const rc = p.recovery;
   return {
+    skSet: p.status === 'loading' && p.loading.slow,
     secTabs: [
       { label: m.security_tab_password(), onClick: () => ctx.scrollTo('password') },
       { label: m.security_tab_mfa(), onClick: () => ctx.scrollTo('2fa') },

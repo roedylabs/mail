@@ -267,6 +267,7 @@
 
   .mobile .needs-text {
     font-size: 14px;
+    text-wrap: wrap;
   }
 
   .f-title {
@@ -645,6 +646,7 @@
     justify-content: center;
     padding: 0 16px;
     font-size: 15px;
+    transition: none;
   }
 
   .mobile .btn-icon {

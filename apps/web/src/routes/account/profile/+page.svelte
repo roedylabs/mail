@@ -429,7 +429,12 @@
     gap: 4px;
   }
 
+  /* Mobile: name and pencil sit directly in the row (gap 12px); only the name is capped at 55 %. */
   .mobile .name-row .row-val {
+    display: contents;
+  }
+
+  .mobile .name-row .val {
     max-width: 55%;
   }
 
@@ -497,6 +502,14 @@
 
   input:focus {
     box-shadow: 0 0 0 3px var(--acc);
+  }
+
+  /* Mobile fields, the eye, "Cancel" and the pending actions change without a transition. */
+  .mobile input,
+  .mobile .eye,
+  .mobile .ea-cancel,
+  .mobile .pend-acts button {
+    transition: none;
   }
 
   .row-input {
