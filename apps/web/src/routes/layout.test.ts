@@ -3,6 +3,7 @@ import { createRawSnippet, tick } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { csp } from '#lib/csp.ts';
 import { readStartCopy, saveStartCopy, type StartCopy } from '#lib/start-copy.ts';
+import { swipe } from '#lib/test/pointer.ts';
 import { mailPush } from '#lib/mail-push.svelte.ts';
 import { accounts } from '#lib/state/accounts.svelte.ts';
 import { compose } from '#lib/state/compose.svelte.ts';
@@ -1211,6 +1212,30 @@ describe('Shell layout', () => {
     await fireEvent.click(getByRole('button', { name: 'Settings' }));
     expect(goto).toHaveBeenLastCalledWith('/settings/appearance');
     expect(ui.panelList).toBe('/settings/appearance');
+  });
+
+  it('goes back like “Back” when swiping right on the mobile panel', async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('admin') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+    });
+    const { findByText, getByRole, goto } = renderAt('/admin/users');
+    const text = await findByText('Page content');
+    // Layer underneath and chip are decorative.
+    expect(document.querySelector('[data-back-under]')).toHaveAttribute('aria-hidden', 'true');
+    expect(document.querySelector('[data-back-chip]')).toHaveAttribute('aria-hidden', 'true');
+    swipe(text, 200);
+    // From the page to the area list …
+    await vi.waitFor(() => expect(getByRole('heading', { level: 1 })).toHaveTextContent('Administration'));
+    expect(ui.panelList).toBe('/admin/users');
+    expect(goto).not.toHaveBeenCalledWith('/start');
+    // … and from the list to the app.
+    swipe(getByRole('heading', { level: 1 }), 200);
+    await vi.waitFor(() => expect(goto).toHaveBeenLastCalledWith('/start'));
   });
 
   it('sets the title per route and puts the page in exactly one main, also on mobile', async () => {

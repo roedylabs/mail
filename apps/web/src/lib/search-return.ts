@@ -37,3 +37,9 @@ export function returnToSearch(path: string): boolean {
   void goto(resolve('/search'));
   return true;
 }
+
+/** Like `returnToSearch`, resolving once the search is shown; `null` without a return path. */
+export function searchReturn(path: string): Promise<void> | null {
+  if (!search.takeReturn(path)) return null;
+  return goto(resolve('/search'));
+}
