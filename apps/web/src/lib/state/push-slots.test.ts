@@ -68,6 +68,15 @@ describe('pushSlots', () => {
     expect(held).toBe(true);
   });
 
+  it('resolves when onWait aborts', async () => {
+    const slots = pushSlots(tabLocks(), () => false, 1);
+    await slots.acquire(STREAM, new AbortController().signal, vi.fn());
+    const ctl = new AbortController();
+    const onWait = vi.fn(() => ctl.abort());
+    await slots.acquire(STREAM, ctl.signal, onWait);
+    expect(onWait).toHaveBeenCalledTimes(1);
+  });
+
   it('needs no slot over a multiplexed connection or after an abort', async () => {
     const onWait = vi.fn();
     const slots = pushSlots(tabLocks(), () => true, 1);

@@ -91,6 +91,8 @@ function take(locks: Locks, name: string, signal: AbortSignal): Promise<boolean>
 
 /** Waits for the first of the locks to become free and holds it; the other requests are dropped. */
 function waitAny(locks: Locks, names: readonly string[], signal: AbortSignal): Promise<void> {
+  // Already aborted (e.g. in `onWait`): the abort event does not come again.
+  if (signal.aborted) return Promise.resolve();
   const won = new AbortController();
   const pending = AbortSignal.any([signal, won.signal]);
   return new Promise((resolve) => {
