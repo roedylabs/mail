@@ -962,6 +962,27 @@ describe('mailPush', () => {
       await vi.waitFor(() => expect(browser.store.copy).toBeNull());
     });
 
+    it('still deletes the copy after a failed delete and a failed write in between', async () => {
+      const module = mailPushWith(browser, 1000);
+      await enabled(module);
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toEqual(copy));
+      await module.disable('m1');
+      browser.store.clearFails = true;
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toEqual(copy));
+      await Promise.resolve();
+      await enabled(module);
+      browser.store.writeFails = true;
+      module.share({ ...copy, lang: 'de' });
+      await Promise.resolve();
+      await Promise.resolve();
+      browser.store.clearFails = false;
+      await module.disable('m1');
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
+    });
+
     it('keeps the copy of the same app user', async () => {
       browser.store.copy = copy;
       const module = mailPushWith(browser, 1000);

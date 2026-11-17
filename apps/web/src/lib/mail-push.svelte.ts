@@ -361,13 +361,18 @@ export class MailPush {
     if (text === this.#shared) return;
     this.#shared = text;
     this.#owner = copy.user;
-    this.#unclear = false;
     // Without a copy no quiet hours apply and the app is named like its host.
-    this.env.store.write(copy).catch(() => {
-      this.#shared = null;
-      // A copy of another user may still be there: the next call checks again.
-      this.#owner = null;
-    });
+    this.env.store.write(copy).then(
+      () => {
+        // Replaced: a deletion still pending is no longer needed.
+        this.#unclear = false;
+      },
+      () => {
+        this.#shared = null;
+        // A copy of another user may still be there: the next call checks again.
+        this.#owner = null;
+      },
+    );
   }
 
   /** Before signing out: remove entries at the mail servers while there are tokens. Errors stay silent. */
