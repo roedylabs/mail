@@ -143,7 +143,7 @@ export class EditQueue {
   #counts = $derived.by(() => {
     const out = new Map<string, number>();
     for (const account of new Set([...this.items, ...this.drafts].map((i) => i.account))) {
-      const net = netOf(this.items.filter((i) => i.account === account));
+      const net = netOf(this.items.filter((i) => i.account === account && !i.sent));
       // A message stays one change, even if an action waits next to its version.
       const drafts = this.drafts.filter((d) => d.account === account && !net.has(d.replace?.id ?? ''));
       out.set(account, net.size + drafts.length);
@@ -154,6 +154,8 @@ export class EditQueue {
   #draftPause = new Map<string, number>();
   /** Entries that are safely in the database. */
   #saved = new Set<string>();
+  /** Copies of entries whose `keepalive` request is still running (`keep()`): only in the database. */
+  #flying = new Set<string>();
   /** Finished entries: an `all()` that read before the deletion would otherwise bring them back. */
   #settled = new Set<string>();
   #run: Promise<void> | null = null;
@@ -197,11 +199,31 @@ export class EditQueue {
    * result of a replay any more.
    */
   async add(item: QueuedEdit, failed: boolean, closing = false): Promise<void> {
+    this.#flying.delete(item.key);
     this.items = sorted([...this.items, item]);
     if (failed) this.#failed = new Set([...this.#failed, item.account]);
     const saved = (await this.#env.log()?.add(item)) ?? false;
     if (saved) this.#saved.add(item.key);
     if (!failed && !closing) void this.replay();
+  }
+
+  /**
+   * The page is closing while `item` goes out with `keepalive`: a copy goes to the
+   * database first, because the page may end before the response, also without
+   * a known outage. If it ends, the next start replays the copy (`sent`); this tab
+   * does not replay it, it waits for the response (`release()`, or `add()` if none comes).
+   */
+  async keep(item: QueuedEdit): Promise<void> {
+    this.#flying.add(item.key);
+    await this.#env.log()?.add({ ...item, sent: true });
+  }
+
+  /** The server has answered to a copy from `keep()`: it leaves the database. */
+  async release(key: string): Promise<void> {
+    if (!this.#flying.delete(key)) return;
+    // An `all()` that read before the deletion would otherwise bring it back.
+    this.#settled.add(key);
+    await this.#env.log()?.remove(key);
   }
 
   /**
@@ -246,7 +268,9 @@ export class EditQueue {
     const known = new Set(saved.map((i) => i.key));
     const gone = this.items.filter((i) => this.#saved.has(i.key) && !known.has(i.key));
     for (const item of gone) this.#saved.delete(item.key);
-    const fresh = saved.filter((s) => !this.#settled.has(s.key) && !this.items.some((i) => i.key === s.key));
+    const fresh = saved.filter(
+      (s) => !this.#settled.has(s.key) && !this.#flying.has(s.key) && !this.items.some((i) => i.key === s.key),
+    );
     for (const item of [...this.items, ...fresh]) if (known.has(item.key)) this.#saved.add(item.key);
     if (!gone.length && !fresh.length) return;
     this.items = sorted([...this.items.filter((i) => !gone.includes(i)), ...fresh]);
@@ -331,6 +355,7 @@ export class EditQueue {
     this.#failed = new Set();
     this.#saved.clear();
     this.#settled.clear();
+    this.#flying.clear();
     this.#draftPause.clear();
     this.#again = false;
     if (this.#pillTimer) clearTimeout(this.#pillTimer);
@@ -403,7 +428,8 @@ export class EditQueue {
           lost.filter((id) => item.edits.some(([e]) => e === id)),
         );
       this.#report(batch, lost);
-      done += net.size - lost.length;
+      // Copies from `keep()` arrive without a toast: nobody saw them waiting.
+      done += [...netOf(batch.filter((i) => !i.sent)).keys()].filter((id) => !lost.includes(id)).length;
     }
   }
 
