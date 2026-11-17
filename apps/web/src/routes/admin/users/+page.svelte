@@ -69,8 +69,9 @@
     });
   });
 
-  // Opening "Invite people" (button or search) focuses "Email addresses" after 40 ms, once per opening.
-  const inviteOpen = $derived(!!p.invite);
+  // Opening "Invite people" (button or search) focuses "Email addresses" after 40 ms, once per opening;
+  // opened from the search during the first load, once the list (and with it the form) is shown.
+  const inviteOpen = $derived(!!p.invite && p.status === 'ready');
   $effect(() => {
     if (!inviteOpen) return;
     const timer = setTimeout(() => emailInput?.focus(), 40);

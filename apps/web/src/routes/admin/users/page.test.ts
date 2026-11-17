@@ -155,6 +155,18 @@ describe('Users page', () => {
     await vi.waitFor(() => expect(field).toHaveFocus());
   });
 
+  it('focuses "Email addresses" once the list is shown when "Invite user" opens it during the first load', async () => {
+    let answer: (value: { body: { users: typeof USERS } }) => void = () => {};
+    mockApi({ 'GET users': [() => new Promise((resolve) => (answer = resolve))] });
+    ui.userInvite = true;
+    const view = render(Page);
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(view.queryByLabelText('Email addresses')).toBeNull();
+    answer({ body: { users: USERS } });
+    const field = await view.findByLabelText('Email addresses');
+    await vi.waitFor(() => expect(field).toHaveFocus());
+  });
+
   it('reports a name over 100 characters instead of cutting it off', async () => {
     const view = renderPage();
     await view.findByText('Alice Brown');
