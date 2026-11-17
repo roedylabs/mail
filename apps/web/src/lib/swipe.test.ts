@@ -428,6 +428,22 @@ describe('dragSheet', () => {
     expect(closed).not.toHaveBeenCalled();
   });
 
+  it('springs back when the browser cancels the gesture, even beyond 30 %', () => {
+    vi.useFakeTimers();
+    const { el, closed } = sheet({ animations: true });
+    pointer('pointerdown', 100, 100, el);
+    pointer('pointermove', 100, 110);
+    pointer('pointermove', 100, 300);
+    expect(el.style.translate).toBe('0px 190px');
+    pointer('pointercancel', 100, 300);
+    window.dispatchEvent(new MouseEvent('click'));
+    expect(el.style.transition).toBe('translate 440ms cubic-bezier(0.2, 1.15, 0.35, 1)');
+    expect(el.style.translate).toBe('0px');
+    vi.advanceTimersByTime(470);
+    expect(closed).not.toHaveBeenCalled();
+    expect(el.style.translate).toBe('');
+  });
+
   it('goes upwards only as a rubber band', () => {
     vi.useFakeTimers();
     const { scrim, el } = sheet();

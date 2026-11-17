@@ -546,8 +546,9 @@ export interface SheetDrag {
  * scrolls first and the panel only follows from `scrollTop ≤ 0` downwards
  * (with a mouse it follows at once and scrolls the content itself).
  * Upwards only as a rubber band, the backdrop fades with the offset. Released
- * far or fast enough, the panel slides out and the layer closes; otherwise it
- * springs back. Content that was scrolled keeps scrolling with momentum.
+ * far or fast enough, the panel slides out and the layer closes; otherwise, and
+ * always after `pointercancel`, it springs back. Content that was scrolled
+ * keeps scrolling with momentum.
  */
 export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> {
   return (el) => {
@@ -601,13 +602,14 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
           el.style.translate = `0 ${off >= 0 ? off : -rubber(-off, 30)}px`;
           if (scrim) scrim.style.opacity = String(Math.max(0, 1 - Math.max(0, off) / height));
         },
-        end: (_vx, vy) => {
+        end: (_vx, vy, cancelled) => {
           if (sc && off <= 0) {
-            fling(sc, -vy);
+            if (!cancelled) fling(sc, -vy);
             reset();
             return;
           }
-          if (sheetCloses(off, height, vy)) {
+          // Cancelled by the browser or the system (`pointercancel`): back, even beyond the threshold.
+          if (!cancelled && sheetCloses(off, height, vy)) {
             const t = ms(sheetOutMs(height, vy));
             el.style.transition = `translate ${t}ms ${SHEET_OUT}`;
             el.style.translate = `0 ${height + 24}px`;
