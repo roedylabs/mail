@@ -18,13 +18,13 @@ import { RESET0, prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session } from '#lib/state/session.svelte.ts';
 import { tags } from '#lib/state/tags.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
+import { page } from '#lib/test/page.svelte.ts';
 import Layout from './+layout.svelte';
 import { LANG_KEY } from '#lib/locale.ts';
 
 const nav = vi.hoisted(() => ({
   goto: vi.fn(() => Promise.resolve()),
   after: null as ((navigation: { from: { url: URL | null } | null; to?: { url: URL } }) => void) | null,
-  page: { url: new URL('http://localhost/'), status: 200, params: {} },
   updated: { current: false, check: vi.fn(() => Promise.resolve(false)) },
 }));
 vi.mock('$app/navigation', () => ({
@@ -32,7 +32,7 @@ vi.mock('$app/navigation', () => ({
   afterNavigate: (fn: typeof nav.after) => (nav.after = fn),
   beforeNavigate: () => {},
 }));
-vi.mock('$app/state', () => ({ page: nav.page, updated: nav.updated }));
+vi.mock('$app/state', async () => ({ page: (await import('#lib/test/page.svelte.ts')).page, updated: nav.updated }));
 // The live sync has its own tests (`live.test.ts`); what counts here is for which accounts the layout starts it.
 // For real it would send JMAP requests at startup that would use up the mailbox tests' responses.
 const liveRetain = vi.hoisted(() => vi.fn());
@@ -97,7 +97,7 @@ const dialog = createRawSnippet((isMobile: () => boolean) => ({
 const SYNC_PILL = '.pill[role="status"]';
 
 function renderAt(path: string) {
-  nav.page.url = new URL(`http://localhost${path}`);
+  page.url = new URL(`http://localhost${path}`);
   // `go()` compares with the browser's address.
   history.replaceState(null, '', path);
   const view = render(Layout, { children: content, data: {}, params: {} } as never);
@@ -1134,7 +1134,7 @@ describe('Shell layout', () => {
     await fireEvent.click(getByRole('button', { name: 'Security' }));
     expect(goto).toHaveBeenLastCalledWith('/account/security');
     // After shallow navigation `page.url` stays unchanged; the browser's address is what counts.
-    nav.page.url = new URL('http://localhost/account/profile');
+    page.url = new URL('http://localhost/account/profile');
     history.replaceState(null, '', '/account/security');
     await fireEvent.click(getByRole('button', { name: 'Security' }));
     expect(goto).toHaveBeenLastCalledWith('/account/security', { replace: true });
@@ -1673,15 +1673,34 @@ describe('Mailboxes in the shell', () => {
   describe('search results open', () => {
     afterEach(() => search.reset());
 
-    it('marks nothing in compose, also after the settings', async () => {
+    /** Navigation in the mounted layout: the address changes like after `goto`. */
+    async function visit(path: string) {
+      page.url = new URL(`http://localhost${path}`);
+      history.replaceState(null, '', path);
+      await tick();
+    }
+    const active = (container: HTMLElement) =>
+      [...container.querySelectorAll('.panel.rows .row')].map((r) => r.classList.contains('on'));
+
+    it('marks nothing in compose after search → settings, the results stay open', async () => {
       mockMail();
-      // Results page, then the settings: the results stay open.
-      search.resultsOpen = true;
-      const { findByRole, container } = renderAt('/compose/new');
+      const { findByRole, container } = renderAt('/mailbox/a1/sent');
       await findByRole('button', { name: /Inbox/ });
-      const rows = [...container.querySelectorAll('.panel.rows .row')];
-      expect(rows).toHaveLength(6);
-      expect(rows.some((r) => r.classList.contains('on'))).toBe(false);
+      await visit('/search');
+      expect(search.resultsOpen).toBe(true);
+      await visit('/settings/appearance');
+      expect(search.resultsOpen).toBe(true);
+      await visit('/compose/new');
+      await vi.waitFor(() => expect(active(container)).toEqual([false, false, false, false, false, false]));
+    });
+
+    it('keeps the folder you came from in compose, also via the settings', async () => {
+      mockMail();
+      const { findByRole, container } = renderAt('/mailbox/a1/sent');
+      await findByRole('button', { name: /Inbox/ });
+      await visit('/settings/appearance');
+      await visit('/compose/new');
+      await vi.waitFor(() => expect(active(container)).toEqual([false, true, false, false, false, false]));
     });
 
     it('opens them on the results page and closes them in a mailbox', async () => {
