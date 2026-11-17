@@ -529,8 +529,9 @@ export class SetupFlow {
     if (!this.pubLocked) err.pub = pubError(this.pub);
     const doms = domainsOf(this.srvDoms);
     const bad = doms.find((d) => !isDomain(d));
-    if (doms.length > MAX_DOMAINS) err.srvDoms = m.server_doms_max({ n: MAX_DOMAINS });
-    else if (bad) err.srvDoms = m.setup_dom_invalid({ domain: bad });
+    // An invalid domain first, then the number.
+    if (bad) err.srvDoms = m.setup_dom_invalid({ domain: bad });
+    else if (doms.length > MAX_DOMAINS) err.srvDoms = m.server_doms_max({ n: MAX_DOMAINS });
     if (this.oaMode === 'manual') {
       // Like the backend, so a bad client ID or secret shows at its field and no test runs.
       const cid = this.oaCid.trim();

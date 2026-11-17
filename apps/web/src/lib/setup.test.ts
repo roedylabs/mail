@@ -562,6 +562,10 @@ describe('Step 4: mail server', () => {
     flow.goOn();
     expect(flow.step).toBe(4);
     expect(flow.err.srvDoms).toBe('Up to 100 domains per server.');
+    // An invalid domain is named before the number.
+    flow.srvDoms += ', broken';
+    flow.goOn();
+    expect(flow.err.srvDoms).toBe('“broken” isn’t a valid domain.');
     flow.srvDoms = '';
     flow.goOn();
     expect(flow.step).toBe(5);

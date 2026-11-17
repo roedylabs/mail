@@ -399,7 +399,8 @@ export class ServersPage {
         [server.reach, server.cors, server.oauth].includes('err') || Object.values(reasons ?? {}).includes('throttled');
       ui.toasts.show(bad ? m.server_test_warn({ label: server.label }) : m.server_test_ok({ label: server.label }));
     } catch (error) {
-      // Without a result back to before: without a test there is no toggle that collapses the diagnosis.
+      // Without a result back to the state before the test: open diagnostics stay open,
+      // closed ones close again (a server never tested has no toggle to open them).
       if (!wasOpen) this.diag.delete(id);
       this.#failed(error);
     } finally {
@@ -756,9 +757,10 @@ export class ServersPage {
     if (badUrl) err.url = badUrl;
     const bad = domains.find((x) => !isDomain(x));
     const taken = domains.map((x) => [x, others.find((s) => s.domains.includes(x))] as const).find(([, s]) => s);
-    if (domains.length > MAX_DOMAINS) err.dom = m.server_doms_max({ n: MAX_DOMAINS });
-    else if (bad) err.dom = m.server_err_domain({ domain: bad });
+    // One message at a time: an invalid domain first, then one already assigned, last the number.
+    if (bad) err.dom = m.server_err_domain({ domain: bad });
     else if (taken?.[1]) err.dom = m.server_err_domain_taken({ domain: taken[0], server: taken[1].label });
+    else if (domains.length > MAX_DOMAINS) err.dom = m.server_doms_max({ n: MAX_DOMAINS });
     if (credBad(d.cid.trim())) err.cred = m.server_cid_bad();
     else if (d.oa === 'manual' && credBad(d.csec.trim())) err.cred = m.server_secret_bad();
     if (err.label || err.url || err.dom || err.cred) {
