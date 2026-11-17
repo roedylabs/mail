@@ -56,10 +56,17 @@ status() { curl -s -o /dev/null -w '%{http_code}' "$url$1"; }
 # Without /proc (Docker Desktop) only a note; in CI the check is mandatory.
 pid=$(docker inspect -f '{{.State.Pid}}' "$name")
 proc="/proc/$pid/status"
+# With user namespace remapping (userns-remap) the host sees the remapped IDs,
+# not 65532: then only Config.User applies; not on GitHub's runners.
+userns=$(docker info --format '{{json .SecurityOptions}}' 2>/dev/null | grep -c 'name=userns' || true)
 if [ -r "$proc" ]; then
   field() { sed -n "s/^$1:[[:space:]]*//p" "$proc" | tr -s '[:space:]' ' ' | sed 's/ $//'; }
-  check "UID 65532 (Uid: $(field Uid))" [ "$(field Uid)" = "65532 65532 65532 65532" ]
-  check "GID 65532 (Gid: $(field Gid))" [ "$(field Gid)" = "65532 65532 65532 65532" ]
+  if [ "$userns" = 0 ] || [ -n "${GITHUB_ACTIONS:-}" ]; then
+    check "UID 65532 (Uid: $(field Uid))" [ "$(field Uid)" = "65532 65532 65532 65532" ]
+    check "GID 65532 (Gid: $(field Gid))" [ "$(field Gid)" = "65532 65532 65532 65532" ]
+  else
+    echo "UID and GID of the process not checked: the Docker daemon remaps user namespaces"
+  fi
   check "no effective capabilities (CapEff: $(field CapEff))" [ "$(field CapEff)" = 0000000000000000 ]
   check "empty capability bounding set (CapBnd: $(field CapBnd))" [ "$(field CapBnd)" = 0000000000000000 ]
   check "no_new_privs (NoNewPrivs: $(field NoNewPrivs))" [ "$(field NoNewPrivs)" = 1 ]

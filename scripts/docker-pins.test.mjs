@@ -80,15 +80,18 @@ function buildxProblems(text) {
   const problems = [];
   const lines = text.split(/\r?\n/);
   for (const [i, line] of lines.entries()) {
-    const step = /^(\s*)-\s+uses:\s*['"]?docker\/setup-buildx-action@/.exec(line);
-    if (!step) continue;
-    const indent = step[1].length;
-    const body = [];
+    // Every list item is a candidate step; `uses:` may be on its first line
+    // or on a later one (e.g. after `- name: …`).
+    const item = /^(\s*)-\s/.exec(line);
+    if (!item) continue;
+    const indent = item[1].length;
+    const step = [line.slice(indent + 1)];
     for (const next of lines.slice(i + 1)) {
       if (next.trim() && next.search(/\S/) <= indent) break;
-      body.push(next);
+      step.push(next);
     }
-    if (!body.some((l) => /^\s*driver-opts:.*\bimage=\$\{\{\s*steps\.buildkit\.outputs\.image\s*\}\}/.test(l))) {
+    if (!step.some((l) => /^\s*uses:\s*['"]?docker\/setup-buildx-action@/.test(l))) continue;
+    if (!step.some((l) => /^\s*driver-opts:.*\bimage=\$\{\{\s*steps\.buildkit\.outputs\.image\s*\}\}/.test(l))) {
       problems.push(
         `line ${i + 1}: setup-buildx-action without driver-opts image=\${{ steps.buildkit.outputs.image }}`,
       );
@@ -153,10 +156,20 @@ describe('buildxProblems', () => {
       '  - uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
       '    with:',
       '      driver-opts: image=moby/buildkit:latest',
+      '  - name: Builder',
+      '    uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
+      '  - name: Pinned builder',
+      '    uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
+      '    with:',
+      '      driver-opts: image=${{ steps.buildkit.outputs.image }}',
+      '  - name: Other step',
+      '    with:',
+      '      driver-opts: image=moby/buildkit:latest',
     ].join('\n');
     assert.deepEqual(buildxProblems(text), [
       'line 2: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 6: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
+      'line 9: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
     ]);
   });
 });

@@ -239,16 +239,24 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
       # A moved or re-created tag must not overwrite a published version (and
-      # with it x.y and latest): the push only happens if the tag is missing.
+      # with it x.y and latest) with other code: the push only happens if the
+      # tag is missing, or if it was published from this very commit (a rerun
+      # after a failure past the push, e.g. signing, completes the release).
       - name: Version not yet published
         run: |
-          if out=$(docker buildx imagetools inspect "$IMAGE:$VERSION" 2>&1); then
-            echo "::error::$IMAGE:$VERSION is already published; releases are never overwritten"
-            exit 1
+          err="$RUNNER_TEMP/inspect.err"
+          if raw=$(docker buildx imagetools inspect --raw "$IMAGE:$VERSION" 2>"$err"); then
+            revision=$(printf '%s\n' "$raw" | jq -r '.annotations["org.opencontainers.image.revision"] // empty')
+            if [ "$revision" != "$GITHUB_SHA" ]; then
+              echo "::error::$IMAGE:$VERSION is already published from ${revision:-an unknown commit}; releases are never overwritten"
+              exit 1
+            fi
+            echo "$IMAGE:$VERSION was published from this commit; the rerun completes the release"
+            exit 0
           fi
-          echo "$out"
+          cat "$err"
           # Fail closed: only "not found" counts as unpublished, not every error.
-          if ! printf '%s\n' "$out" | grep -Eqi 'not found|manifest unknown|name unknown'; then
+          if ! grep -Eqi 'not found|manifest unknown|name unknown' "$err"; then
             echo "::error::Could not check whether $IMAGE:$VERSION is already published"
             exit 1
           fi
