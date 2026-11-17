@@ -523,6 +523,18 @@ describe('jmapEditApi.replay', () => {
   const patched = (seen: Invocation[]) =>
     seen.filter(([name]) => name === 'Email/set').map(([, args]) => Object.keys(args['update'] as object));
 
+  it('changes nothing twice when replaying a move the server already applied (`keepalive` arrived)', async () => {
+    const { api, seen } = mailbox({ e1: { trash: true } });
+    const edit: EmailEdit = { ...MOVE, keywords: { $seen: true } };
+    await api.set('k1', new Map([['e1', edit]]), true);
+    const lost = await api.replay('k1', new Map([['e1', edit]]));
+    expect(lost).toEqual([]);
+    const [first, again] = seen.filter(([name]) => name === 'Email/set').map(([, args]) => args['update']);
+    // The same absolute values: the email stays in the trash and read.
+    expect(again).toEqual(first);
+    expect(again).toEqual({ e1: { 'keywords/$seen': true, 'mailboxIds/in': null, 'mailboxIds/trash': true } });
+  });
+
   it('still sends the keywords of an email moved elsewhere; it counts as lost anyway', async () => {
     const { api, seen } = mailbox({ e1: { archiv: true } });
     const lost = await api.replay('k1', new Map([['e1', { ...MOVE, keywords: { $seen: true } }]]));
@@ -1113,6 +1125,128 @@ describe('Queue', () => {
     await ui.toasts.flush(true);
     expect(set).toHaveBeenCalledExactlyOnceWith('k1', SEEN, true);
     expect(e.queue.count).toBe(0);
+  });
+
+  describe('Closing without a known outage', () => {
+    /** `Email/set` that only answers on `answer()`: until then the page may end. */
+    function hanging(set: ReturnType<typeof fakeApi>['set']) {
+      let answer: (error?: Error) => void = () => {};
+      set.mockImplementation(
+        () =>
+          new Promise<void>((resolve, reject) => {
+            answer = (error) => (error ? reject(error) : resolve());
+          }),
+      );
+      return (error?: Error) => answer(error);
+    }
+
+    /** Closes the page during the toast; the request is still out afterwards. */
+    async function close() {
+      const out = setup();
+      const answer = hanging(out.set);
+      out.e.describe((_account, id) => `Subject ${id}`);
+      out.e.run({ account: 'k1', edits: SEEN, text: 'Marked as read' });
+      const flushed = ui.toasts.flush(true);
+      await tick();
+      return { ...out, answer, flushed };
+    }
+
+    it('queues the action and sends it', async () => {
+      const { e, set, rows, answer, flushed } = await close();
+      expect(set).toHaveBeenCalledExactlyOnceWith('k1', SEEN, true);
+      expect([...rows.values()]).toEqual([
+        expect.objectContaining({ account: 'k1', edits: [['e1', { keywords: { $seen: true } }]], sent: true }),
+      ]);
+      // Nobody sees it waiting: no counter, no bar.
+      expect(e.queue.count).toBe(0);
+      expect(e.queue.stuck).toEqual([]);
+      expect(e.edit('k1', 'e1', stamp())).toEqual({ keywords: { $seen: true } });
+      answer();
+      await flushed;
+      expect(rows.size).toBe(0);
+      expect(e.edit('k1', 'e1', stamp())).toBeUndefined();
+    });
+
+    it('does not replay the copy in the same tab while the request is out', async () => {
+      const { e, replay, answer, flushed } = await close();
+      await e.restore();
+      await e.queue.replay();
+      expect(replay).not.toHaveBeenCalled();
+      expect(e.queue.items).toEqual([]);
+      answer();
+      await flushed;
+      await e.restore();
+      expect(e.queue.items).toEqual([]);
+    });
+
+    it('lets the copy wait like an action without a response if none comes', async () => {
+      const { e, rows, answer, flushed } = await close();
+      answer(offline());
+      await flushed;
+      expect(e.queue.count).toBe(1);
+      expect(e.queue.stuck).toEqual([{ account: 'k1', count: 1 }]);
+      expect([...rows.values()]).toEqual([expect.not.objectContaining({ sent: true })]);
+    });
+
+    it('removes the copy if the server rejects the action', async () => {
+      const { e, rows, answer, flushed } = await close();
+      answer(new EditError([['e1', { type: 'forbidden' }]]));
+      await flushed;
+      expect(rows.size).toBe(0);
+      expect(e.queue.count).toBe(0);
+      expect(e.edit('k1', 'e1', 0)).toBeUndefined();
+    });
+
+    it('replays the copy after a restart without pill and toast if the page ended first', async () => {
+      const { log, rows, answer, flushed } = await close();
+      const fresh = fakeApi();
+      const restarted = new EmailEdits(fresh.api, log);
+      await restarted.restore();
+      expect(restarted.edit('k1', 'e1', stamp())).toEqual({ keywords: { $seen: true } });
+      expect(restarted.queue.count).toBe(0);
+      const replayed = restarted.queue.replay();
+      expect(restarted.queue.replaying).toBe(0);
+      await replayed;
+      expect(fresh.replay).toHaveBeenCalledExactlyOnceWith('k1', SEEN);
+      expect(rows.size).toBe(0);
+      expect(restarted.edit('k1', 'e1', stamp())).toBeUndefined();
+      expect(ui.toast).toBeNull();
+      expect(restarted.queue.lost).toBeNull();
+      answer();
+      await flushed;
+    });
+
+    it('does not cancel the copy against a later opposite change: the server may already have it', async () => {
+      const { log, answer, flushed } = await close();
+      const fresh = fakeApi();
+      const restarted = new EmailEdits(fresh.api, log);
+      await restarted.restore();
+      const unseen = new Map<string, EmailEdit>([['e1', { keywords: { $seen: false } }]]);
+      restarted.run({ account: 'k1', edits: unseen });
+      await tick();
+      await restarted.queue.replay();
+      expect(fresh.set).not.toHaveBeenCalled();
+      expect(fresh.replay.mock.calls).toEqual([
+        ['k1', SEEN],
+        ['k1', unseen],
+      ]);
+      expect(restarted.queue.items).toEqual([]);
+      answer();
+      await flushed;
+    });
+
+    it('still reports in the bar what the server does not take over on the replay', async () => {
+      const { log, answer, flushed } = await close();
+      const fresh = fakeApi();
+      fresh.replay.mockResolvedValue(['e1']);
+      const restarted = new EmailEdits(fresh.api, log);
+      await restarted.queue.replay();
+      expect(restarted.queue.lost).toEqual({ count: 1, subject: 'Subject e1' });
+      expect(restarted.edit('k1', 'e1', 0)).toBeUndefined();
+      expect(ui.toast).toBeNull();
+      answer();
+      await flushed;
+    });
   });
 
   it('tries even if the browser reports offline: the failure decides', async () => {
