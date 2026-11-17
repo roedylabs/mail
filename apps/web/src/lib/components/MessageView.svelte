@@ -31,6 +31,15 @@
   directly, so that the dialog reliably opens from the click; the chosen
   files go to compose with `replyActions.files`.
 -->
+<script lang="ts" module>
+  /**
+   * Paging button that had focus when it was used. If the skeleton replaces
+   * the view while the next conversation loads, the next view gives it
+   * focus again.
+   */
+  let navFocus: 'prev' | 'next' | null = null;
+</script>
+
 <script lang="ts">
   import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
@@ -165,9 +174,29 @@
     const key = conversationKey;
     if (key === shownKey) return;
     shownKey = key;
+    // The view stayed: focus did too.
+    navFocus = null;
     untrack(() => {
       if (scroller) scroller.scrollTop = 0;
     });
+  });
+
+  /** Previous/next; remembers whether the button had focus (keyboard), see `navFocus`. */
+  function page(e: MouseEvent & { currentTarget: HTMLButtonElement }, dir: 'prev' | 'next') {
+    navFocus = document.activeElement === e.currentTarget ? dir : null;
+    if (dir === 'prev') onPrev();
+    else onNext();
+  }
+
+  /** Root of the view; mounted again after the skeleton while paging, focus goes back to the paging button. */
+  let root: HTMLElement | undefined = $state();
+  $effect(() => {
+    const dir = navFocus;
+    navFocus = null;
+    if (animate || !dir || !root) return;
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    root.querySelector<HTMLElement>(`[data-nav="${dir}"]`)?.focus();
   });
 
   /** Text of the open reply bar. */
@@ -624,7 +653,7 @@
 {/snippet}
 
 {#if !isMobile}
-  <div class="rd" class:enter={animate}>
+  <div class="rd" class:enter={animate} bind:this={root}>
     <div class="bar-wrap">
       <div role="toolbar" aria-label={m.read_toolbar()} class="bar">
         <button type="button" class="back" onclick={onClose} use:tooltip={m.read_back_tip()}
@@ -785,7 +814,8 @@
           class="ib nav"
           style:opacity={rd.prevOp}
           style:cursor={rd.prevCur}
-          onclick={onPrev}
+          data-nav="prev"
+          onclick={(e) => page(e, 'prev')}
           aria-label={m.read_prev()}
           use:tooltip={m.read_prev_tip()}><Icon name="ti-chevron-left" /></button
         >
@@ -794,7 +824,8 @@
           class="ib nav"
           style:opacity={rd.nextOp}
           style:cursor={rd.nextCur}
-          onclick={onNext}
+          data-nav="next"
+          onclick={(e) => page(e, 'next')}
           aria-label={m.read_next()}
           use:tooltip={m.read_next_tip()}><Icon name="ti-chevron-right" /></button
         >
@@ -863,7 +894,7 @@
     </div>
   </div>
 {:else}
-  <div class="m-rd" class:enter={animate}>
+  <div class="m-rd" class:enter={animate} bind:this={root}>
     <div class="m-bar">
       <!-- Name "Back" with the visible folder (WCAG 2.5.3). -->
       <button type="button" class="m-back" onclick={onClose}
@@ -872,11 +903,21 @@
         ></button
       >
       <span class="grow"></span>
-      <button type="button" class="m-ib m-nav" style:opacity={rd.prevOp} onclick={onPrev} aria-label={m.read_prev()}
-        ><Icon name="ti-chevron-up" /></button
+      <button
+        type="button"
+        class="m-ib m-nav"
+        style:opacity={rd.prevOp}
+        data-nav="prev"
+        onclick={(e) => page(e, 'prev')}
+        aria-label={m.read_prev()}><Icon name="ti-chevron-up" /></button
       >
-      <button type="button" class="m-ib m-nav" style:opacity={rd.nextOp} onclick={onNext} aria-label={m.read_next()}
-        ><Icon name="ti-chevron-down" /></button
+      <button
+        type="button"
+        class="m-ib m-nav"
+        style:opacity={rd.nextOp}
+        data-nav="next"
+        onclick={(e) => page(e, 'next')}
+        aria-label={m.read_next()}><Icon name="ti-chevron-down" /></button
       >
       <button
         type="button"

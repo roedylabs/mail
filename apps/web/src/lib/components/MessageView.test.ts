@@ -634,6 +634,31 @@ describe('reading view', () => {
     }
   });
 
+  it('gives the paging button focus again when the view returns after the skeleton', async () => {
+    for (const isMobile of [false, true]) {
+      const first = setup({ isMobile, rd: values({ isMobile }), conversationKey: 'a', enter: true });
+      const next = first.view.getByRole('button', { name: 'Next message' });
+      next.focus();
+      await fireEvent.click(next);
+      expect(first.onNext).toHaveBeenCalledOnce();
+      // The skeleton replaced the view (the next conversation loads slowly), then it comes back without animation.
+      first.view.unmount();
+      expect(document.activeElement).toBe(document.body);
+      const again = setup({ isMobile, rd: values({ isMobile }), conversationKey: 'b', enter: false });
+      await waitFor(() =>
+        expect(document.activeElement).toBe(again.view.getByRole('button', { name: 'Next message' })),
+      );
+      again.view.unmount();
+      // By mouse (no focus before) and on a fresh opening nothing gets focus.
+      const mouse = setup({ isMobile, rd: values({ isMobile }), enter: false });
+      await fireEvent.click(mouse.view.getByRole('button', { name: 'Previous message' }));
+      mouse.view.unmount();
+      const fresh = setup({ isMobile, rd: values({ isMobile }), enter: false });
+      expect(document.activeElement).toBe(document.body);
+      fresh.view.unmount();
+    }
+  });
+
   describe('open reply bar', () => {
     it('focuses the text with each "Reply" and "Reply all", also when already open; not for forward', async () => {
       const rd = values();
