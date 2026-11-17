@@ -11,9 +11,13 @@ import {
   type LiveApi,
   jmapLiveApi,
 } from './live.svelte.ts';
+import { pushSlots, tabLocks, type PushSlots } from './push-slots.ts';
 
-/** Fake server: streams stay open until they abort; responses are configurable. */
-function fake() {
+/**
+ * Fake server: streams stay open until they abort; responses are configurable.
+ * Without `slots` every stream gets its slot right away; all accounts are on one origin.
+ */
+function fake(slots?: PushSlots) {
   const streams: { account: string; options: EventsOptions }[] = [];
   let fail: Error | null = null;
   const state = { email: 'e1' };
@@ -24,6 +28,9 @@ function fake() {
       streams.push({ account, options });
       return new Promise<void>((resolve) => options.signal.addEventListener('abort', () => resolve()));
     }),
+    slot: vi.fn((_account: string, signal: AbortSignal, onWait: () => void) =>
+      slots ? slots.acquire('https://mail.example.com/jmap/eventsource/', signal, onWait) : Promise.resolve(),
+    ),
     accountId: vi.fn((account: string) => Promise.resolve(`j-${account}`)),
     emailState: vi.fn(() => Promise.resolve(state.email)),
     emailChanges: vi.fn((): Promise<EmailChanges> =>
@@ -138,6 +145,23 @@ describe('jmapLiveApi', () => {
       destroyed: new Set(['m3']),
     });
     expect(seen[1]![1]).toMatchObject({ properties: ['threadId'] });
+  });
+
+  it('asks for the slot on the origin of the push stream', async () => {
+    const acquire = vi.fn<PushSlots['acquire']>(() => Promise.resolve());
+    const client = new JmapClient({ url: MAIL, tokens: { token: () => Promise.resolve('t1') }, session: SESSION });
+    const api = jmapLiveApi(() => Promise.resolve(client), { acquire });
+    const onWait = () => {};
+    await api.slot('a1', SIGNAL, onWait);
+    expect(acquire).toHaveBeenCalledWith(SESSION.eventSourceUrl, SIGNAL, onWait);
+    // Without push no slot: the stream reports `unsupported` by itself.
+    const bare = new JmapClient({
+      url: MAIL,
+      tokens: { token: () => Promise.resolve('t1') },
+      session: { ...SESSION, eventSourceUrl: '' },
+    });
+    await jmapLiveApi(() => Promise.resolve(bare), { acquire }).slot('a1', SIGNAL, onWait);
+    expect(acquire).toHaveBeenCalledTimes(1);
   });
 
   it('reports `cannotCalculateChanges` as `reset`', async () => {
@@ -356,6 +380,94 @@ describe('Polling', () => {
     await vi.advanceTimersByTimeAsync(PUSH_RETRY);
     expect(f.live.mode('a1')).toBe('push');
     expect(f.api.events).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('Push slots', () => {
+  /** Open streams per account. */
+  const open = (f: ReturnType<typeof fake>) =>
+    [...new Set(f.streams.filter((s) => !s.options.signal.aborted).map((s) => s.account))].sort();
+
+  it('opens at most the limit of streams on one server, the other accounts poll', async () => {
+    const f = fake(pushSlots(tabLocks(), () => false, 2));
+    f.live.retain(['a1', 'a2', 'a3']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual(['a1', 'a2']);
+    expect(f.live.mode('a3')).toBe('poll');
+    // Only a3 polls: the streams of a1 and a2 report nothing.
+    const asked = f.api.emailChanges.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL);
+    expect(f.api.emailChanges).toHaveBeenCalledTimes(asked + 1);
+    // Even after PUSH_RETRY no third stream.
+    await vi.advanceTimersByTimeAsync(PUSH_RETRY);
+    expect(open(f)).toEqual(['a1', 'a2']);
+    expect(f.api.events).toHaveBeenCalledTimes(2);
+  });
+
+  it('hands a free slot to a polling account right away and stops its polling', async () => {
+    const f = fake(pushSlots(tabLocks(), () => false, 2));
+    f.live.retain(['a1', 'a2', 'a3']);
+    await vi.advanceTimersByTimeAsync(0);
+    f.live.retain(['a2', 'a3']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual(['a2', 'a3']);
+    expect(f.live.mode('a3')).toBe('push');
+    // The stream syncs on setup; afterwards no more polls.
+    f.stream('a3').options.onOpen?.();
+    await vi.advanceTimersByTimeAsync(0);
+    const asked = f.api.emailChanges.mock.calls.length;
+    await vi.advanceTimersByTimeAsync(POLL_INTERVAL * 2);
+    expect(f.api.emailChanges).toHaveBeenCalledTimes(asked);
+  });
+
+  it('frees the slot when a stream falls back to polling after errors', async () => {
+    const f = fake(pushSlots(tabLocks(), () => false, 1));
+    f.live.retain(['a1', 'a2']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual(['a1']);
+    for (let i = 0; i < 3; i++) f.stream('a1').options.onError?.(new JmapError('invalidResponse'), 1000);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual(['a2']);
+    expect(f.live.mode('a1')).toBe('poll');
+    // a1 tries again later and waits for the slot instead of opening a second stream.
+    await vi.advanceTimersByTimeAsync(PUSH_RETRY);
+    expect(open(f)).toEqual(['a2']);
+    expect(f.live.mode('a1')).toBe('poll');
+  });
+
+  it('frees the slot when the stream fails to start', async () => {
+    const f = fake(pushSlots(tabLocks(), () => false, 1));
+    f.failWith(new Error('Netz'));
+    f.live.retain(['a1', 'a2']);
+    await vi.advanceTimersByTimeAsync(0);
+    f.failWith(null);
+    // Both poll; a2 only waited for the slot and takes it as soon as a1 gives it back.
+    f.live.reconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual(['a1']);
+    expect(f.live.mode('a2')).toBe('poll');
+  });
+
+  it('gives up waiting on reconnect and on stop', async () => {
+    const f = fake(pushSlots(tabLocks(), () => false, 1));
+    f.live.retain(['a1', 'a2']);
+    await vi.advanceTimersByTimeAsync(0);
+    f.live.reconnect();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual(['a1']);
+    expect(f.live.mode('a2')).toBe('poll');
+    f.live.retain(['a1']);
+    f.live.retain([]);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual([]);
+    expect(f.api.events).toHaveBeenCalledTimes(2);
+  });
+
+  it('has no limit over a multiplexed connection', async () => {
+    const f = fake(pushSlots(tabLocks(), () => true, 1));
+    f.live.retain(['a1', 'a2', 'a3']);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(open(f)).toEqual(['a1', 'a2', 'a3']);
   });
 });
 
