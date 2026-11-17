@@ -377,7 +377,8 @@
     // Sync pill while the request runs.
     ui.syncing = true;
     const multi = view.multi;
-    // The sync pill stays at least 600 ms, even if the response comes faster.
+    // Refresh lock and sync pill last at least 600 ms, even if the response comes faster;
+    // clicks in that time add no further turn of the icon.
     const minimum = new Promise((r) => setTimeout(r, 600));
     try {
       const { added, failed } = await current.refresh();
