@@ -5,7 +5,7 @@
  */
 import type { Mailbox } from '@roedy/jmap';
 import { isIconName, type IconName } from '#lib/icons.ts';
-import { avatarOf, initials, messagesText, shortTime, tagColors, type TimeContext } from '#lib/mail-list.ts';
+import { avatarOf, initials, messagesText, searchTime, tagColors, type TimeContext } from '#lib/mail-list.ts';
 import { roleLabel } from '#lib/mailbox-nav.ts';
 import { targetOf } from '#lib/notifications-menu.ts';
 import { m } from '#lib/paraglide/messages.js';
@@ -489,7 +489,7 @@ export function notifItems(
       label: n.title,
       icon: isIconName(n.icon) ? n.icon : 'ti-bell',
       path: n.text,
-      side: shortTime(at, time),
+      side: searchTime(at, time),
       unread: n.read_at === null,
       t: at,
       extra: n.text,

@@ -258,7 +258,7 @@
       <div class="empty">
         <span class="empty-tile"><Icon name="ti-search-off" size={26} /></span>
         <div class="empty-title">{q ? m.search_suggest_empty_q({ q }) : m.search_suggest_empty_filtered()}</div>
-        <div class="empty-text">{view.srOff ? m.search_off_empty() : rp.emptyText}</div>
+        <div class="empty-text">{view.srOff ? m.search_off_empty() : rp.suggestEmptyText}</div>
       </div>
     {/if}
 

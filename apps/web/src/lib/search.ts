@@ -8,7 +8,7 @@
  */
 import type { EmailAddress } from '@roedy/jmap';
 import type { IconName } from '#lib/icons.ts';
-import { avatarOf, initials, nameOf, shortTime, type TimeContext } from '#lib/mail-list.ts';
+import { avatarOf, initials, nameOf, searchTime, type TimeContext } from '#lib/mail-list.ts';
 import { fileIcon } from '#lib/message-view.ts';
 import { m } from '#lib/paraglide/messages.js';
 import type { MailboxTarget, RoleId } from '#lib/routes.ts';
@@ -292,15 +292,17 @@ export function mailItems(
     let s = score(inField('s') ? (hit.subject ?? '') : '', from, t.terms);
     if (t.terms.length && from && s >= 0 && t.terms.every((x) => norm(from).includes(x))) s = Math.max(s, 55);
     const [bg, ink] = avatarOf(who);
+    // Without a sender or recipient (or without letters for initials) a tile with the icon.
+    const ini = initials(name);
     const path = [who, box?.label ?? '', ...(ctx.multi ? [ctx.email(hit.account)] : [])].filter(Boolean).join(' · ');
-    const side = shortTime(at, ctx.time);
+    const side = searchTime(at, ctx.time);
     const run = () => ctx.open(hit, box);
     out.push({
       id: `${hit.account}/${hit.id}`,
       cat: 'mail',
       label: subject,
       icon: role === 'drafts' ? 'ti-file-pencil' : 'ti-mail',
-      av: { text: initials(who), bg, ink },
+      ...(ini ? { av: { text: ini, bg, ink } } : {}),
       path,
       side,
       unread: !hit.keywords['$seen'] && role !== 'drafts' && role !== 'sent' && role !== 'scheduled',
@@ -402,7 +404,10 @@ export interface ResultsValues {
   has: boolean;
   title: string;
   countText: string;
+  /** Results page: only chips without a category count as filters. */
   emptyText: string;
+  /** Search suggestions: every chip counts, categories included. */
+  suggestEmptyText: string;
   pills: SearchPill[];
   groups: SearchGroup[];
   /** Chips without categories (desktop: the pills show the categories). */
@@ -512,7 +517,8 @@ export function resultsValues(input: ResultsInput): ResultsValues {
     has: total > 0,
     title: q ? m.search_title({ q }) : m.search_title_filtered(),
     countText: idle ? m.search_count_idle() : countText(total),
-    emptyText: input.chips.length ? m.search_empty_filtered() : m.search_empty_text(),
+    emptyText: chips.length ? m.search_empty_filtered() : m.search_empty_text(),
+    suggestEmptyText: input.chips.length ? m.search_empty_filtered() : m.search_empty_text(),
     pills,
     groups,
     chips,

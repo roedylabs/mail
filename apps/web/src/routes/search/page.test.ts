@@ -240,6 +240,28 @@ describe('Search', () => {
     expect(search.sf).toEqual(SF0);
   });
 
+  it('with only a category the empty text counts no filters and offers no reset', async () => {
+    answer([], 0);
+    search.q = 'zzz';
+    search.set({ cats: ['mail'] });
+    const view = render(Page);
+    expect(await view.findByText('No results', { selector: '.empty-title' })).toBeInTheDocument();
+    expect(view.getByText('Check the spelling or try a different search term.')).toBeInTheDocument();
+    expect(view.queryByRole('button', { name: 'Clear filters' })).toBeNull();
+  });
+
+  it('shows a tile with the icon for a hit without a sender', async () => {
+    answer([{ ...hit('m1', 'Meeting'), from: null }]);
+    search.q = 'meeting';
+    const view = render(Page);
+    const row = await view.findByRole('button', { name: /Meeting/ });
+    const tile = row.querySelector('.tile');
+    expect(tile?.classList.contains('round')).toBe(false);
+    expect(tile?.querySelector('svg')).not.toBeNull();
+    expect(tile?.textContent).toBe('');
+    expect(row.textContent).toContain('Unknown · Inbox');
+  });
+
   it('shows the skeleton until the mail server answers', async () => {
     server.page.mockReturnValue(new Promise(() => {}));
     search.q = 'anna';

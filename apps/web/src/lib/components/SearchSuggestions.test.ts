@@ -456,6 +456,12 @@ describe('search suggestions', () => {
     search.set({ st: ['u'] });
     expect(await view.findByText('No results for these filters')).toBeInTheDocument();
     expect(view.getByText('Try fewer filters or a different search term.')).toBeInTheDocument();
+
+    // Categories count as filters here, unlike on the results page.
+    search.set({ st: [], cats: ['mail'] });
+    search.q = 'zzz';
+    expect(await view.findByText(m.search_suggest_empty_q({ q: 'zzz' }))).toBeInTheDocument();
+    expect(view.getByText('Try fewer filters or a different search term.')).toBeInTheDocument();
   });
 
   it('shows no empty state as long as the first response is missing', async () => {
