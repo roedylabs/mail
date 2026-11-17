@@ -110,6 +110,36 @@ describe('mailboxes in sidebar and palette', () => {
       expect(activeLocation(sidebarScope(null, null, null), at('/compose/new', null))).toBeNull();
     });
 
+    it('stays the folder, tag or mailbox the user came from on the error page, also after the search', () => {
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), { ...at('/nope', sent), error: true })).toEqual(sent);
+      expect(activeLocation(sidebarScope(LIST, 'a1', folder), { ...at('/nope', folder), error: true })).toEqual(folder);
+      expect(activeLocation(sidebarScope(LIST, 'a1', tag), { ...at('/nope', tag), error: true })).toEqual(tag);
+      // The error page closes the search results.
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), { ...at('/nope', sent, true), error: true })).toEqual(sent);
+      // "Access denied" in the administration.
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), { ...at('/admin/users', sent), error: true })).toEqual(
+        sent,
+      );
+      // A router error on the search page.
+      expect(activeLocation(sidebarScope(LIST, 'a1', sent), { ...at('/search', sent, true), error: true })).toEqual(
+        sent,
+      );
+    });
+
+    it('is the inbox of the view on the error page without a previous mailbox (the start view)', () => {
+      expect(activeLocation(sidebarScope(LIST, 'a1', null), { ...at('/nope', null), error: true })).toEqual({
+        account: 'a1',
+        role: 'inbox',
+        thread: null,
+      });
+      expect(activeLocation(sidebarScope(LIST, 'all', null), { ...at('/nope', null), error: true })).toEqual({
+        account: 'all',
+        role: 'inbox',
+        thread: null,
+      });
+      expect(activeLocation(sidebarScope(null, null, null), { ...at('/nope', null), error: true })).toBeNull();
+    });
+
     it('is none on other pages and in compose with the search results open', () => {
       const scope = sidebarScope(LIST, 'a1', sent);
       expect(activeLocation(scope, at('/search', sent, true))).toBeNull();

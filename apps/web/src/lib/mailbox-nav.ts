@@ -80,17 +80,20 @@ export interface ActiveInput {
   lastMailbox: MailboxLocation | null;
   /** Search results open (`search.resultsOpen`). */
   results: boolean;
+  /** Error page in the app frame (router error, "Access denied"). */
+  error?: boolean;
 }
 
 /**
  * Mailbox, folder or tag the sidebar marks as active, if it belongs to the
- * view: that of the address. Compose keeps the one the user came from,
- * without one the view's inbox (the start view); with the search results
- * open (also across the settings) none, like on the search itself.
+ * view: that of the address. Compose and the error page keep the one the
+ * user came from, without one the view's inbox (the start view); with the
+ * search results open (also across the settings) none, like on the search
+ * itself. The error page closes the search results.
  */
 export function activeLocation(scope: SidebarScope, at: ActiveInput): MailboxLocation | null {
   let location = at.location;
-  if (!location && at.path.startsWith('/compose/') && !at.results)
+  if (!location && (at.error || (at.path.startsWith('/compose/') && !at.results)))
     location = at.lastMailbox ?? (scope.key ? { account: scope.key, role: 'inbox', thread: null } : null);
   return inScope(scope, location) ? location : null;
 }
