@@ -11,9 +11,11 @@
 //! pack a database of their own: [`read`] rejects it.
 
 use std::{
+    cell::Cell,
     fs::{self, File},
     io::{self, Read, Write as _},
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 use anyhow::Context as _;
@@ -40,6 +42,9 @@ const MAX_MANIFEST: u64 = 64 * 1024;
 const MAX_RATIO: u64 = 64;
 /// Lower bound of the limit, so that small backups never reach it.
 pub const MIN_LIMIT: u64 = 64 * 1024 * 1024;
+/// Decompressed bytes an archive may hold besides the database: tar headers,
+/// padding, end blocks and the manifest ([`MAX_MANIFEST`]).
+const OVERHEAD: u64 = MAX_MANIFEST + 64 * 1024;
 /// Level 3 is the zstd default: fast, and small enough for a database without
 /// mails.
 const LEVEL: i32 = 3;
@@ -141,8 +146,20 @@ pub fn write(
     let size = file.metadata()?.len();
     append(&mut tar, db::DB_FILE, file, size, mtime)?;
     let file = tar.into_inner()?.finish()?;
+    let packed = file.metadata()?.len();
+    // A backup that `read` would refuse must not look like a success.
+    anyhow::ensure!(
+        size <= limit(packed),
+        "database ({size} bytes) packs to {packed} bytes, more than {MAX_RATIO}:1; \
+         restoring this backup would be refused"
+    );
     file.sync_all()?;
-    Ok(file.metadata()?.len())
+    Ok(packed)
+}
+
+/// How large the database of an archive of `packed` bytes may unpack.
+fn limit(packed: u64) -> u64 {
+    packed.saturating_mul(MAX_RATIO).max(MIN_LIMIT)
 }
 
 fn hash(mut data: impl Read) -> io::Result<[u8; 32]> {
@@ -198,12 +215,35 @@ pub fn pack(path: &Path, entries: &[(&str, &[u8])]) -> anyhow::Result<()> {
 /// server error. After any error `database` is gone again. Blocks.
 pub fn read(archive: &Path, database: &Path, secrets: &SecretKey) -> anyhow::Result<Manifest> {
     let file = File::open(archive)?;
-    let limit = file
-        .metadata()?
-        .len()
-        .saturating_mul(MAX_RATIO)
-        .max(MIN_LIMIT);
+    let limit = limit(file.metadata()?.len());
     read_limited(file, database, secrets, limit)
+}
+
+/// The unpacked stream, cut off at a budget: [`OVERHEAD`] plus the declared
+/// size of the database once its entry comes. It applies before tar parses
+/// anything, because tar reads extension members (long names) into memory
+/// before an entry reaches [`read_limited`]; a small archive could otherwise
+/// fill the memory with them.
+struct Budgeted<R> {
+    inner: R,
+    left: Rc<Cell<u64>>,
+}
+
+impl<R: Read> Read for Budgeted<R> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        let left = self.left.get();
+        if left == 0 {
+            // Tell the end of the stream from more than the budget.
+            return match self.inner.read(&mut [0])? {
+                0 => Ok(0),
+                _ => Err(io::Error::other("backup unpacks to more than the limit")),
+            };
+        }
+        let max = buf.len().min(usize::try_from(left).unwrap_or(usize::MAX));
+        let read = self.inner.read(&mut buf[..max])?;
+        self.left.set(left - read as u64);
+        Ok(read)
+    }
 }
 
 fn read_limited(
@@ -212,8 +252,12 @@ fn read_limited(
     secrets: &SecretKey,
     limit: u64,
 ) -> anyhow::Result<Manifest> {
+    let left = Rc::new(Cell::new(OVERHEAD));
     let decoder = zstd::Decoder::new(archive).map_err(invalid)?;
-    let mut tar = tar::Archive::new(decoder);
+    let mut tar = tar::Archive::new(Budgeted {
+        inner: decoder,
+        left: Rc::clone(&left),
+    });
     let (mut manifest, mut unpacked) = (None, None);
     for entry in tar.entries().map_err(invalid)? {
         let mut entry = entry.map_err(invalid)?;
@@ -227,6 +271,10 @@ fn read_limited(
             anyhow::ensure!(read.key == key_mark(secrets), Refused::OtherKey);
             manifest = Some(read);
         } else if path == Path::new(db::DB_FILE) && unpacked.is_none() {
+            if entry.size() > limit {
+                return Err(too_large(limit));
+            }
+            left.set(left.get().saturating_add(entry.size()));
             unpacked = Some(unpack(&mut entry, database, limit)?);
         }
     }
@@ -524,6 +572,63 @@ mod tests {
         assert!(!target.exists());
         read(10_000).unwrap();
         assert_eq!(std::fs::metadata(&target).unwrap().len(), 10_000);
+    }
+
+    #[test]
+    fn the_stream_stops_at_its_budget() {
+        let budgeted = |data: &'static [u8], budget| Budgeted {
+            inner: data,
+            left: Rc::new(Cell::new(budget)),
+        };
+        let mut all = Vec::new();
+        budgeted(b"12345", 5).read_to_end(&mut all).unwrap();
+        assert_eq!(all, b"12345");
+        let mut cut = Vec::new();
+        let error = budgeted(b"123456", 5).read_to_end(&mut cut).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert_eq!(cut, b"12345");
+    }
+
+    /// tar reads a long name into memory before the entry comes: the budget
+    /// applies to it too.
+    #[test]
+    fn a_huge_long_name_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let secrets = SecretKey::random().unwrap();
+        let path = tmp.path().join("archive.tar.zst");
+        let encoder = zstd::Encoder::new(File::create(&path).unwrap(), LEVEL).unwrap();
+        let mut tar = tar::Builder::new(encoder);
+        let mut header = tar::Header::new_gnu();
+        header.set_entry_type(tar::EntryType::GNULongName);
+        header.set_size(OVERHEAD + 1);
+        header.set_cksum();
+        tar.append(&header, io::repeat(b'a').take(OVERHEAD + 1))
+            .unwrap();
+        let good = json(&signed(&secrets, DATA));
+        append(&mut tar, MANIFEST, good.as_slice(), good.len() as u64, 0).unwrap();
+        tar.into_inner().unwrap().finish().unwrap();
+        let target = tmp.path().join("target");
+        assert_eq!(refused(read(&path, &target, &secrets)), Refused::Invalid);
+        assert!(!target.exists());
+    }
+
+    /// A database of equal bytes above [`MIN_LIMIT`] packs far beyond
+    /// [`MAX_RATIO`]: `write` fails instead of leaving a backup `read` refuses.
+    #[test]
+    fn writing_refuses_what_reading_would_refuse() {
+        assert_eq!(limit(MIN_LIMIT), MIN_LIMIT * MAX_RATIO);
+        assert_eq!(limit(u64::MAX), u64::MAX);
+        let tmp = tempfile::tempdir().unwrap();
+        let secrets = SecretKey::random().unwrap();
+        let database = tmp.path().join("database");
+        File::create(&database)
+            .unwrap()
+            .set_len(MIN_LIMIT + 1)
+            .unwrap();
+        let manifest = Manifest::new(Timestamp::now(), false, 1);
+        let target = tmp.path().join("archive.tar.zst");
+        let error = write(&database, &manifest, &secrets, &target).unwrap_err();
+        assert!(error.to_string().contains("would be refused"), "{error:#}");
     }
 
     #[test]
