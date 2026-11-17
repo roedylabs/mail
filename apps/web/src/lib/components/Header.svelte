@@ -81,12 +81,14 @@
 {/snippet}
 
 {#if !props.isMobile}
-  <header class="desk">
+  <header class="desk" class:tablet={props.isTablet}>
     <div class="start">
       {#if props.sbToggleOn}
         <button
           class="round toggle"
+          data-sb-toggle
           onclick={props.toggleSidebar}
+          aria-expanded={props.sbExpanded}
           aria-keyshortcuts="["
           aria-label={m.shell_sidebar_toggle()}
           use:tooltip={m.shell_sidebar_toggle()}
@@ -493,6 +495,12 @@
     transition:
       background-color var(--dur, 220ms),
       color var(--dur, 220ms);
+  }
+
+  /* Tablet: larger touch targets in the toolbar */
+  .tablet .tool {
+    width: 44px;
+    height: 44px;
   }
 
   .tool:hover {

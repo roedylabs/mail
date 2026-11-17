@@ -1,5 +1,5 @@
 /**
- * State module `ui`: breakpoint, sidebar, open menu or
+ * State module `ui`: breakpoint and device layout, sidebar, open menu or
  * sheet, splash screen, sync pill, delayed loading indicators (skeletons),
  * toasts with delayed execution (`#lib/undo.ts`), tooltip,
  * command palette, keyboard shortcuts and confirmation.
@@ -16,6 +16,21 @@ import { devLog } from '#lib/state/devlog.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { isDarkMode } from '#lib/theme.ts';
 import { Toasts, UNDO_MS, type Toast } from '#lib/undo.ts';
+
+/**
+ * Layout of the app: `mobile` below `MOBILE_BP`; otherwise the desktop
+ * layout, on a tablet (coarse primary pointer) split into `landscape` and
+ * `portrait`. A touchscreen laptop with a mouse reports a fine pointer and
+ * stays `desktop`.
+ */
+export type LayoutMode = 'mobile' | 'desktop' | 'landscape' | 'portrait';
+
+/** Layout for a window `width`, a coarse primary pointer and portrait orientation. */
+export function layoutOf(width: number, coarse: boolean, portrait: boolean): LayoutMode {
+  if (width < MOBILE_BP) return 'mobile';
+  if (!coarse) return 'desktop';
+  return portrait ? 'portrait' : 'landscape';
+}
 
 /** Splash screen: visible, fading out, gone. */
 export type SplashState = 'on' | 'out' | null;
@@ -113,11 +128,15 @@ export class Ui {
   /** Dark theme from `mode` and the operating system (shell, account menu, theme button of the guest pages). */
   dark = $derived(isDarkMode(prefs.values.mode, this.systemDark.current));
   private coarse = new MediaQuery('(pointer: coarse)');
-  /**
-   * Swipe gestures of the list and dragging dialogs down: on mobile and tablet,
-   * the latter detected by the coarse primary pointer (touch) without the mobile layout.
-   */
-  swipeOn = $derived(this.isMobile || this.coarse.current);
+  private portraitQuery = new MediaQuery('(orientation: portrait)');
+  /** Layout from width, primary pointer and orientation (`layoutOf`). */
+  layout = $derived(layoutOf(this.width, this.coarse.current, this.portraitQuery.current));
+  /** Tablet: desktop layout on a coarse primary pointer (touch), in landscape or portrait. */
+  isTablet = $derived(this.layout === 'landscape' || this.layout === 'portrait');
+  /** Tablet in portrait: narrow sidebar, "Sidebar" opens the drawer (`drawer`) or collapses the settings navigation. */
+  isPortrait = $derived(this.layout === 'portrait');
+  /** Swipe gestures of the list and dragging dialogs down: on mobile and tablet. */
+  swipeOn = $derived(this.isMobile || this.isTablet);
 
   menu = $state<MenuKey | null>(null);
   /**
@@ -148,8 +167,14 @@ export class Ui {
    * every other address shows the page.
    */
   panelList = $state<string | null>(null);
-  /** Sidebar collapsed; collapsed at start below `NARROW`. */
-  collapsed = $state(typeof window !== 'undefined' && window.innerWidth < NARROW);
+  /** Sidebar on the desktop collapsed; collapsed at start below `NARROW`. */
+  #deskCollapsed = $state(typeof window !== 'undefined' && window.innerWidth < NARROW);
+  /** Sidebar on a tablet in landscape collapsed; expanded at start. */
+  #tabletCollapsed = $state(false);
+  /** Drawer of the sidebar open (tablet in portrait, mailbox only; the layout closes it elsewhere). */
+  drawer = $state(false);
+  /** Settings navigation collapsed on a tablet in portrait; expanded at start. */
+  panelCollapsed = $state(false);
   splash = $state<SplashState>('on');
   syncing = $state(false);
 
@@ -250,6 +275,7 @@ export class Ui {
   /** Discards the session state (sign-out): menus, palette, dialogs, toast, closed banners. */
   reset(): void {
     this.menu = null;
+    this.drawer = false;
     this.keepMenuAt = null;
     this.pick = null;
     this.pageDialog = null;
@@ -277,8 +303,35 @@ export class Ui {
     return typeof navigation?.canGoBack === 'boolean' ? navigation.canGoBack : this.navigated;
   }
 
-  toggleSidebar(): void {
-    this.collapsed = !this.collapsed;
+  /**
+   * Sidebar collapsed (82 instead of 270 px): in portrait always, in landscape
+   * and on the desktop each with its own state. Setting it in portrait changes
+   * the tablet's state (landscape), as the appearance setting does.
+   */
+  get collapsed(): boolean {
+    if (this.layout === 'portrait') return true;
+    return this.layout === 'landscape' ? this.#tabletCollapsed : this.#deskCollapsed;
+  }
+
+  set collapsed(value: boolean) {
+    if (this.isTablet) this.#tabletCollapsed = value;
+    else this.#deskCollapsed = value;
+  }
+
+  /** Settings navigation collapsed: in portrait its own state, otherwise like the sidebar. */
+  get navCollapsed(): boolean {
+    return this.isPortrait ? this.panelCollapsed : this.collapsed;
+  }
+
+  /**
+   * "Sidebar" (button, `[` and command palette): collapses or expands the
+   * sidebar; in portrait it opens or closes the drawer in the mailbox (`main`)
+   * and collapses or expands the settings navigation elsewhere.
+   */
+  toggleSidebar(main = true): void {
+    if (!this.isPortrait) this.collapsed = !this.collapsed;
+    else if (main) this.drawer = !this.drawer;
+    else this.panelCollapsed = !this.panelCollapsed;
   }
 
   /** Fades out the splash screen as soon as session and data are there (without artificial waiting). */

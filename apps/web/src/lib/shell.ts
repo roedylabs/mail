@@ -28,6 +28,10 @@ export interface FilterButton {
 
 export interface HeaderValues {
   isMobile: boolean;
+  /** Tablet (desktop layout on touch): 44 instead of 40 px buttons in the toolbar. */
+  isTablet?: boolean;
+  /** Sidebar (or the drawer, or the settings navigation) expanded: `aria-expanded` of the "Sidebar" button. */
+  sbExpanded?: boolean;
   appName: string;
   logo: LogoValues;
   sbToggleOn: boolean;

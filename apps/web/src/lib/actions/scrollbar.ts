@@ -470,15 +470,12 @@ export class OverlayScrollbar {
   }
 }
 
-/**
- * Profile of the app: no bar in the mobile layout, otherwise desktop; the tablet
- * profile (`tab`) follows once the app detects tablets.
- */
+/** Profile of the app: no bar in the mobile layout, the tablet profile on a tablet (`ui.isTablet`), otherwise desktop. */
 export function scrollbarProfile(): ScrollbarProfile {
-  return ui.isMobile ? 'mob' : 'desk';
+  return ui.isMobile ? 'mob' : ui.isTablet ? 'tab' : 'desk';
 }
 
-/** `{@attach scrollbar}` on the scroll area; switching between mobile and desktop rebuilds the bar. */
+/** `{@attach scrollbar}` on the scroll area; switching between mobile, tablet and desktop rebuilds the bar. */
 export const scrollbar: Attachment<HTMLElement> = (node) => {
   const profile = scrollbarProfile();
   const bar = untrack(() => new OverlayScrollbar(node, { profile: () => profile, motion: () => prefs.motion }));
