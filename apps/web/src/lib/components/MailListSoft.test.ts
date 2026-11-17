@@ -193,6 +193,8 @@ describe('message list (soft)', () => {
     const heads = view.getAllByRole('heading', { level: 2 });
     expect(heads.map((h) => h.textContent)).toEqual(['Today', 'Yesterday']);
     expect(heads.map((h) => h.nextElementSibling?.textContent)).toEqual(['2', '1']);
+    // Only the first head keeps the full space above it; further heads follow the previous group's end.
+    expect(heads.map((h) => h.parentElement?.classList.contains('first'))).toEqual([true, false]);
     const [first, second, third] = rows();
 
     const r1 = within(first!);
