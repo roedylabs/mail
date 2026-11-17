@@ -1426,6 +1426,24 @@ describe('Reopening', () => {
     expect(sent(calls).slice(-2)).toEqual(['PUT admin/servers/policy', 'GET admin/servers/policy']);
   });
 
+  it('a toggle queued before signing out is not sent with a later session', async () => {
+    let done: (reply: { body: { allow_custom_servers: boolean } }) => void = () => {};
+    const { p, calls } = await loaded({
+      'PUT admin/servers/policy': [
+        () => new Promise((resolve) => (done = resolve)),
+        { body: { allow_custom_servers: false } },
+      ],
+    });
+    p.toggleOwn();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'PUT admin/servers/policy')).toHaveLength(1);
+    p.toggleOwn();
+    forgetRegistered();
+    done({ body: { allow_custom_servers: true } });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls).filter((c) => c === 'PUT admin/servers/policy')).toHaveLength(1);
+  });
+
   it('signing out discards list and policy, also of a page left afterwards', async () => {
     const { p } = await loaded();
     p.dispose();

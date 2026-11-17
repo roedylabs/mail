@@ -175,7 +175,10 @@ export const keptServers = new Kept<KeptServers>();
 
 /** Toggles of the policy of every page, one after the other: a load of a reopened page also asks only after them. */
 let policyWrites: Promise<unknown> = Promise.resolve();
+/** Counts sign-outs: a toggle queued before one is not sent any more (it would go out with the next session). */
+let policyEpoch = 0;
 onForget(() => {
+  policyEpoch++;
   policyWrites = Promise.resolve();
 });
 
@@ -460,14 +463,16 @@ export class ServersPage {
     const on = !this.allowOwn;
     this.allowOwn = on;
     const seq = ++this.#policySeq;
+    const epoch = policyEpoch;
     ui.toasts.show(on ? m.server_own_allowed() : m.server_own_blocked());
     // Only once switched on does the CSP allow more; already before the response in case of an immediate navigation.
     if (on) csp.stale = true;
     // One after the other so that the last chosen state also arrives last.
     policyWrites = policyWrites
       .catch(() => {})
-      .then(() => api('PUT', 'admin/servers/policy', { allow_custom_servers: on }))
-      .then(() => {
+      .then(async () => {
+        if (epoch !== policyEpoch) return;
+        await api('PUT', 'admin/servers/policy', { allow_custom_servers: on });
         this.#ownKnown = on;
       })
       .catch((error: unknown) => {
