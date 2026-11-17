@@ -132,7 +132,16 @@ describe('licenseValues', () => {
     const { lic, ctx } = values({ seg: 'server', exp: 'server:ring@0.17.14' });
     const [axum, ring] = lic.rows;
     expect(axum).toMatchObject({ on: false, exp: 'false', hasUrl: true, url: 'https://github.com/tokio-rs/axum' });
-    expect(ring).toMatchObject({ on: true, exp: 'true', hasUrl: false, url: '', site: 'Project page', noText: false });
+    expect(ring).toMatchObject({
+      on: true,
+      exp: 'true',
+      hasUrl: false,
+      url: '',
+      site: 'Project page',
+      exprLabel: 'License:',
+      noText: false,
+    });
+    expect(ring!.lic).toBe('Apache-2.0 AND ISC');
     expect(ring!.texts).toEqual([
       { t: 'Apache License 2.0 …', label: 'License text of ring (1 of 2)' },
       { t: 'MIT License …', label: 'License text of ring (2 of 2)' },

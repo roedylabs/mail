@@ -149,12 +149,14 @@ export interface LicenseRow {
   key: string;
   name: string;
   version: string;
-  /** SPDX expression; the component shortens it with an ellipsis. */
+  /** SPDX expression; the tag shortens it with an ellipsis, the expanded row shows it in full. */
   lic: string;
   /** Project page, only `http(s)`; otherwise empty and `hasUrl` false. */
   url: string;
   hasUrl: boolean;
   site: string;
+  /** "License:" before the full SPDX expression in the expanded row. */
+  exprLabel: string;
   on: boolean;
   exp: 'true' | 'false';
   toggle: () => void;
@@ -249,6 +251,7 @@ export function licenseValues(input: LicenseInput, ctx: LicenseContext): License
         url: href ?? '',
         hasUrl: href !== null,
         site: m.lic_site(),
+        exprLabel: m.lic_expr(),
         on,
         exp: on ? 'true' : 'false',
         toggle: () => ctx.setExp(on ? null : key),
