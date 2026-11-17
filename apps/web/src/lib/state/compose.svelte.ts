@@ -1069,7 +1069,7 @@ export class Compose {
       this.#schedule(draft.session);
     }
     this.#set(draft);
-    this.#loadIdentities();
+    this.loadIdentities();
     // Forwarded attachments: limit for the sum (sending); if they lie in another account, they move.
     if (draft.atts.length) this.#sync(draft.session);
     return true;
@@ -1214,7 +1214,7 @@ export class Compose {
       this.#parked.set(parked.key, draft.session);
     }
     this.#set(draft);
-    this.#loadIdentities();
+    this.loadIdentities();
     // Limit for the sum (sending), e.g. for a draft from another program.
     if (draft.atts.length) void this.#limitsOf(account);
     return true;
@@ -2717,11 +2717,20 @@ export class Compose {
     this.#ids = { ...this.#ids, [account]: list };
   }
 
-  /** Loads the identities of all accounts; the next opening retries failed ones. */
-  #loadIdentities(): void {
-    for (const a of accounts.list ?? []) {
-      const state = this.#ids[a.id];
-      if (state === undefined || state === 'error') void this.#identities(a.id).catch(() => {});
+  /** Loaded identities of an account (title of the account switch); `null` while loading or after an error. */
+  identitiesOf(account: string): Identity[] | null {
+    const state = this.#ids[account];
+    return Array.isArray(state) ? state : null;
+  }
+
+  /**
+   * Loads the identities of the accounts (all without `ids`); the next call retries failed ones.
+   * The sidebar calls it at startup, compose on every opening.
+   */
+  loadIdentities(ids?: readonly string[]): void {
+    for (const id of ids ?? (accounts.list ?? []).map((a) => a.id)) {
+      const state = this.#ids[id];
+      if (state === undefined || state === 'error') void this.#identities(id).catch(() => {});
     }
   }
 

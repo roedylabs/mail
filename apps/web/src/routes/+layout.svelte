@@ -1199,6 +1199,15 @@
     });
   });
 
+  // Identities of the reachable accounts for the title of the account switch, silently: until then
+  // and after an error the part of the address before the @; the next page change tries again.
+  $effect(() => {
+    void path;
+    if (chrome !== 'main' || !inShell) return;
+    const ids = (accounts.list ?? []).filter(isReachable).map((a) => a.id);
+    untrack(() => compose.loadIdentities(ids));
+  });
+
   /** Loading of the tags whose error a toast already reports: one per attempt, not per page change. */
   let tagsLoad: Promise<void> | null = null;
 
@@ -1366,7 +1375,15 @@
   const accountCount = $derived(accounts.list?.length ?? 0);
   /** Account switcher open (`swOpen`); without an account the switch leads to "Add account". */
   const swOpen = $derived(ui.menu === 'acctsw');
-  const acctSw = $derived(accountSwitch({ scope, count: accountCount, open: swOpen, wide: !ui.collapsed }));
+  const acctSw = $derived(
+    accountSwitch({
+      scope,
+      count: accountCount,
+      open: swOpen,
+      wide: !ui.collapsed,
+      identities: scope.account ? compose.identitiesOf(scope.account.id) : null,
+    }),
+  );
   const allT2 = $derived(tilesOf(accounts.list ?? [], 2));
   /** Mobile: "Switch account" above the "Mailboxes" sheet (`mSwOpen`). */
   let mSwOpen = $state(false);

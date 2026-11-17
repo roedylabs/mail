@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   accountSwitch,
+  accountTitle,
   inScope,
   mailboxCommands,
   mobileRows,
@@ -93,6 +94,30 @@ describe('mailboxes in sidebar and palette', () => {
     expect(none).toMatchObject({ email: 'Add email account', letter: '+', sub: '' });
     const reauth = sidebarScope([{ ...account('a1'), state: 'needs_reauth' }], null, null);
     expect(accountSwitch({ scope: reauth, count: 1, open: false, wide: true }).warn).toBe(true);
+  });
+
+  it('titles the account switch with the identity name, otherwise the part before the @', () => {
+    const mine = { name: 'Anna Becker', email: 'a1@example.com' };
+    const alias = { name: 'Info', email: 'info@example.com' };
+    // The identity with the account's address, otherwise the first one.
+    expect(accountTitle('a1@example.com', [alias, mine])).toBe('Anna Becker');
+    expect(accountTitle('a1@example.com', [alias])).toBe('Info');
+    // Without a name, without identities or before they are loaded: the part before the @.
+    expect(accountTitle('a1@example.com', [{ ...mine, name: '' }, alias])).toBe('a1');
+    expect(accountTitle('a1@example.com', [])).toBe('a1');
+    expect(accountTitle('a1@example.com', null)).toBe('a1');
+    // Without a part before the @ the address.
+    expect(accountTitle('@example.com', null)).toBe('@example.com');
+    const one = sidebarScope(LIST, 'a1', null);
+    const sw = accountSwitch({ scope: one, count: 2, open: false, wide: false, identities: [alias, mine] });
+    // Only the title follows the identity; address, subline and tooltip stay the address.
+    expect(sw).toMatchObject({ title: 'Anna Becker', email: 'a1@example.com', sub: 'a1@example.com' });
+    expect(sw.tip).toBe('a1@example.com');
+    // "All accounts" stays unchanged.
+    const all = sidebarScope(LIST, 'all', null);
+    expect(accountSwitch({ scope: all, count: 2, open: false, wide: true, identities: [mine] }).title).toBe(
+      'All accounts',
+    );
   });
 
   it('builds the account switcher popup with check mark, default and "All accounts"', () => {

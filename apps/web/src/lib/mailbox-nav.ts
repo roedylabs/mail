@@ -4,6 +4,7 @@
  * keys 1–6), its "Mailboxes" rows, the account switch, the account switcher
  * popup and the "Navigation" group of the palette.
  */
+import type { Identity } from '@roedy/jmap';
 import { m } from '#lib/paraglide/messages.js';
 import { ALL_ACCOUNTS, ROLE_IDS, type MailboxLocation, type RoleId } from '#lib/routes.ts';
 import {
@@ -110,6 +111,17 @@ export function mobileRows(active: RoleId | null, open: (role: RoleId) => void):
   return ROLE_IDS.map((role) => navItem(roleLabel(role), ROLES[role].icon, active === role, () => open(role)));
 }
 
+/**
+ * Title of the account switch: the name of the identity with the account's
+ * address, otherwise of the first identity; without a name (or before the
+ * identities are loaded) the part of the address before the @.
+ */
+export function accountTitle(email: string, identities: readonly Pick<Identity, 'name' | 'email'>[] | null): string {
+  const list = identities ?? [];
+  const identity = list.find((i) => i.email === email) ?? list[0];
+  return identity?.name || email.split('@')[0] || email;
+}
+
 /** Account switch of the sidebar and the sheet. */
 export function accountSwitch(input: {
   scope: SidebarScope;
@@ -117,6 +129,8 @@ export function accountSwitch(input: {
   count: number;
   open: boolean;
   wide: boolean;
+  /** Identities of the sidebar's account; `null` while not loaded. */
+  identities?: readonly Pick<Identity, 'name' | 'email'>[] | null;
 }): AccountSwitch {
   const { scope, open } = input;
   // Tooltip only when collapsed and with the popup closed.
@@ -160,8 +174,7 @@ export function accountSwitch(input: {
     open,
     sub: account.email,
     tip: tip(account.email),
-    // Without an identity name, the part before the @ stands in for it.
-    title: account.email.split('@')[0] ?? account.email,
+    title: accountTitle(account.email, input.identities ?? null),
     warn: account.state === 'needs_reauth',
     tileBg: bg,
     tileInk: ink,
