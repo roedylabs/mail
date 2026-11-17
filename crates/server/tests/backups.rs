@@ -212,7 +212,24 @@ impl Env {
         reply.json()
     }
 
+    /// Turns maintenance mode on or off like the switch on the page.
+    async fn maintenance(&self, on: bool) {
+        let reply = self
+            .as_admin(Method::PUT, "/admin/maintenance", Some(json!({ "on": on })))
+            .await;
+        assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    }
+
+    /// Restores in maintenance mode, which a restore requires.
     async fn restore(&self, id: &str) -> Reply {
+        if !self.state.maintenance.is_on() {
+            self.maintenance(true).await;
+        }
+        self.restore_as_is(id).await
+    }
+
+    /// Restores without touching maintenance mode.
+    async fn restore_as_is(&self, id: &str) -> Reply {
         self.as_admin(Method::POST, &format!("{BACKUPS}/{id}/restore"), None)
             .await
     }
@@ -628,6 +645,56 @@ async fn only_one_backup_runs_at_a_time() {
 }
 
 #[tokio::test]
+async fn restoring_needs_maintenance_mode() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    assert!(!env.state.maintenance.is_on());
+
+    let reply = env.restore_as_is(&id).await;
+
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.body);
+    assert_eq!(reply.error(), "maintenance_required");
+    // Nothing reset, no entry: like every refused restore.
+    untouched(&env).await;
+    assert_eq!(env.list().len(), 1);
+    assert!(!env.state.maintenance.is_on());
+}
+
+#[tokio::test]
+async fn restoring_is_refused_again_once_maintenance_mode_is_off() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    env.maintenance(true).await;
+    // Another administrator turns it off before the confirmation.
+    env.maintenance(false).await;
+
+    let reply = env.restore_as_is(&id).await;
+
+    assert_eq!(reply.status, StatusCode::CONFLICT, "{}", reply.body);
+    assert_eq!(reply.error(), "maintenance_required");
+    untouched(&env).await;
+}
+
+#[tokio::test]
+async fn restoring_works_in_maintenance_mode() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    env.maintenance(true).await;
+
+    let reply = env.restore_as_is(&id).await;
+
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(env.usernames().await, ["anna", "ben", "mia"]);
+    // Maintenance mode as in the backup: off.
+    assert!(!env.state.maintenance.is_on());
+    let audit: Vec<_> = env.audit().await.into_iter().map(|(a, _)| a).collect();
+    assert_eq!(audit, ["backups.create", "backups.restore"]);
+}
+
+#[tokio::test]
 async fn restoring_brings_back_the_data_and_what_the_server_keeps_in_memory() {
     let env = env().await;
     let mia = env.session("mia").await;
@@ -884,7 +951,7 @@ async fn restoring_needs_the_rights_until_the_copy() {
     })
     .await
     .unwrap();
-    let error = backups::restore(&env.state, &backup, admin.clone(), entry())
+    let error = backups::restore(&env.state, &backup, admin.clone(), entry(), 0)
         .await
         .unwrap_err();
     assert_eq!(error.downcast_ref(), Some(&Refused::Forbidden));
@@ -901,12 +968,72 @@ async fn restoring_needs_the_rights_until_the_copy() {
     })
     .await
     .unwrap();
-    let error = backups::restore(&env.state, &backup, admin, entry())
+    let error = backups::restore(&env.state, &backup, admin, entry(), 0)
         .await
         .unwrap_err();
     assert_eq!(error.downcast_ref(), Some(&Refused::Unauthorized));
     // Nothing reset: Lena still exists.
     assert!(env.usernames().await.contains(&"lena".to_owned()));
+}
+
+/// The handler checks maintenance mode before the preparation, the restore
+/// again right before the copy: turned off in between, nothing is reset, even
+/// if it is on again by then (people could have changed data meanwhile).
+#[tokio::test]
+async fn restoring_needs_maintenance_mode_until_the_copy() {
+    let env = env().await;
+    env.create().await;
+    let backup = env.list().remove(0);
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    let anna = db::call(&env.state.db, |conn| {
+        Ok(conn.query_row(
+            "SELECT u.id, s.id FROM users AS u JOIN sessions AS s ON s.user_id = u.id \
+             WHERE u.username = 'anna'",
+            [],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )?)
+    })
+    .await
+    .unwrap();
+    let admin = AuthUser {
+        id: anna.0,
+        username: "anna".into(),
+        email: "anna@example.com".into(),
+        display_name: "Anna Becker".into(),
+        role: Role::Admin,
+        session_id: anna.1,
+    };
+    let restore = |period| {
+        backups::restore(
+            &env.state,
+            &backup,
+            admin.clone(),
+            Entry::new(Category::System, "backups.restore"),
+            period,
+        )
+    };
+
+    // Off.
+    env.maintenance(true).await;
+    let period = env.state.maintenance.period().unwrap();
+    env.maintenance(false).await;
+    let error = restore(period).await.unwrap_err();
+    assert_eq!(error.downcast_ref(), Some(&Refused::Maintenance));
+    untouched(&env).await;
+
+    // Off and on again.
+    env.maintenance(true).await;
+    let period = env.state.maintenance.period().unwrap();
+    env.maintenance(false).await;
+    env.maintenance(true).await;
+    let error = restore(period).await.unwrap_err();
+    assert_eq!(error.downcast_ref(), Some(&Refused::Maintenance));
+    untouched(&env).await;
+
+    // On throughout: restored.
+    let period = env.state.maintenance.period().unwrap();
+    restore(period).await.unwrap();
+    assert_eq!(env.usernames().await, ["anna", "ben", "mia"]);
 }
 
 #[tokio::test]
@@ -915,6 +1042,7 @@ async fn an_admin_unknown_to_the_backup_loses_the_session() {
     let id = env.create().await["id"].as_str().unwrap().to_owned();
     env.add_user("lena", "Lena Newman", Role::Admin).await;
     let lena = env.session("lena").await;
+    env.maintenance(true).await;
 
     let reply = env
         .request(
@@ -1210,6 +1338,7 @@ async fn restoring_keeps_the_audit_log_since_the_backup() {
     })
     .await
     .unwrap();
+    env.maintenance(true).await;
     let before = env.audit_rows().await;
     for action in ["backups.create", "backups.download", "audit.export"] {
         assert!(before.iter().any(|row| row.0 == action), "{action}");

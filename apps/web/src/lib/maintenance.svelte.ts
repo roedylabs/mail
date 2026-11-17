@@ -18,9 +18,15 @@
  * the offline text; `backup_running` shows the running button there without
  * a toast and checks again after `BK_RUNNING_WAIT`. Restore and delete report
  * a text per reason (`backup_running`, `backup_invalid`, `backup_newer`,
- * `backup_older`, `backup_other_key`), otherwise the generic one. After a restore everything
- * is different: configuration, account, settings and mail accounts reload,
- * and without a session the layout shows the sign-in.
+ * `backup_older`, `backup_other_key`, `maintenance_required`), otherwise the
+ * generic one. After a restore everything is different: configuration,
+ * account, settings and mail accounts reload, and without a session the
+ * layout shows the sign-in.
+ *
+ * Restoring only works in maintenance mode: until then "Restore" is locked
+ * and a notice above the list offers to turn it on. If the server answers
+ * `maintenance_required` (turned off elsewhere in the meantime), the switch
+ * follows the server.
  */
 import { SvelteSet } from 'svelte/reactivity';
 import { api, API_BASE, ApiError, isApiError, retryAfter } from '#lib/api.ts';
@@ -138,6 +144,7 @@ const BK_ERRORS: readonly [number, string, () => string][] = [
   [409, 'backup_newer', m.maintenance_bk_newer],
   [422, 'backup_older', m.maintenance_bk_older],
   [409, 'backup_other_key', m.maintenance_bk_other_key],
+  [409, 'maintenance_required', m.maintenance_bk_maint_required],
 ];
 
 /** Text of the error toast for restore and delete. */
@@ -229,6 +236,10 @@ export class MaintenancePage {
   #viewGen = 0;
   #disposed = false;
   #switching = false;
+  /** Counts adopted states of maintenance mode: an older observation does not overwrite a newer one. */
+  #modeGen = 0;
+  /** Last adopted state of maintenance mode. */
+  #modeOn = false;
   #waiting: ReturnType<typeof setTimeout> | undefined;
 
   #modeSaver = new Saver<MaintenanceMode>((body) => this.#sendMode(body));
@@ -285,19 +296,23 @@ export class MaintenancePage {
 
   /** Saved state: the notice bar follows immediately. */
   #adoptMode(mode: MaintenanceMode): void {
+    this.#modeGen++;
+    this.#modeOn = mode.on;
     if (this.#modeSaver.pending.on === undefined) this.on = mode.on;
     session.setMaintenance(mode);
   }
 
   async #sendMode(body: Partial<MaintenanceMode>): Promise<void> {
     const on = body.on;
+    const gen = this.#modeGen;
     try {
       this.#adoptMode(await api<MaintenanceMode>('PUT', MODE, body));
       if (on === true) ui.toasts.show(m.maintenance_on_done());
       else if (on === false) ui.toasts.show(m.maintenance_off_done());
     } catch (error) {
       checkAccess(error);
-      if (on !== undefined) this.on = !on;
+      // Back to the previous state, or to one adopted meanwhile (e.g. a restore's `maintenance_required`).
+      if (on !== undefined) this.on = gen === this.#modeGen ? !on : this.#modeOn;
       // The field keeps showing the text; just do not resend an invalid one, it would otherwise break the switch.
       if (body.message !== undefined && !isApiError(error, 422)) this.#modeSaver.retain({ message: body.message });
       ui.toasts.error(failText(error));
@@ -436,8 +451,9 @@ export class MaintenancePage {
     );
   }
 
-  /** "Restore": always with confirmation and word, even if confirmations are turned off. */
+  /** "Restore": always with confirmation and word, even if confirmations are turned off; only in maintenance mode. */
   restore(id: string, title: string): void {
+    if (!this.on) return;
     ui.ask({
       force: true,
       title: m.maintenance_bk_restore_title(),
@@ -449,7 +465,17 @@ export class MaintenancePage {
       word: m.maintenance_bk_restore_word(),
       run: () =>
         void this.#run('restore', async () => {
-          await api('POST', `${BACKUPS}/${id}/restore`);
+          const gen = this.#modeGen;
+          try {
+            await api('POST', `${BACKUPS}/${id}/restore`);
+          } catch (error) {
+            // Turned off elsewhere in the meantime: the page shows the server's state,
+            // unless a newer one arrived while the restore was running.
+            if (isApiError(error, 409, 'maintenance_required') && gen === this.#modeGen) {
+              this.#adoptMode({ on: false, message: null });
+            }
+            throw error;
+          }
           ui.toasts.show(m.maintenance_bk_restored());
           await this.#reloadAll();
         }),
@@ -544,6 +570,8 @@ export interface BkRow {
   /** Download link. */
   href: string;
   onDownload: () => void;
+  /** "Restore" locked (outside maintenance mode) with the tooltip on the desktop. */
+  rs: { dis: boolean; tip: string | undefined };
   onRestore: () => void;
   onRemove: () => void;
 }
@@ -582,6 +610,10 @@ export interface MaintenanceValues {
   bkNow: () => void;
   bkRows: BkRow[];
   bkEmpty: boolean;
+  /** Notice above the list: maintenance mode off and at least one backup. */
+  bkMaint: boolean;
+  /** "Turn on maintenance mode" of the notice: the switch's confirmation. */
+  bkMaintOn: () => void;
   tgBkAuto: MtSwitch;
   bkEveryOpts: SegOption<BkEvery>[];
   bkKeepOpts: BkKeepOption[];
@@ -618,6 +650,7 @@ export function maintenanceValues(
   const storage = p.storage;
   const last = list.reduce((a, b) => Math.max(a, Date.parse(b.at)), 0);
   const logo = (storage?.assets ?? 0) > 0;
+  const rsDis = !p.on;
 
   return {
     skSet: p.status === 'loading' && p.loading.slow,
@@ -655,11 +688,16 @@ export function maintenanceValues(
         icon: b.auto ? 'ti-clock' : 'ti-hand-click',
         href: `${API_BASE}/${BACKUPS}/${b.id}/download`,
         onDownload: () => ui.toasts.show(m.maintenance_bk_download()),
+        rs: { dis: rsDis, tip: rsDis ? m.maintenance_bk_maint_tip() : undefined },
         onRestore: () => p.restore(b.id, title),
         onRemove: () => p.remove(b.id),
       };
     }),
     bkEmpty: list.length === 0,
+    bkMaint: !p.on && list.length > 0,
+    bkMaintOn: () => {
+      if (!p.on) p.toggle();
+    },
     tgBkAuto: { on: s.auto, onClick: () => p.setSchedule({ auto: !s.auto }) },
     bkEveryOpts: segOptions(
       BK_EVERY_OPTS,

@@ -4,7 +4,8 @@
 //! - `POST admin/backups`: "Back up now".
 //! - `PUT admin/backups/schedule`: changes the given fields.
 //! - `GET admin/backups/:id/download`: the file.
-//! - `POST admin/backups/:id/restore`: resets all data. The page asks for
+//! - `POST admin/backups/:id/restore`: resets all data, only in maintenance
+//!   mode (otherwise 409 `maintenance_required`). The page asks for
 //!   confirmation (`Sicherung wiederherstellen?`).
 //! - `DELETE admin/backups/:id`.
 //!
@@ -241,6 +242,10 @@ fn chunks(file: File) -> impl Stream<Item = io::Result<Bytes>> {
     })
 }
 
+fn maintenance_required() -> ApiError {
+    ApiError::rejected(StatusCode::CONFLICT, "maintenance_required")
+}
+
 fn refused(error: anyhow::Error) -> ApiError {
     match error.downcast_ref::<Refused>() {
         Some(Refused::Invalid) => {
@@ -253,6 +258,7 @@ fn refused(error: anyhow::Error) -> ApiError {
         Some(Refused::OtherKey) => ApiError::rejected(StatusCode::CONFLICT, "backup_other_key"),
         Some(Refused::Unauthorized) => ApiError::Unauthorized,
         Some(Refused::Forbidden) => ApiError::Forbidden,
+        Some(Refused::Maintenance) => maintenance_required(),
         None => error.into(),
     }
 }
@@ -260,6 +266,12 @@ fn refused(error: anyhow::Error) -> ApiError {
 /// Resets all data. Runs to the end, even if the request is aborted before.
 /// The own session stays if the user exists in the backup's state; otherwise
 /// the next request leads to the sign-in.
+///
+/// Only in maintenance mode, so that nobody changes data while it is being
+/// reset; otherwise 409 `maintenance_required` (the page shows the switch as
+/// off), also if it is turned off before the copy, even if on again by then
+/// ([`backups::restore`] checks again). Like every refused restore, this changes nothing and writes no audit
+/// entry.
 async fn restore(
     State(state): State<AppState>,
     AdminUser(user): AdminUser,
@@ -268,12 +280,16 @@ async fn restore(
 ) -> Result<Json<View>, ApiError> {
     let guard = state.backups.try_begin().ok_or_else(running)?;
     let backup = find(&state, id).await?;
+    let maintenance = state
+        .maintenance
+        .period()
+        .ok_or_else(maintenance_required)?;
     let entry = audit_entry(Category::System, "backups.restore", &user, ip)
         .details(json!({ "at": backup.at.to_string() }));
     let worker = state.clone();
     tokio::spawn(async move {
         let _running = guard;
-        backups::restore(&worker, &backup, user, entry).await
+        backups::restore(&worker, &backup, user, entry, maintenance).await
     })
     .await
     .map_err(anyhow::Error::from)?

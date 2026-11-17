@@ -50,6 +50,10 @@ pub enum Refused {
     Unauthorized,
     /// The administrator was demoted during preparation.
     Forbidden,
+    /// Maintenance mode was turned off during preparation, even if on again
+    /// since: people could have changed data that the copy would silently
+    /// discard.
+    Maintenance,
 }
 
 impl fmt::Display for Refused {
@@ -61,6 +65,7 @@ impl fmt::Display for Refused {
             Self::OtherKey => "backup with a different instance key",
             Self::Unauthorized => "session ended",
             Self::Forbidden => "no longer an administrator",
+            Self::Maintenance => "maintenance mode off",
         })
     }
 }
@@ -69,12 +74,15 @@ impl Error for Refused {}
 
 /// Resets all data to the state of `backup`. The session of `admin` stays if
 /// its user is active there; all others end. `entry` is the audit log entry.
-/// The caller holds the lock from [`super::Backups::try_begin`].
+/// `maintenance` is the period of maintenance mode when the request came in
+/// (`Maintenance::period`); it must still be the same at the copy. The caller
+/// holds the lock from [`super::Backups::try_begin`].
 pub async fn restore(
     state: &AppState,
     backup: &Backup,
     admin: AuthUser,
     entry: Entry,
+    maintenance: u64,
 ) -> anyhow::Result<()> {
     let backups = state.backups.clone();
     let path = backups.path(backup);
@@ -95,6 +103,13 @@ pub async fn restore(
             Err(ApiError::Forbidden) => return Err(Refused::Forbidden.into()),
             Err(_) => return Err(Refused::Unauthorized.into()),
         }
+        // Likewise maintenance mode, without a break since the request:
+        // switching it runs on this thread too, so it stays on until the copy
+        // is done.
+        anyhow::ensure!(
+            worker.maintenance.period() == Some(maintenance),
+            Refused::Maintenance
+        );
         let kept = sessions::stored(live, &admin.session_id)?;
         let version = instance::load_client_cache_version(live)?;
         let invitations = invitations(live)?;

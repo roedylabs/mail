@@ -210,7 +210,7 @@ Every switch is recorded in the audit log and goes as an event to all active adm
 
 Procedure, location, key and manual restore are described in [Operations › Backup and restore](../ops.md#backup-and-restore). Here is what is missing there.
 
-**Usage:** "Back up now" creates a manual backup. The list shows time, size and type ("Automatic" or "Manual") with "Download", "Restore" (confirmation by typing the word `RESTORE`, translated in other interface languages) and "Delete" (with "Undo" in the toast). The schedule has "Back up automatically", "Frequency" (daily, weekly) and "Keep for" (7, 30 or 90 days).
+**Usage:** "Back up now" creates a manual backup. The list shows time, size and type ("Automatic" or "Manual") with "Download", "Restore" (confirmation by typing the word `RESTORE`, translated in other interface languages) and "Delete" (with "Undo" in the toast). "Restore" only works in maintenance mode: until then it is locked (on the desktop with the tooltip "Only possible in maintenance mode"), and above the list the notice "Restore only in maintenance mode" offers "Turn on maintenance mode" with the usual confirmation. The schedule has "Back up automatically", "Frequency" (daily, weekly) and "Keep for" (7, 30 or 90 days).
 
 **Schedule:** There is no fixed time of day. The interval of 24 hours or 7 days counts from the last scheduled backup; without a previous one, a backup is due right away. A failed attempt counts too.
 
@@ -300,6 +300,7 @@ Details about GitHub only appear at level `debug`: `ROEDY_LOG=info,roedy_mail_se
 | Start fails: `The database schema (version …) is newer than this program version` | An older version on a newer database | Start the newer version; going back only with a backup from before, by hand as in [Operations](../ops.md#backup-and-restore) |
 | Button "Running …" | A backup or restore is already running (`backup_running`) | Wait; the page checks again by itself |
 | "Back up now" reports the general error, entry "Backup failed" | Log `internal error`, for scheduled backups `backup failed`: no space or no permissions in the `backups` directory | Free up space, check owner `65532` |
+| "Maintenance mode is no longer on. …" after "Restore" | 409 `maintenance_required`: maintenance mode was turned off in the meantime, for example by another administrator, at the latest before the backup was copied. Nothing was changed; the page shows the switch as off again. | Turn on maintenance mode and restore again |
 | "Restore" reports the general error | The page does not distinguish. In the browser's network tab: 422 `backup_invalid` (damaged or changed; log `backup not readable`, `backup database not readable`, `backup not authentic` or `backup database larger than the limit`), 422 `backup_older` (format 1 without HMAC), 409 `backup_newer` (from a newer program version), 409 `backup_other_key` (different instance key), 500 (for example no space). In each of these cases nothing was changed. | Use another backup, update the program, use the matching key or free up space |
 | Copied backup missing from the list | Name changed, or not a regular file (link) | Use the original name, a file instead of a link |
 | Backups do not load, Storage shows none | Log `backups not readable`: permissions on the directory | Check owner `65532` |
