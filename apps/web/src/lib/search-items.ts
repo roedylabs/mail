@@ -470,14 +470,15 @@ export function searchCandidates(input: SearchItemsInput): Candidate[] {
  * Notifications of the bell: title and icon from the event catalogue, the
  * text as the path, the time on the right, unread ones bold. The backend lists
  * team and system notifications only for administrators; topics turned off in
- * the app stay findable. A hit leads to the target without marking it as read
- * and, unlike the bell, opens the page of the administration without
- * expanding a user.
+ * the app stay findable. A hit marks the notification as read like opening it
+ * in the bell (`read`), then leads to the target; unlike the bell it opens the
+ * page of the administration without expanding a user.
  */
 export function notifItems(
   list: readonly AppNotification[],
   time: TimeContext,
   go: (path: string) => void,
+  read: (id: string) => void,
 ): Candidate[] {
   return list.map((n) => {
     const at = Date.parse(n.created_at);
@@ -493,6 +494,7 @@ export function notifItems(
       t: at,
       extra: n.text,
       run: () => {
+        read(n.id);
         if (route) go(route.path);
       },
     };

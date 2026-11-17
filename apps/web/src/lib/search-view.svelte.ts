@@ -126,7 +126,9 @@ export class SearchView {
   /** Notifications of the bell; apart from `candidates` because the time on the right follows the clock. */
   readonly notifs = $derived.by(() => {
     const actions = search.actions;
-    return actions ? notifItems(notifications.list ?? [], this.time, actions.go) : [];
+    return actions
+      ? notifItems(notifications.list ?? [], this.time, actions.go, (id) => void notifications.read(id))
+      : [];
   });
 
   /** Filters, category of the view and operators in the search text combined. */

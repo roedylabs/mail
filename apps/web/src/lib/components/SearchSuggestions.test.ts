@@ -21,6 +21,7 @@ const local = vi.hoisted(() => ({ candidates: [] as Candidate[] }));
 const bell = vi.hoisted(() => ({
   list: [] as AppNotification[] | null,
   load: vi.fn(() => Promise.resolve()),
+  read: vi.fn(() => Promise.resolve()),
 }));
 vi.mock('#lib/state/notifications.svelte.ts', () => ({ notifications: bell }));
 
@@ -143,6 +144,7 @@ beforeEach(() => {
   local.candidates = [];
   bell.list = [];
   bell.load.mockClear();
+  bell.read.mockClear();
   answer([]);
   input = document.createElement('input');
   document.body.append(input);
@@ -423,6 +425,8 @@ describe('search suggestions', () => {
     expect(signIn.querySelector<HTMLElement>('.label')?.style.fontWeight).toBe('700');
 
     await fireEvent.click(signIn);
+    // Marked as read like a click in the bell, then the target.
+    expect(bell.read).toHaveBeenCalledExactlyOnceWith('n2');
     expect(go).toHaveBeenCalledWith('/account/security');
     expect(search.q).toBe('');
   });
@@ -435,6 +439,7 @@ describe('search suggestions', () => {
     const view = show();
     const group = await view.findByRole('group', { name: 'Notifications' });
     await fireEvent.click(within(group).getByRole('option'));
+    expect(bell.read).toHaveBeenCalledExactlyOnceWith('n1');
     expect(go).not.toHaveBeenCalled();
     expect(search.q).toBe('');
   });
