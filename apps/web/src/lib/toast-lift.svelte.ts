@@ -20,8 +20,8 @@ export const TOAST_GAP = 12;
 /**
  * Largest distance of the bar from the bottom edge of the window at which it
  * counts as "stuck to the bottom". The fixed layout puts it 16 px
- * below main + 24 px `bottom` = 40 px on the desktop, 10 px more on the tablet
- * (50 px), on mobile 8 px below the panel + 36 px padding + 12 px `bottom` =
+ * below main + 24 px `bottom` = 40 px on the desktop and on the tablet, on
+ * mobile 8 px below the panel + 36 px padding + 12 px `bottom` =
  * 56 px, in the vacation page with 16 px `bottom` 60 px. 120 px leaves room for
  * the bottom safe area of some devices (about 34 px) and rounding; if the bar
  * sits higher in the window with short content, the toast stays at its place.

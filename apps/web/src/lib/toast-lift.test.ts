@@ -49,8 +49,8 @@ describe('liftOf', () => {
     expect(BAR_STUCK_MAX).toBe(120);
     expect(liftOf({ top: 2000 - 120 - 54, bottom: 2000 - 120, height: 54 }, 2000)).toBe(120 + 54 + 12);
     expect(liftOf({ top: 2000 - 121 - 54, bottom: 2000 - 121, height: 54 }, 2000)).toBeNull();
-    // Tablet: 10 px more for safeB.
-    expect(liftOf({ top: 834 - 50 - 54, bottom: 834 - 50, height: 54 }, 834)).toBe(116);
+    // Tablet: as on the desktop, no extra space below the shell (bar 40 px above the window edge).
+    expect(liftOf({ top: 834 - 40 - 54, bottom: 834 - 40, height: 54 }, 834)).toBe(106);
   });
 });
 

@@ -1818,7 +1818,7 @@
     <div class="bare">{@render children()}</div>
     <div class="layer">{@render overlays()}</div>
   {:else if !ui.isMobile}
-    <div class="app" class:tablet>
+    <div class="app">
       {#if banners.length}<NoticeBar isMobile={false} {banners} />{/if}
       <Header
         {...header}
@@ -2064,11 +2064,6 @@
     flex: 1;
     min-height: 0;
     display: flex;
-  }
-
-  /* Tablet: room for the home indicator below the shell */
-  .app.tablet {
-    padding-bottom: 10px;
   }
 
   .body.tablet {
