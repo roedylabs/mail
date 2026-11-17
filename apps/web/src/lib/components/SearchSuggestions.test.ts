@@ -276,6 +276,17 @@ describe('search suggestions', () => {
     expect(within(view.getByRole('group', { name: 'Contacts' })).getAllByRole('option')).toHaveLength(5);
   });
 
+  it('a hit from the suggestions remembers no way back to the search', async () => {
+    const run = vi.fn();
+    local.candidates = [person(1, 'Anna Brown', run)];
+    search.q = 'anna';
+    const view = show();
+    await fireEvent.click((await view.findAllByRole('option'))[0]!);
+    expect(run).toHaveBeenCalledOnce();
+    search.navigating('/settings/general', true);
+    expect(search.ret).toBeNull();
+  });
+
   it('moves cyclically with the arrow keys and runs the marked row with Enter', async () => {
     const first = vi.fn();
     const second = vi.fn();

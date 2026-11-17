@@ -579,6 +579,182 @@ describe('Search', () => {
     expect(s.hits.map((h) => h.id)).toEqual(['k1-2', 'k2-1']);
   });
 
+  describe('return path to the search', () => {
+    const THREAD = '/mailbox/k1/inbox/t1';
+
+    it('a hit remembers text, filters, area and way back; its navigation becomes the target', () => {
+      s.open('inv', '/mailbox/k1/inbox');
+      s.set({ st: ['u'] });
+      s.scope = 'all';
+      s.expectReturn('results');
+      s.done();
+      expect([s.q, s.sf]).toEqual(['', SF0]);
+      s.navigating(THREAD, true);
+      expect(s.returnAt(THREAD)?.kind).toBe('results');
+      expect(s.returnAt('/mailbox/k1/inbox')).toBeNull();
+      s.arrived(THREAD);
+      s.scope = 'here';
+      expect(s.takeReturn(THREAD)).toBe(true);
+      expect([s.q, s.sf.st, s.scope, s.back, s.ret]).toEqual(['inv', ['u'], 'all', '/mailbox/k1/inbox', null]);
+    });
+
+    it('returning asks again at once; the parked hits are there immediately', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 1 },
+        { hits: [hit('k1', 'e2')], positions: 1, total: 1 },
+      ]);
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      s.expectReturn('search');
+      s.done();
+      sync(['k1']);
+      expect(s.hits).toEqual([]);
+      s.navigating(THREAD, true);
+      s.takeReturn(THREAD);
+      sync(['k1']);
+      expect(s.hits.map((h) => h.id)).toEqual(['e1']);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(page).toHaveBeenCalledTimes(2);
+      expect(s.hits.map((h) => h.id)).toEqual(['e2']);
+    });
+
+    it('the refresh after returning keeps the pages loaded before', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'f1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'f2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+      ]);
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      await s.more();
+      expect(s.hits.map((h) => h.id)).toEqual(['e1', 'e2']);
+      s.expectReturn('results');
+      s.done();
+      sync(['k1']);
+      s.navigating(THREAD, true);
+      s.takeReturn(THREAD);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(page.mock.calls.map((c) => c[2])).toEqual([0, 1, 0, 1]);
+      expect(s.hits.map((h) => h.id)).toEqual(['f1', 'f2']);
+    });
+
+    /** Two pages loaded, back from the opened hit: the refresh is scheduled. */
+    async function returned() {
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      await s.more();
+      s.expectReturn('results');
+      s.done();
+      sync(['k1']);
+      s.navigating(THREAD, true);
+      s.takeReturn(THREAD);
+      sync(['k1']);
+    }
+
+    it('loading more asked during the refresh follows it', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'f1')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'f2', '2026-11-01T09:00:00Z')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'f3', '2026-10-31T09:00:00Z')], positions: 1, total: 3 },
+      ]);
+      await returned();
+      // Asked during the refresh (sentinel visible): it follows the refresh instead of getting lost.
+      await s.more();
+      expect(s.loadingMore).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect([s.loadingMore, s.hits.map((h) => h.id)]).toEqual([false, ['f1', 'f2', 'f3']]);
+      expect(page.mock.calls.map((c) => c[2])).toEqual([0, 1, 0, 1, 2]);
+    });
+
+    it('the refresh skips a hit that a shifted position repeats', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'n1', '2026-11-03T09:00:00Z')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'n1', '2026-11-03T09:00:00Z')], positions: 1, total: 3 },
+      ]);
+      await returned();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(s.hits.map((h) => h.id)).toEqual(['n1']);
+    });
+
+    it('a refresh that fails on a later page keeps the hits loaded before and reports it', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'f1')], positions: 1, total: 2 },
+      ]);
+      const error = vi.spyOn(ui.toasts, 'error');
+      await returned();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(s.hits.map((h) => h.id)).toEqual(['e1', 'e2']);
+      expect(error).toHaveBeenCalledOnce();
+      error.mockRestore();
+    });
+
+    it('a discarded page of "load more" does not leave loading stuck', async () => {
+      let answer: (p: MailPage) => void = () => {};
+      pages.set('k1', [{ hits: [hit('k1', 'e1')], positions: 1, total: 2 }]);
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      page.mockImplementationOnce(() => new Promise<MailPage>((r) => (answer = r)));
+      const more = s.more();
+      expect(s.loadingMore).toBe(true);
+      s.mail = { ...s.mail! };
+      answer({ hits: [hit('k1', 'e2')], positions: 1, total: 2 });
+      await more;
+      expect(s.loadingMore).toBe(false);
+    });
+
+    it('none without a navigation in the same task (contact, action) or to a list', async () => {
+      s.expectReturn('results');
+      await vi.advanceTimersByTimeAsync(0);
+      s.navigating(THREAD, true);
+      expect(s.ret).toBeNull();
+      s.expectReturn('results');
+      s.navigating('/mailbox/k1/inbox', false);
+      expect(s.ret).toBeNull();
+    });
+
+    it('ends as soon as the user leaves the target: J/K, another page, back in the browser', () => {
+      for (const leave of [
+        (x: Search) => x.navigating('/mailbox/k1/inbox/t2', true),
+        (x: Search) => x.arrived('/settings/general'),
+      ]) {
+        s.expectReturn('results');
+        s.navigating(THREAD, true);
+        leave(s);
+        expect(s.ret).toBeNull();
+        expect(s.takeReturn(THREAD)).toBe(false);
+      }
+      // Staying at the target (also navigating to it again) keeps it.
+      s.expectReturn('search');
+      s.navigating(THREAD, true);
+      s.navigating(THREAD, true);
+      s.arrived(THREAD);
+      expect(s.returnAt(THREAD)?.kind).toBe('search');
+    });
+
+    it('applies only at its target and goes with sign-out', () => {
+      s.expectReturn('search');
+      s.navigating('/settings/general', true);
+      expect(s.takeReturn('/settings/appearance')).toBe(false);
+      expect(s.ret).toBeNull();
+      s.expectReturn('search');
+      s.navigating('/settings/general', true);
+      s.reset();
+      expect(s.ret).toBeNull();
+    });
+  });
+
   describe('without connection', () => {
     const mail = (id: string, subject: string) => ({
       id,
@@ -639,6 +815,52 @@ describe('Search', () => {
       await vi.advanceTimersByTimeAsync(0);
       expect(page).toHaveBeenCalledTimes(2);
     });
+
+    it('a "load more" waiting for a refresh survives a second refresh of the same query', async () => {
+      page.mockImplementation(() => Promise.reject(new NetworkError('gone')));
+      await find('inv');
+      page.mockImplementation((_a, _q, position) =>
+        Promise.resolve(
+          position === 0
+            ? { hits: [hit('k1', 'e9')], positions: 1, total: 2 }
+            : { hits: [hit('k1', 'e10', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        ),
+      );
+      local.resume();
+      void local.more();
+      local.resume();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(local.hits.map((h) => h.id)).toEqual(['e9', 'e10']);
+    });
+
+    for (const order of ['refresh first', 'load more first'] as const)
+      it(`a "load more" in flight when the hits are fetched again follows the refresh (${order})`, async () => {
+        let pageTwo: (p: MailPage) => void = () => {};
+        page.mockImplementation((account, _q, position) => {
+          // k2 without a connection: mixed hits from the server and from storage.
+          if (account === 'k2') return Promise.reject(new NetworkError('gone'));
+          if (position === 0) return Promise.resolve({ hits: [hit('k1', 'a1')], positions: 1, total: 2 });
+          return new Promise<MailPage>((r) => (pageTwo = r));
+        });
+        local.open('inv', null);
+        ids = ['k1', 'k2'];
+        local.sync();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(local.local).toBe(true);
+        void local.more();
+        expect(local.loadingMore).toBe(true);
+        const first = pageTwo;
+        local.resume();
+        const late = { hits: [hit('k1', 'a2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 };
+        if (order === 'load more first') first(late);
+        await vi.advanceTimersByTimeAsync(0);
+        if (order === 'refresh first') first(late);
+        // The retry after the refresh asks for the second page again.
+        pageTwo(late);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(local.loadingMore).toBe(false);
+        expect(local.hits.filter((h) => h.account === 'k1').map((h) => h.id)).toEqual(['a1', 'a2']);
+      });
 
     it('does not search in storage on other errors', async () => {
       page.mockImplementation(() => Promise.reject(new Error('500')));
