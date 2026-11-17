@@ -654,6 +654,36 @@ describe('swipeBack', () => {
     expect(back).toHaveBeenCalledTimes(2);
   });
 
+  it('frees the other gestures when the page goes while going back', async () => {
+    vi.useFakeTimers();
+    const first = page();
+    let shown = () => {};
+    first.back.mockImplementationOnce(() => new Promise<void>((done) => (shown = done)));
+    drag(first.el, 120);
+    vi.advanceTimersByTime(0);
+    expect(first.back).toHaveBeenCalledTimes(1);
+    first.off?.();
+    const second = page();
+    let shown2 = () => {};
+    second.back.mockImplementationOnce(() => new Promise<void>((done) => (shown2 = done)));
+    drag(second.el, 120);
+    vi.advanceTimersByTime(0);
+    expect(second.back).toHaveBeenCalledTimes(1);
+    // The late completion of the first page does not free the lock of the second one.
+    shown();
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    drag(second.el, 120);
+    vi.advanceTimersByTime(0);
+    expect(second.back).toHaveBeenCalledTimes(1);
+    shown2();
+    await vi.waitFor(() => expect(second.el.style.opacity).toBe(''));
+    drag(second.el, 120);
+    vi.advanceTimersByTime(0);
+    expect(second.back).toHaveBeenCalledTimes(2);
+  });
+
   it('goes back on a fling before the threshold', () => {
     vi.useFakeTimers();
     const { el, back } = page();

@@ -702,6 +702,12 @@ export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> 
   return (el) => {
     let resetTimer: ReturnType<typeof setTimeout> | undefined;
     let alive = true;
+    /** This page holds the lock of all gestures until `back` has settled (`animating`). */
+    let holding = false;
+    const release = () => {
+      if (holding) animating = false;
+      holding = false;
+    };
     const reset = () => {
       for (const k of BACK_STYLES) el.style[k] = '';
     };
@@ -774,7 +780,7 @@ export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> 
             }
             // The new view: from the left and smaller, the layer underneath fades out (`gPending`).
             const slideIn = () => {
-              animating = false;
+              release();
               reset();
               if (!alive) return;
               if (o.animations && typeof el.animate === 'function') {
@@ -795,6 +801,7 @@ export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> 
               if (!alive) return;
               // No new gesture until the new view is shown (navigation is asynchronous).
               animating = true;
+              holding = true;
               void o.back().then(tick).finally(slideIn);
             });
             return;
@@ -820,6 +827,8 @@ export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> 
     el.addEventListener('pointerdown', onDown);
     return () => {
       alive = false;
+      // Gone while going back: free the other gestures; a later completion changes nothing.
+      release();
       el.removeEventListener('pointerdown', onDown);
       clearTimeout(resetTimer);
       reset();
