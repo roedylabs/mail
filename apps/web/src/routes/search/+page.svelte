@@ -43,8 +43,13 @@
   const rp = $derived(view.rp);
 
   onMount(() => {
+    // Mobile: opening the search (tab, palette, contact, back from a hit) focuses its field after 30 ms, the keyboard opens.
+    const focusTimer = ui.isMobile ? setTimeout(() => field?.focus(), 30) : undefined;
     // Leaving the results closes them (`closeResultsState`): area, filters and overlay reset, the text stays.
-    return () => search.leave();
+    return () => {
+      clearTimeout(focusTimer);
+      search.leave();
+    };
   });
 
   /** Empty text (`rp.emptyText`): offline, "no results" only says something about the storage. */
