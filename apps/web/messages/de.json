@@ -44,6 +44,7 @@
   "lic_web": "Web-App",
   "lic_server": "Server",
   "lic_site": "Projektseite",
+  "lic_expr": "Lizenz:",
   "lic_text_label": "Lizenztext von {name}",
   "lic_text_label_of": "Lizenztext von {name} ({i} von {n})",
   "lic_no_text": "Das Paket enthält keinen eigenen Lizenztext.",

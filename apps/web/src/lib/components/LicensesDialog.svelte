@@ -129,6 +129,7 @@
       </button>
       {#if r.on}
         <div class="detail">
+          <div class="expr"><span class="expr-label">{r.exprLabel}</span> <span class="expr-value">{r.lic}</span></div>
           {#if r.hasUrl}
             <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- the package's project page -->
             <a class="site" href={r.url} target="_blank" rel="noopener noreferrer"
@@ -686,7 +687,31 @@
     padding: 0 10px 12px 12px;
   }
 
+  /* Full SPDX expression, not truncated; wraps. */
+  .expr {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: 6px;
+    font-size: 13.5px;
+    line-height: 1.5;
+  }
+
+  .m-list .expr {
+    font-size: 14px;
+  }
+
+  .expr-label {
+    color: var(--mfg);
+  }
+
+  .expr-value {
+    min-width: 0;
+    font-weight: 700;
+    overflow-wrap: anywhere;
+  }
+
   .site {
+    margin-top: 10px;
     display: inline-flex;
     align-items: center;
     gap: 6px;

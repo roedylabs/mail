@@ -158,8 +158,16 @@ describe('LicensesDialog', () => {
     const row = toggle.closest('.row')!;
     expect(row).toHaveClass('on');
     expect(view.getByRole('button', { name: /^net-core/ })).toHaveAttribute('aria-expanded', 'false');
-    // Long SPDX expression complete in the DOM, truncated only via CSS.
-    expect(row.querySelector('.tag')).toHaveTextContent('Apache-2.0 AND ISC AND MIT AND BSD-3-Clause AND Unicode-3.0');
+    // Long SPDX expression complete in the DOM, truncated only via CSS and without a tooltip.
+    const long = 'Apache-2.0 AND ISC AND MIT AND BSD-3-Clause AND Unicode-3.0';
+    expect(row.querySelector('.tag')).toHaveTextContent(long);
+    expect(row.querySelector('.tag')).not.toHaveAttribute('title');
+    // The expanded row shows it in full as the first line, before the license texts.
+    const expr = row.querySelector('.detail > .expr')!;
+    expect(row.querySelector('.detail')!.firstElementChild).toBe(expr);
+    expect(expr.textContent).toBe(`License: ${long}`);
+    expect(expr.querySelector('.expr-label')).toHaveTextContent('License:');
+    expect(expr.querySelector('.expr-value')).toHaveTextContent(long);
     expect(within(row as HTMLElement).queryByRole('link')).toBeNull();
     const texts = within(row as HTMLElement).getAllByRole('region');
     expect(
@@ -174,6 +182,9 @@ describe('LicensesDialog', () => {
   it('links the project page in a new tab', () => {
     const { view } = open({ exp: 'web:@example/font-variable@2.1.0' });
     const link = view.getByRole('link', { name: 'Project page' });
+    // "License: …" sits above the project page.
+    expect(link.previousElementSibling).toHaveClass('expr');
+    expect(link.previousElementSibling!.textContent).toBe('License: OFL-1.1');
     expect(link).toHaveAttribute('href', 'https://font.example.test/');
     expect(link).toHaveAttribute('target', '_blank');
     expect(link).toHaveAttribute('rel', 'noopener noreferrer');
@@ -301,7 +312,10 @@ describe('LicensesDialog mobile', () => {
 
   it('expands a row with project page and license text on mobile', () => {
     const { view } = open({ seg: 'server', exp: 'server:net-core@3.0.1' }, true);
-    expect(view.getByRole('button', { name: /^net-core/ })).toHaveAttribute('aria-expanded', 'true');
+    const toggle = view.getByRole('button', { name: /^net-core/ });
+    expect(toggle).toHaveAttribute('aria-expanded', 'true');
+    const expr = toggle.closest('.row')!.querySelector('.m-list .detail > .expr');
+    expect(expr!.textContent).toBe('License: MIT OR Apache-2.0');
     expect(view.getByRole('link', { name: 'Project page' })).toHaveAttribute('href', 'https://net.example.test/core');
     expect(view.getByRole('region', { name: 'License text of net-core' })).toHaveAttribute('tabindex', '0');
   });
