@@ -7,6 +7,11 @@ import {
   backReady,
   dragSheet,
   flingDecay,
+  pullOffset,
+  pullScrim,
+  pullSheet,
+  pullStays,
+  pullStaysEarly,
   rubber,
   sheetCloses,
   sheetOutMs,
@@ -24,6 +29,7 @@ import {
   type BackSwipe,
   type RowSwipe,
   type SheetDrag,
+  type SheetPull,
   type SwipeAction,
 } from './swipe.ts';
 
@@ -508,6 +514,248 @@ describe('dragSheet', () => {
     drag(off.el, 110, 300);
     expect(off.el.style.translate).toBe('');
     expect(off.closed).not.toHaveBeenCalled();
+  });
+});
+
+describe('pull-up gesture maths', () => {
+  it('starts the sheet its height + 16 px below its place, beyond it a rubber band with factor 30', () => {
+    expect(pullOffset(0, 400)).toBe(400);
+    expect(pullOffset(150, 400)).toBe(250);
+    expect(pullOffset(400, 400)).toBe(0);
+    expect(pullOffset(460, 400)).toBeCloseTo(-rubber(60, 30));
+    expect(pullOffset(10_000, 400)).toBeGreaterThan(-30);
+  });
+
+  it('fades the backdrop in with the lift', () => {
+    expect(pullScrim(-20, 400)).toBe(0);
+    expect(pullScrim(0, 400)).toBe(0);
+    expect(pullScrim(100, 400)).toBe(0.25);
+    expect(pullScrim(400, 400)).toBe(1);
+    expect(pullScrim(600, 400)).toBe(1);
+  });
+
+  it('stays open when flung up faster than 0.35 px/ms', () => {
+    expect(pullStays(390, 400, -0.36)).toBe(true);
+    expect(pullStays(390, 400, -0.35)).toBe(false);
+    expect(pullStays(-20, 400, -2)).toBe(true);
+  });
+
+  it('stays open above 70 % of the start offset unless flung down at 0.35 px/ms or faster', () => {
+    expect(pullStays(279, 400, 0)).toBe(true);
+    expect(pullStays(280, 400, 0)).toBe(false);
+    expect(pullStays(100, 400, 0.34)).toBe(true);
+    expect(pullStays(100, 400, 0.35)).toBe(false);
+    expect(pullStays(-20, 400, 0.2)).toBe(true);
+  });
+
+  it('without a sheet stays open only when flung up faster than 0.3 px/ms or pulled up more than 80 px', () => {
+    expect(pullStaysEarly(-81, 0)).toBe(true);
+    expect(pullStaysEarly(-80, 0)).toBe(false);
+    expect(pullStaysEarly(-10, -0.31)).toBe(true);
+    expect(pullStaysEarly(-10, -0.3)).toBe(false);
+    expect(pullStaysEarly(-200, 1)).toBe(true);
+  });
+});
+
+describe('pullSheet', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  /**
+   * Tab bar with one tab; `open` renders a sheet 384 px high (start offset
+   * 400 px) with its backdrop before it, unless `render` is false.
+   */
+  function bar(o: Partial<SheetPull> | null = {}, render = true) {
+    const nav = document.createElement('nav');
+    nav.innerHTML = '<button type="button">More</button>';
+    document.body.append(nav);
+    const tab = nav.querySelector('button');
+    if (!tab) throw new Error('no tab');
+    const tapped = vi.fn();
+    tab.addEventListener('click', tapped);
+    const scrim = document.createElement('div');
+    scrim.setAttribute('data-scrim', '');
+    const el = document.createElement('div');
+    el.setAttribute('data-sheet', '1');
+    Object.defineProperty(el, 'offsetHeight', { value: 384 });
+    const closed = vi.fn();
+    scrim.addEventListener('mousedown', closed);
+    const open = vi.fn(() => {
+      if (render) document.body.append(scrim, el);
+    });
+    const close = vi.fn();
+    const values: SheetPull | null = o && { animations: false, open, close, ...o };
+    const off = pullSheet(() => values)(nav);
+    return { nav, tab, tapped, scrim, el, open, close, closed, off };
+  }
+
+  /** Pulls up from (100, 700): decided after 10 px, then `lift` px further, released after standing still. */
+  function pull(target: Element, lift: number) {
+    pointer('pointerdown', 100, 700, target);
+    pointer('pointermove', 100, 690);
+    pointer('pointermove', 100, 690 - lift);
+    vi.advanceTimersByTime(200);
+    pointer('pointerup', 100, 690 - lift);
+    window.dispatchEvent(new MouseEvent('click'));
+  }
+
+  it('opens the sheet at once on an upward drag; it follows the finger and the backdrop fades in', () => {
+    vi.useFakeTimers();
+    const { tab, el, scrim, open } = bar();
+    pointer('pointerdown', 100, 700, tab);
+    pointer('pointermove', 100, 695);
+    expect(open).not.toHaveBeenCalled();
+    pointer('pointermove', 100, 690);
+    expect(open).toHaveBeenCalledTimes(1);
+    // Open animation and transitions off, start 384 + 16 px below its place.
+    expect(el.style.animation).toBe('none');
+    expect(el.style.transition).toBe('none');
+    expect(scrim.style.animation).toBe('none');
+    expect(scrim.style.transition).toBe('none');
+    expect(el.style.translate).toBe('0px 400px');
+    expect(scrim.style.opacity).toBe('0');
+    pointer('pointermove', 100, 590);
+    expect(el.style.translate).toBe('0px 300px');
+    expect(scrim.style.opacity).toBe('0.25');
+    pointer('pointermove', 100, 230);
+    expect(el.style.translate).toBe(`0px ${-rubber(60, 30)}px`);
+    expect(scrim.style.opacity).toBe('1');
+    pointer('pointerup', 100, 230);
+    window.dispatchEvent(new MouseEvent('click'));
+  });
+
+  it('stays open above 70 % and springs into place in 440 ms', () => {
+    vi.useFakeTimers();
+    const { tab, tapped, el, scrim, close, closed } = bar({ animations: true });
+    pull(tab, 121);
+    expect(el.style.transition).toBe('translate 440ms cubic-bezier(0.2, 1.15, 0.35, 1)');
+    expect(el.style.translate).toBe('0px');
+    expect(scrim.style.transition).toBe('opacity 440ms');
+    expect(scrim.style.opacity).toBe('1');
+    vi.advanceTimersByTime(470);
+    expect(el.style.translate).toBe('');
+    expect(el.style.transition).toBe('');
+    expect(scrim.style.opacity).toBe('');
+    // Removing the animation would play it again.
+    expect(el.style.animation).toBe('none');
+    expect(close).not.toHaveBeenCalled();
+    expect(closed).not.toHaveBeenCalled();
+    // The click of the gesture does not reach the tab.
+    expect(tapped).not.toHaveBeenCalled();
+  });
+
+  it('leaves the sheet to a drag down that starts while it springs into place', () => {
+    vi.useFakeTimers();
+    const { tab, el, scrim, closed } = bar({ animations: true });
+    const off = dragSheet(() => ({ animations: true, scrim }))(el);
+    pull(tab, 121);
+    // 300 ms after the release the sheet is dragged down beyond 30 % and released: 240 ms to slide out.
+    pointer('pointerdown', 100, 400, el);
+    pointer('pointermove', 100, 410);
+    pointer('pointermove', 100, 530);
+    vi.advanceTimersByTime(300);
+    pointer('pointerup', 100, 530);
+    window.dispatchEvent(new MouseEvent('click'));
+    expect(el.style.translate).toBe('0px 408px');
+    // The pull's reset (470 ms after its release) does not put it back while it slides out.
+    vi.advanceTimersByTime(200);
+    expect(el.style.translate).toBe('0px 408px');
+    expect(scrim.style.opacity).toBe('0');
+    expect(closed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(40);
+    expect(closed).toHaveBeenCalledTimes(1);
+    off?.();
+  });
+
+  it('closes like a sheet dragged down when released below 70 %', () => {
+    vi.useFakeTimers();
+    const { tab, el, scrim, closed } = bar();
+    pull(tab, 120);
+    expect(el.style.transition).toBe('translate 0ms cubic-bezier(0.3, 0.6, 0.4, 1)');
+    expect(el.style.translate).toBe('0px 408px');
+    expect(scrim.style.opacity).toBe('0');
+    expect(closed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(0);
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays open when flung up, even below 70 %', () => {
+    vi.useFakeTimers();
+    const { tab, el, closed } = bar();
+    pointer('pointerdown', 100, 700, tab);
+    pointer('pointermove', 100, 690);
+    vi.advanceTimersByTime(10);
+    pointer('pointermove', 100, 670);
+    pointer('pointerup', 100, 670);
+    window.dispatchEvent(new MouseEvent('click'));
+    // 30 px in 10 ms: −3 px/ms.
+    expect(el.style.translate).toBe('0px');
+    vi.advanceTimersByTime(500);
+    expect(closed).not.toHaveBeenCalled();
+  });
+
+  it('slides out at the speed of the release', () => {
+    vi.useFakeTimers();
+    const { tab, el, closed } = bar({ animations: true });
+    pull(tab, 50);
+    // Standing still: 384 px at 1.6 px/ms, 240 ms.
+    expect(el.style.transition).toBe('translate 240ms cubic-bezier(0.3, 0.6, 0.4, 1)');
+    vi.advanceTimersByTime(239);
+    expect(closed).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('closes when the browser cancels the gesture, even above 70 %', () => {
+    vi.useFakeTimers();
+    const { tab, el, closed } = bar();
+    pointer('pointerdown', 100, 700, tab);
+    pointer('pointermove', 100, 690);
+    pointer('pointermove', 100, 390);
+    pointer('pointercancel', 100, 390);
+    window.dispatchEvent(new MouseEvent('click'));
+    expect(el.style.translate).toBe('0px 408px');
+    vi.advanceTimersByTime(0);
+    expect(closed).toHaveBeenCalledTimes(1);
+  });
+
+  it('without a sheet closes again unless pulled up more than 80 px', () => {
+    vi.useFakeTimers();
+    let b = bar({}, false);
+    pull(b.tab, 80);
+    expect(b.open).toHaveBeenCalledTimes(1);
+    expect(b.close).toHaveBeenCalledTimes(1);
+    b.off?.();
+    document.body.innerHTML = '';
+
+    b = bar({}, false);
+    pull(b.tab, 81);
+    expect(b.close).not.toHaveBeenCalled();
+  });
+
+  it('leaves taps, sideways and downward drags alone', () => {
+    vi.useFakeTimers();
+    const { tab, tapped, open } = bar();
+    pointer('pointerdown', 100, 700, tab);
+    pointer('pointerup', 100, 700);
+    tab.click();
+    expect(tapped).toHaveBeenCalledTimes(1);
+    pointer('pointerdown', 100, 700, tab);
+    pointer('pointermove', 120, 690);
+    pointer('pointerup', 120, 690);
+    pointer('pointerdown', 100, 700, tab);
+    pointer('pointermove', 100, 720);
+    pointer('pointerup', 100, 720);
+    expect(open).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when turned off', () => {
+    vi.useFakeTimers();
+    const { tab } = bar(null);
+    pull(tab, 300);
+    expect(document.querySelector('[data-sheet]')).toBeNull();
   });
 });
 

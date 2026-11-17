@@ -1,6 +1,7 @@
 /**
  * Swipe gestures of the message list and the toast, dragging sheets and
- * dialogs down to close them, and swiping back in the settings: actions per
+ * dialogs down to close them, pulling "More" up from the tab bar, and swiping
+ * back in the settings: actions per
  * direction from the settings, threshold, rubber band, sliding out or
  * springing back.
  *
@@ -8,7 +9,7 @@
  * background), not via Svelte state: otherwise every pointer move would change
  * the values of the whole list. One gesture at a time.
  */
-import { tick } from 'svelte';
+import { flushSync, tick } from 'svelte';
 import type { Attachment } from 'svelte/attachments';
 import type { IconName } from '#lib/icons.ts';
 import { hideTooltip } from '#lib/actions/tooltip.ts';
@@ -530,6 +531,62 @@ function scroller(from: Element, stop: Element, axis: 'x' | 'y' = 'y'): HTMLElem
   return null;
 }
 
+/** Latest gesture on each sheet: a delayed reset only runs while its gesture still owns the sheet. */
+const owners = new WeakMap<HTMLElement, object>();
+
+/** The gesture takes over the sheet; returns its token. */
+function claim(el: HTMLElement): object {
+  const token = {};
+  owners.set(el, token);
+  return token;
+}
+
+/** Takes the gesture's inline styles off the panel and its backdrop again. */
+function resetSheet(el: HTMLElement, scrim: HTMLElement | null): void {
+  el.style.transition = '';
+  el.style.translate = '';
+  if (scrim) {
+    scrim.style.transition = '';
+    scrim.style.opacity = '';
+  }
+}
+
+/** Closes the layer with a `mousedown` on its backdrop, exactly like a click on it. */
+function closeVia(scrim: HTMLElement | null): void {
+  scrim?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+}
+
+/**
+ * Slides the panel down out of view in `ms` (to its height + 24 px) and fades
+ * the backdrop; then `close` closes the layer. If the panel is still there
+ * afterwards (the layer refused to close), it goes back into place.
+ */
+function slideOut(el: HTMLElement, scrim: HTMLElement | null, height: number, ms: number, close: () => void): void {
+  el.style.transition = `translate ${ms}ms ${SHEET_OUT}`;
+  el.style.translate = `0 ${height + 24}px`;
+  if (scrim) {
+    scrim.style.transition = `opacity ${ms}ms ease`;
+    scrim.style.opacity = '0';
+  }
+  later(ms, () => {
+    close();
+    requestAnimationFrame(() => {
+      if (el.isConnected) resetSheet(el, scrim);
+    });
+  });
+}
+
+/** Springs the panel back into place in `ms` and shows the backdrop fully; returns `ms`. */
+function springIn(el: HTMLElement, scrim: HTMLElement | null, ms: number): number {
+  el.style.transition = `translate ${ms}ms ${SPRING}`;
+  el.style.translate = '0 0';
+  if (scrim) {
+    scrim.style.transition = `opacity ${ms}ms ease`;
+    scrim.style.opacity = '1';
+  }
+  return ms;
+}
+
 /** Values of a sheet or dialog that can be dragged down to close it. */
 export interface SheetDrag {
   /** Setting "Animations": without it, the sheet closes or comes back immediately. */
@@ -572,15 +629,6 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
       let height = 0;
       let off = 0;
 
-      const reset = () => {
-        el.style.transition = '';
-        el.style.translate = '';
-        if (scrim) {
-          scrim.style.transition = '';
-          scrim.style.opacity = '';
-        }
-      };
-
       follow(e, {
         decide: (dx, dy) => {
           if (Math.abs(dx) > Math.abs(dy)) return false;
@@ -591,6 +639,7 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
         },
         start: () => {
           clearTimeout(resetTimer);
+          claim(el);
           scrim = o.scrim === undefined ? el.parentElement : o.scrim;
           height = el.offsetHeight;
           el.style.transition = 'none';
@@ -609,35 +658,15 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
         end: (_vx, vy, cancelled) => {
           if (sc && off <= 0) {
             if (!cancelled) fling(sc, -vy);
-            reset();
+            resetSheet(el, scrim);
             return;
           }
           // Cancelled by the browser or the system (`pointercancel`): back, even beyond the threshold.
           if (!cancelled && sheetCloses(off, height, vy)) {
-            const t = ms(sheetOutMs(height, vy));
-            el.style.transition = `translate ${t}ms ${SHEET_OUT}`;
-            el.style.translate = `0 ${height + 24}px`;
-            if (scrim) {
-              scrim.style.transition = `opacity ${t}ms ease`;
-              scrim.style.opacity = '0';
-            }
-            later(t, () => {
-              scrim?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
-              // Still there (the layer refused to close): back into place.
-              requestAnimationFrame(() => {
-                if (el.isConnected) reset();
-              });
-            });
+            slideOut(el, scrim, height, ms(sheetOutMs(height, vy)), () => closeVia(scrim));
             return;
           }
-          const t = ms(440);
-          el.style.transition = `translate ${t}ms ${SPRING}`;
-          el.style.translate = '0 0';
-          if (scrim) {
-            scrim.style.transition = `opacity ${t}ms ease`;
-            scrim.style.opacity = '1';
-          }
-          resetTimer = setTimeout(reset, t + 30);
+          resetTimer = setTimeout(() => resetSheet(el, scrim), springIn(el, scrim, ms(440)) + 30);
         },
       });
     };
@@ -645,6 +674,127 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
     el.addEventListener('pointerdown', onDown);
     return () => {
       el.removeEventListener('pointerdown', onDown);
+      clearTimeout(resetTimer);
+    };
+  };
+}
+
+// --- Pulling "More" up from the tab bar ---
+
+/** Offset of the pulled-up sheet for the lift `lift`: starts `hidden` px below its place, beyond it upwards as a rubber band. */
+export const pullOffset = (lift: number, hidden: number): number =>
+  lift <= hidden ? hidden - lift : -rubber(lift - hidden, 30);
+
+/** Opacity of the backdrop while pulling up: fades in with the lift until the sheet is in place. */
+export const pullScrim = (lift: number, hidden: number): number => Math.min(1, Math.max(0, lift / hidden));
+
+/**
+ * The pulled-up sheet stays open: flung up faster than 0.35 px/ms, or released
+ * above 70 % of its start offset `hidden` and not flung down at 0.35 px/ms or
+ * faster. Otherwise it closes like a sheet dragged down.
+ */
+export const pullStays = (off: number, hidden: number, vy: number): boolean =>
+  vy < -0.35 || (off < hidden * 0.7 && vy < 0.35);
+
+/** Released before the sheet was there: it stays open when flung up faster than 0.3 px/ms or pulled up more than 80 px. */
+export const pullStaysEarly = (dy: number, vy: number): boolean => vy < -0.3 || dy < -80;
+
+/** Values of the tab bar for pulling up "More"; `null` turns the gesture off. */
+export interface SheetPull {
+  /** Setting "Animations": without it, the sheet closes or comes back immediately. */
+  animations: boolean;
+  /** Opens the sheet (`[data-sheet]`, with its backdrop `[data-scrim]` right before it). */
+  open: () => void;
+  /** Closes it again when released before the sheet was there. */
+  close: () => void;
+}
+
+/**
+ * Pulling the "More" sheet up from the tab bar, as an attachment on the bar.
+ * An upward drag opens the sheet at once; it follows the finger from its
+ * height + 16 px below its place, beyond its place upwards as a rubber band,
+ * and the backdrop fades in with the lift. Its open animation is off while
+ * dragging. On release it stays open (`pullStays`) and springs into place, or
+ * slides out and closes like a sheet dragged down; always closes after
+ * `pointercancel`. Taps on the tabs stay clicks.
+ */
+export function pullSheet(get: () => SheetPull | null): Attachment<HTMLElement> {
+  return (bar) => {
+    let resetTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const onDown = (e: PointerEvent) => {
+      cancelAnimationFrame(flingRaf);
+      if (!canStart(e)) return;
+      const o = get();
+      if (!o) return;
+      const ms = (n: number) => (o.animations ? n : 0);
+      let el: HTMLElement | null = null;
+      let scrim: HTMLElement | null = null;
+      let height = 0;
+      let hidden = 0;
+      let off = 0;
+      let dy = 0;
+      let token: object | null = null;
+
+      /** The sheet once it is there: measured, without its open animation and transitions. */
+      const sheet = (): HTMLElement | null => {
+        if (el) return el;
+        el = document.querySelector<HTMLElement>('[data-sheet]');
+        if (!el) return null;
+        token = claim(el);
+        const prev = el.previousElementSibling;
+        scrim = prev instanceof HTMLElement && prev.matches('[data-scrim]') ? prev : null;
+        height = el.offsetHeight;
+        hidden = height + 16;
+        for (const n of [el, scrim]) {
+          if (!n) continue;
+          n.style.animation = 'none';
+          n.style.transition = 'none';
+        }
+        return el;
+      };
+
+      follow(e, {
+        decide: (dx, y) => y < 0 && Math.abs(dx) <= Math.abs(y),
+        start: () => {
+          clearTimeout(resetTimer);
+          // Render the sheet now, so that it is placed before the next frame.
+          flushSync(o.open);
+        },
+        move: (_dx, y) => {
+          dy = y;
+          const s = sheet();
+          if (!s) return;
+          off = pullOffset(-y, hidden);
+          s.style.translate = `0 ${off}px`;
+          if (scrim) scrim.style.opacity = String(pullScrim(-y, hidden));
+        },
+        end: (_vx, vy, cancelled) => {
+          const s = el;
+          if (!s) {
+            if (cancelled || !pullStaysEarly(dy, vy)) o.close();
+            return;
+          }
+          const sc = scrim;
+          if (cancelled || !pullStays(off, hidden, vy)) {
+            slideOut(s, sc, height, ms(sheetOutMs(height, vy)), () => (sc ? closeVia(sc) : o.close()));
+            return;
+          }
+          // The open animation stays off: removing it would play it again. A
+          // later drag on the sheet (`dragSheet`) takes it over: then no reset.
+          resetTimer = setTimeout(
+            () => {
+              if (owners.get(s) === token) resetSheet(s, sc);
+            },
+            springIn(s, sc, ms(440)) + 30,
+          );
+        },
+      });
+    };
+
+    bar.addEventListener('pointerdown', onDown);
+    return () => {
+      bar.removeEventListener('pointerdown', onDown);
       clearTimeout(resetTimer);
     };
   };
