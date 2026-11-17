@@ -13,6 +13,9 @@
  * so that the server sees the actions in their order. If the
  * response fails to come, the change waits in the queue (`queue`):
  * it stays laid over, also across a restart, until the replay is through.
+ * When the page closes, a queueable change goes to the database together with its
+ * request (`EditQueue.keep()`): the page may end before the response, even
+ * without a known outage, and the next start replays it.
  * If an action puts emails into a mailbox, it takes the rows of their
  * conversations along (`carried()`): this way they are in the target before the server
  * shows it.
@@ -529,13 +532,19 @@ export class EmailEdits {
       await this.#enqueue(token, account, edits, partial === null, false, keepalive);
       return;
     }
+    // Closing without a known outage: the request may fail without the page living to see it.
+    // Not awaited: after `pagehide` the page may run no further task, the request would then not go out.
+    const copy = waits && keepalive ? this.#copy(token, account, edits, partial === null) : null;
     try {
       await this.#api.set(account, edits, keepalive);
     } catch (error) {
       if (waits && unanswered(error)) {
+        await copy;
         await this.#enqueue(token, account, edits, partial === null, true);
         return;
       }
+      // The server has answered: nothing remains to replay.
+      await this.#release(copy);
       if (!(error instanceof EditError) || error.ids.length >= edits.size) throw error;
       // eslint-disable-next-line svelte/prefer-svelte-reactivity -- local set, not state
       const rejected = new Set(error.ids);
@@ -544,7 +553,10 @@ export class EmailEdits {
         e.token === token ? { ...e, edits: new Map([...e.edits].filter(([id]) => !rejected.has(id))) } : e,
       );
       if (partial) ui.toasts.error(partial);
+      this.#settle(token);
+      return;
     }
+    await this.#release(copy);
     this.#settle(token);
   }
 
@@ -575,16 +587,33 @@ export class EmailEdits {
 
   /** The change stays laid over and waits for the server. */
   async #enqueue(token: number, account: string, edits: Edits, quiet: boolean, failed: boolean, closing = false) {
+    const item = this.#item(token, account, edits, quiet);
+    if (!item) return;
+    this.#entries = this.#entries.map((e) => (e.token === token ? { ...e, key: item.key, deferred: false } : e));
+    await this.queue.add(item, failed, closing);
+  }
+
+  /** Copy in the database while the request goes out as the page closes (`EditQueue.keep()`); returns its key. */
+  async #copy(token: number, account: string, edits: Edits, quiet: boolean): Promise<string | null> {
+    const item = this.#item(token, account, edits, quiet);
+    if (!item) return null;
+    await this.queue.keep(item);
+    return item.key;
+  }
+
+  /** The copy from `#copy()` is no longer needed. */
+  async #release(copy: Promise<string | null> | null): Promise<void> {
+    const key = await copy;
+    if (key) await this.queue.release(key);
+  }
+
+  /** Queue entry of an action; the same key for the copy and the entry. */
+  #item(token: number, account: string, edits: Edits, quiet: boolean): QueuedEdit | null {
     const entry = this.#entries.find((e) => e.token === token);
-    if (!entry) return;
-    const key = queueKey(entry.at, token);
-    this.#entries = this.#entries.map((e) => (e.token === token ? { ...e, key, deferred: false } : e));
+    if (!entry) return null;
     const rows = entry.rows.length ? { rows: [...entry.rows] } : {};
-    await this.queue.add(
-      { key, account, edits: [...edits], subjects: this.#titles(account, edits), quiet, ...rows },
-      failed,
-      closing,
-    );
+    const key = queueKey(entry.at, token);
+    return { key, account, edits: [...edits], subjects: this.#titles(account, edits), quiet, ...rows };
   }
 
   /** Subjects of the emails, as far as a source knows them. */

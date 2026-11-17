@@ -635,6 +635,19 @@
     go(SEARCH);
   }
 
+  /**
+   * Contact in the search (`sFrom`): messages from the address. Outside the
+   * search page the results open without text like `openResults('')`; the
+   * suggestions have already closed, so the scope "Only in …" applies as it
+   * was chosen there.
+   */
+  function searchFrom(email: string) {
+    search.searchFrom(email);
+    if (path === SEARCH) return;
+    search.open('', path, true);
+    go(SEARCH);
+  }
+
   /** Area of the open view for the search suggestions (`sCtx`); none on the search and on mobile. */
   $effect(() => {
     search.setContext(!ui.isMobile && path !== SEARCH ? scopeOf(path, session.isAdmin, search.env) : null);
@@ -726,6 +739,7 @@
       ui.userOpen = id;
       go(ADMIN);
     },
+    searchFrom: (email) => searchFrom(email),
     logout: () => void logout(),
   };
 

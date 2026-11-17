@@ -28,6 +28,12 @@ export interface QueuedEdit {
   quiet: boolean;
   /** Conversations the change puts into a mailbox: the target shows them until replay. */
   rows?: ListThread[];
+  /**
+   * Went out with `keepalive` while the page closed, the response is unknown:
+   * the replay repeats it without pill, counter and toast, because nobody
+   * saw it waiting (the patches are idempotent).
+   */
+  sent?: boolean;
 }
 
 /** Draft version saved offline; one per draft, the newest replaces the previous one. */
