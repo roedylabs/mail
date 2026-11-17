@@ -586,7 +586,8 @@ export function updatesValues(p: UpdatesPage, input: UpdatesInput, ctx: UpdatesC
         title: m.updates_time_title(),
         value: s.time,
         disabled: !s.auto,
-        h12: input.timeFmt === '12h',
+        // Always 24-hour, whatever the time format setting: only "Next check" follows it.
+        h12: false,
         open: p.timeOpen,
         edit: p.timeEdit,
         isMobile: input.isMobile,

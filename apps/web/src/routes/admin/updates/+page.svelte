@@ -374,7 +374,7 @@
                 <input
                   type="text"
                   inputmode="numeric"
-                  maxlength="8"
+                  maxlength="5"
                   placeholder={m.time_placeholder()}
                   value={t.inputVal}
                   disabled={t.disabled}
@@ -387,7 +387,7 @@
                   onblur={t.onBlur}
                   onkeydown={(event) => onTimeKey(t, event)}
                 />
-                {#if t.h24 && m.time_uhr()}<span class="uhr">{m.time_uhr()}</span>{/if}
+                {#if m.time_uhr()}<span class="uhr">{m.time_uhr()}</span>{/if}
                 <button
                   type="button"
                   class="clock"

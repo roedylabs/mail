@@ -482,7 +482,8 @@ describe('Administration › Updates page', () => {
   it('time field: input, arrow keys and Enter', async () => {
     const view = await loaded(status(), { 'PUT admin/updates': [{ body: status({ time: '04:20' }) }] });
     const field = view.getByRole('textbox', { name: 'Time' });
-    expect(field).toHaveAttribute('maxlength', '8');
+    expect(field).toHaveAttribute('maxlength', '5');
+    expect(field).toHaveAttribute('placeholder', 'hh:mm');
     await fireEvent.focus(field);
     await fireEvent.input(field, { target: { value: '04:15x' } });
     expect(field).toHaveValue('04:15');
@@ -495,17 +496,33 @@ describe('Administration › Updates page', () => {
     await vi.waitFor(() => expect(puts(view.calls)).toEqual([{ time: '04:20' }]));
   });
 
-  it('time field in 12-hour format', async () => {
+  it('time field stays 24-hour with an en-US browser and the 12-hour time format', async () => {
+    vi.stubGlobal('navigator', { ...navigator, languages: ['en-US'], language: 'en-US' });
     prefs.set({ timeFmt: '12h' });
     const view = await loaded();
-    expect(view.getByRole('textbox', { name: 'Time' })).toHaveValue('3:00 AM');
+    const field = view.getByRole('textbox', { name: 'Time' });
+    expect(field).toHaveValue('03:00');
+    expect(field).toHaveAttribute('maxlength', '5');
+    expect(field).toHaveAttribute('placeholder', 'hh:mm');
+    await fireEvent.click(view.getByRole('button', { name: 'Choose Time' }));
+    await tick();
+    const hours = within(view.getByRole('dialog', { name: 'Choose time' })).getByRole('listbox', { name: 'Hour' });
+    const labels = within(hours)
+      .getAllByRole('option')
+      .map((o) => o.textContent?.trim());
+    expect(labels).toEqual(Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0')));
+    expect(within(hours).queryByText(/AM|PM/)).toBeNull();
+    // Only the next check follows the time format.
+    expect(value('Next check')?.textContent).toMatch(/^tomorrow, \d{1,2}:\d\d [AP]M$/);
   });
 
-  it('shows the clock unit of the German interface next to the 24-hour time', async () => {
+  it('shows the clock unit of the German interface next to the time, also with the 12-hour time format', async () => {
     const german = { locale: 'de' } as const;
-    prefs.set({ lang: 'de' });
+    prefs.set({ lang: 'de', timeFmt: '12h' });
     await loaded();
-    expect(within(section(m.updates_tab_schedule({}, german))).getByText(m.time_uhr({}, german))).toBeInTheDocument();
+    const schedule = within(section(m.updates_tab_schedule({}, german)));
+    expect(schedule.getByRole('textbox', { name: m.updates_time_title({}, german) })).toHaveValue('03:00');
+    expect(schedule.getByText(m.time_uhr({}, german))).toBeInTheDocument();
   });
 
   it('cleans up dialog and popover on leaving', async () => {
