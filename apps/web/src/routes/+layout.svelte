@@ -1147,15 +1147,21 @@
   // The results page opens the search results (desktop), a mailbox and an error page close them.
   $effect(() => {
     if (path === SEARCH) search.resultsOpen = !ui.isMobile;
-    else if (mailboxLocation || page.error) search.resultsOpen = false;
+    else if (mailboxLocation || page.error || forbidden) search.resultsOpen = false;
   });
   /** View of the sidebar (`curA`, `allMode`): account or "All accounts" of the mailbox, otherwise the default. */
   const scope = $derived(sidebarScope(accounts.list, prefs.values.defaultAccount, mailboxLocation ?? lastMailbox));
   /** Accounts of the sidebar: in "All accounts" all, otherwise the one. */
   const scopeAccounts = $derived(scope.all ? (accounts.list ?? []) : scope.account ? [scope.account] : []);
-  /** Active mailbox of the sidebar's view: that of the address, in compose the one the user came from. */
+  /** Active mailbox of the sidebar's view: that of the address, in compose and on the error page the one the user came from. */
   const here = $derived(
-    activeLocation(scope, { path, location: mailboxLocation, lastMailbox, results: search.resultsOpen }),
+    activeLocation(scope, {
+      path,
+      location: mailboxLocation,
+      lastMailbox,
+      results: search.resultsOpen,
+      error: !!page.error || forbidden,
+    }),
   );
   /** Mailbox an account switch opens (`curF`): the open one, otherwise the inbox. */
   const curRole: RoleId = $derived.by(() => {
