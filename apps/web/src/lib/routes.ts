@@ -63,6 +63,16 @@ export function isAdminPath(path: string): boolean {
   return path.startsWith('/admin/');
 }
 
+/**
+ * Settings, including the account pages (profile, email accounts, adding one,
+ * security); not the pages of a single email account.
+ */
+export function isSettingsPath(path: string): boolean {
+  if (path.startsWith('/settings/')) return true;
+  if (!path.startsWith('/account/')) return false;
+  return !(path.startsWith('/account/mail-accounts/') && path.split('/').length > 4);
+}
+
 /** Mailboxes of the sidebar in the order of `FOLDERS` (keys 1–6); part of the address. */
 export const ROLE_IDS = ['inbox', 'sent', 'drafts', 'scheduled', 'trash', 'spam'] as const;
 export type RoleId = (typeof ROLE_IDS)[number];

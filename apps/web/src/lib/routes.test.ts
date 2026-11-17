@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   chromeOf,
   isAdminPath,
+  isSettingsPath,
   isAppPath,
   mailboxParams,
   mailboxPath,
@@ -37,6 +38,17 @@ describe('chromeOf', () => {
   it('recognizes administration pages', () => {
     expect(isAdminPath('/admin/maintenance')).toBe(true);
     expect(isAdminPath('/account/profile')).toBe(false);
+  });
+
+  it('counts the account pages as settings, not those of a single email account', () => {
+    expect(isSettingsPath('/settings/appearance')).toBe(true);
+    expect(isSettingsPath('/account/profile')).toBe(true);
+    expect(isSettingsPath('/account/mail-accounts')).toBe(true);
+    expect(isSettingsPath('/account/mail-accounts/new')).toBe(true);
+    expect(isSettingsPath('/account/security')).toBe(true);
+    expect(isSettingsPath('/account/mail-accounts/a1/overview')).toBe(false);
+    expect(isSettingsPath('/admin/users')).toBe(false);
+    expect(isSettingsPath('/start')).toBe(false);
   });
 });
 
