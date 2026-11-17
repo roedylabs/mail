@@ -682,8 +682,6 @@
     gap: 16px;
     overflow-x: hidden;
     overflow-y: auto;
-    /* fixed width with and without scrollbar, otherwise the step oscillates (fit) */
-    scrollbar-gutter: stable;
     background: var(--cnv);
     color: var(--fg);
     font-size: 15px;
