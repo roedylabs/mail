@@ -52,8 +52,10 @@ export function openHit(hit: MailHit, box: HitBox): void {
   if (drafts && hit.mailboxIds[drafts]) {
     const list = mailboxParams(hit.account, { role: 'drafts' });
     const ret = { href: resolve('/mailbox/[account]/[...path]', list), label: roleLabel('drafts') };
-    listView.choose(ret.href, page.url.pathname);
-    void openDraft(hit.account, hit.id, ret);
+    // Only once compose opens: otherwise no choice waits for "Drafts".
+    void openDraft(hit.account, hit.id, ret).then((opened) => {
+      if (opened) listView.choose(ret.href, page.url.pathname);
+    });
     return;
   }
   const { account, path } = mailboxParams(hit.account, box.target);

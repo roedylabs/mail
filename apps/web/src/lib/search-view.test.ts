@@ -52,7 +52,20 @@ describe('Opening a found email', () => {
     expect(listView.segment).toBe('all');
   });
 
-  it('a draft starts “Drafts” with the segment “All” on the way back', () => {
+  it('a draft starts “Drafts” with the segment “All” on the way back', async () => {
+    openDraft.mockResolvedValue(true);
+    listView.segment = 'flagged';
+    openHit(hit({ mailboxIds: { 'mb-drafts': true } }), {
+      label: 'Drafts',
+      role: 'drafts',
+      target: { role: 'drafts' },
+    });
+    await vi.waitFor(() => expect(listView.segmentAt('/mailbox/a1/drafts')).toBe('all'));
+    listView.reached('/mailbox/a1/drafts');
+    expect(listView.segment).toBe('all');
+  });
+
+  it('a draft that does not open leaves no choice of “Drafts” behind', async () => {
     openDraft.mockResolvedValue(false);
     listView.segment = 'flagged';
     openHit(hit({ mailboxIds: { 'mb-drafts': true } }), {
@@ -60,8 +73,11 @@ describe('Opening a found email', () => {
       role: 'drafts',
       target: { role: 'drafts' },
     });
+    await new Promise((r) => setTimeout(r, 0));
+    // Later back in "Drafts" (e.g. history back): the segment stays.
     listView.reached('/mailbox/a1/drafts');
-    expect(listView.segment).toBe('all');
+    expect(listView.segment).toBe('flagged');
+    listView.segment = 'all';
   });
 
   it('opens a draft in compose, back to "Drafts"', async () => {

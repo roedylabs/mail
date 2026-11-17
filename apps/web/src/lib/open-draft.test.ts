@@ -28,14 +28,14 @@ afterEach(() => {
 describe('Opening a draft in compose', () => {
   it('opens compose once the draft has loaded, with "Send later" prefilled', async () => {
     load.mockResolvedValue(true);
-    await openDraft('a1', 'e1', ret, { sendAt: 1_800_000_000_000 });
+    expect(await openDraft('a1', 'e1', ret, { sendAt: 1_800_000_000_000 })).toBe(true);
     expect(load).toHaveBeenCalledWith('a1', 'e1', ret, 1_800_000_000_000);
     expect(nav.goto).toHaveBeenCalledWith('/compose/a1%2Fe1');
   });
 
   it('opens nothing if the draft does not load', async () => {
     load.mockResolvedValue(false);
-    await openDraft('a1', 'e1', ret);
+    expect(await openDraft('a1', 'e1', ret)).toBe(false);
     expect(nav.goto).not.toHaveBeenCalled();
   });
 
@@ -44,7 +44,7 @@ describe('Opening a draft in compose', () => {
     const opened = openDraft('a1', 'e1', ret);
     search.navigating('/mailbox/a1/inbox', false);
     done();
-    await opened;
+    expect(await opened).toBe(false);
     expect(nav.goto).not.toHaveBeenCalled();
   });
 
