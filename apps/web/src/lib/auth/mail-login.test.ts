@@ -63,12 +63,14 @@ function pending(overrides: Partial<Pending> = {}): Pending {
     issRequired: false,
     redirectUri: `${APP}/oauth/callback`,
     created: NOW,
+    user: 'u1',
     ...overrides,
   };
 }
 
 let assigned: string[] = [];
 let now = NOW;
+let user: string | null = 'u1';
 
 function login(): MailLogin {
   return new MailLogin(() => ({
@@ -77,12 +79,14 @@ function login(): MailLogin {
     assign: (url) => assigned.push(url),
     now: () => now,
     origin: APP,
+    user: () => user,
   }));
 }
 
 beforeEach(() => {
   assigned = [];
   now = NOW;
+  user = 'u1';
   sessionStorage.clear();
   accounts.reset();
   // Signed in without a mail account: list loaded and empty.
@@ -199,6 +203,18 @@ describe('return via /oauth/callback', () => {
     expect(ml.receive(new URL(`${APP}/oauth/callback?code=c&state=unknown`))).toEqual({ kind: 'new' });
     expect(ml.add.form).toMatchObject({ email: '', srv: 'auto', step: 'cred', err: 'expired' });
     expect(ml.re.form).toBeNull();
+  });
+
+  it('treats the attempt of another app user as unknown, without its details', async () => {
+    const { calls } = mockApi({});
+    savePending(pending({ purpose: { kind: 're', account: 'a1' } }), sessionStorage);
+    user = 'u2';
+    const ml = login();
+    expect(ml.receive(new URL(`${APP}/oauth/callback?code=c&state=st`))).toEqual({ kind: 'new' });
+    expect(ml.add.form).toMatchObject({ email: '', srv: 'auto', step: 'cred', err: 'expired' });
+    expect(ml.re.form).toBeNull();
+    await Promise.resolve();
+    expect(calls).toHaveLength(0);
   });
 
   it('shows the return step and completes the sign-in', async () => {

@@ -434,6 +434,12 @@ describe('Blobs', () => {
     expect(server.seen[0]?.headers.get('Authorization')).toBe('Bearer t1');
   });
 
+  it('keeps downloaded blobs out of the HTTP cache', async () => {
+    const server = fakeFetch(new Response('content', { status: 200, headers: { 'Cache-Control': 'max-age=3600' } }));
+    await testClient(server.fetch).download({ accountId: 'a1', blobId: 'b1' });
+    expect(server.seen[0]?.cache).toBe('no-store');
+  });
+
   it('reports a missing blob with its status', async () => {
     const server = fakeFetch(new Response(null, { status: 404 }));
     await expect(testClient(server.fetch).download({ accountId: 'a1', blobId: 'x' })).rejects.toMatchObject({

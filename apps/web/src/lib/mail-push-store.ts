@@ -15,6 +15,12 @@ export interface QuietCopy {
 
 /** What the app stores for the service worker. */
 export interface MailPushCopy {
+  /**
+   * App user the copy belongs to: the app removes the copy of another user
+   * who signed in before in this browser, the service worker ignores a copy
+   * without one.
+   */
+  user: string;
   quiet: QuietCopy;
   /** Addresses of all mail accounts by ID, for the text and for "multiple accounts". */
   accounts: Record<string, string>;

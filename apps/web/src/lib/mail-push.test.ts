@@ -183,6 +183,8 @@ function fakeStore(): FakeStore {
 
 interface FakeBrowser {
   allowed: boolean;
+  /** Signed-in app user. */
+  user: string | null;
   subscribed: boolean;
   updates: number;
   store: FakeStore;
@@ -203,6 +205,7 @@ function fakeBrowser(): FakeBrowser {
   const store = fakeStore();
   const browser: FakeBrowser = {
     allowed: true,
+    user: 'u1',
     subscribed: true,
     updates: 0,
     store,
@@ -244,6 +247,7 @@ function fakeBrowser(): FakeBrowser {
         return run;
       },
       store,
+      user: () => browser.user,
     },
   };
   return browser;
@@ -837,6 +841,7 @@ describe('mailPush', () => {
 
   describe('copy for the service worker', () => {
     const copy = {
+      user: 'u1',
       quiet: { on: true, from: '22:00', to: '07:00', tz: 'UTC' },
       accounts: { m1: 'user@example.com' },
       appName: 'Roedy Mail',
@@ -880,6 +885,36 @@ describe('mailPush', () => {
       await enabled(module);
       module.share(copy);
       module.reset();
+      expect(browser.store.copy).toEqual(copy);
+    });
+
+    it('removes the copy of the previous app user when the next one has no push', async () => {
+      browser.store.copy = copy;
+      browser.user = 'u2';
+      const module = mailPushWith(browser, 1000);
+      module.share({ ...copy, user: 'u2', accounts: { m2: 'other@example.com' } });
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
+      expect(browser.store.writes).toBe(0);
+    });
+
+    it('removes the copy of the previous app user at start, also one without a user', async () => {
+      browser.store.copy = copy;
+      browser.user = 'u2';
+      await mailPushWith(browser, 1000).resume();
+      expect(browser.store.copy).toBeNull();
+      const unbound: Partial<MailPushCopy> = { ...copy };
+      delete unbound.user;
+      browser.store.copy = unbound as MailPushCopy;
+      await mailPushWith(browser, 1000).resume();
+      expect(browser.store.copy).toBeNull();
+    });
+
+    it('keeps the copy of the same app user', async () => {
+      browser.store.copy = copy;
+      const module = mailPushWith(browser, 1000);
+      await module.resume();
+      module.share(copy);
+      await Promise.resolve();
       expect(browser.store.copy).toEqual(copy);
     });
   });

@@ -27,6 +27,8 @@ import {
 const APP = 'https://app.example.com';
 const MAIL = 'https://mail.example.com';
 const NOW = Date.parse('2026-10-27T12:00:00Z');
+/** Signed-in app user who starts the attempts. */
+const USER = 'u1';
 
 const SERVER: MailServer = {
   id: 's1',
@@ -107,9 +109,17 @@ function json(body: unknown, status = 200, headers: Record<string, string> = {})
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...headers } });
 }
 
-function deps(fetch: typeof globalThis.fetch): LoginDeps & { assigned: string[] } {
+function deps(fetch: typeof globalThis.fetch, user: string | null = USER): LoginDeps & { assigned: string[] } {
   const assigned: string[] = [];
-  return { fetch, storage: sessionStorage, assign: (url) => assigned.push(url), now: () => NOW, origin: APP, assigned };
+  return {
+    fetch,
+    storage: sessionStorage,
+    assign: (url) => assigned.push(url),
+    now: () => NOW,
+    origin: APP,
+    user: () => user,
+    assigned,
+  };
 }
 
 const api = (path: string) => `${APP}/api/v1/${path}`;
@@ -130,6 +140,7 @@ function pending(overrides: Partial<Pending> = {}): Pending {
     issRequired: true,
     redirectUri: APP + CALLBACK_PATH,
     created: NOW,
+    user: USER,
     ...overrides,
   };
 }
@@ -222,6 +233,7 @@ describe('redirect', () => {
       issuer: MAIL,
       tokenEndpoint: METADATA.token_endpoint,
       issRequired: true,
+      user: USER,
     });
     expect(saved?.verifier).toMatch(/^[A-Za-z0-9_-]{43}$/);
     expect(q.code_challenge).toBe(await challengeOf(saved?.verifier ?? ''));
@@ -323,10 +335,20 @@ describe('open attempts', () => {
   it('finds the return also in the device storage', () => {
     localStorage.clear();
     savePending(pending({ state: 'app' }), localStorage);
-    const deps = { storage: sessionStorage, device: localStorage, now: () => NOW };
+    const deps = { storage: sessionStorage, device: localStorage, now: () => NOW, user: () => USER };
     expect(takeReturning('app', deps)?.state).toBe('app');
     expect(takeReturning('app', deps)).toBeNull();
     expect(takeReturning('app', { ...deps, device: null })).toBeNull();
+  });
+
+  it('discards the return of an attempt another app user started', () => {
+    const deps = { storage: sessionStorage, device: null, now: () => NOW };
+    savePending(pending({ state: 'a', user: 'u2' }), sessionStorage);
+    expect(takeReturning('a', { ...deps, user: () => USER })).toBeNull();
+    // Discarded: the user who started it cannot complete it later either.
+    expect(takeReturning('a', { ...deps, user: () => 'u2' })).toBeNull();
+    savePending(pending({ state: 'b' }), sessionStorage);
+    expect(takeReturning('b', { ...deps, user: () => null })).toBeNull();
   });
 
   it('discards all attempts of the device on sign-out, other entries stay', () => {
@@ -351,6 +373,11 @@ describe('open attempts', () => {
   it('treats entries in a foreign shape as unknown', () => {
     sessionStorage.setItem('roedy-mail.oauth.old', JSON.stringify({ state: 'old', created: NOW }));
     expect(takePending('old', sessionStorage, NOW)).toBeNull();
+    // From before the binding to the app user.
+    const unbound: Partial<Pending> = pending({ state: 'unbound' });
+    delete unbound.user;
+    sessionStorage.setItem('roedy-mail.oauth.unbound', JSON.stringify(unbound));
+    expect(takePending('unbound', sessionStorage, NOW)).toBeNull();
     sessionStorage.setItem(
       'roedy-mail.oauth.none',
       JSON.stringify({ ...pending({ state: 'none' }), purpose: undefined }),
@@ -397,6 +424,43 @@ describe('return', () => {
       expires_in: 3600,
       client_id: 'roedy',
     });
+  });
+
+  it('does not complete an attempt for another app user', async () => {
+    const { fetch, seen } = net({});
+    // A's app session expired on the sign-in page and B signed in to the app in the same browser.
+    expect(await complete(pending({ user: 'u2' }), ok, deps(fetch))).toEqual({ ok: false, error: 'expired' });
+    expect(await complete(pending({ backendExchange: true }), ok, deps(fetch, null))).toEqual({
+      ok: false,
+      error: 'expired',
+    });
+    expect(seen).toHaveLength(0);
+  });
+
+  it('does not hand over the tokens if the app user changed during the exchange', async () => {
+    let user: string | null = USER;
+    const { fetch, seen } = net({
+      [`POST ${METADATA.token_endpoint}`]: [
+        () => {
+          user = 'u2';
+          return json(TOKENS);
+        },
+      ],
+    });
+    expect(await complete(pending(), ok, { ...deps(fetch), user: () => user })).toEqual({
+      ok: false,
+      error: 'expired',
+    });
+    expect(seen.map((s) => s.url)).toEqual([METADATA.token_endpoint]);
+  });
+
+  it('refuses to start an attempt without a signed-in app user', async () => {
+    const { fetch } = net({ [`GET ${MAIL}/.well-known/oauth-authorization-server`]: [json(METADATA)] });
+    const d = deps(fetch, null);
+    const result = await begin(form(), { kind: 'new' }, LIST, [], d);
+    expect(result).toMatchObject({ ok: false, error: null });
+    expect(d.assigned).toHaveLength(0);
+    expect(sessionStorage.length).toBe(0);
   });
 
   it('requests mail and contacts (like the registration in the backend)', () => {

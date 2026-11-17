@@ -126,6 +126,7 @@ beforeEach(() => {
     assign: () => {},
     now: () => Date.now(),
     origin: 'https://app.example.com',
+    user: () => session.user?.id ?? null,
   }));
   ml.servers = SERVERS;
   accounts.reset();

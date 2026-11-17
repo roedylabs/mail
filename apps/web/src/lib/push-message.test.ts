@@ -5,6 +5,7 @@ describe('safePath', () => {
   it('lets app paths through', () => {
     expect(safePath('/settings/notifications')).toBe('/settings/notifications');
     expect(safePath('/start?x=1#y')).toBe('/start?x=1#y');
+    expect(safePath('/mailbox/a1/inbox/%09%2F%2Fevil.example')).toBe('/mailbox/a1/inbox/%09%2F%2Fevil.example');
   });
 
   it('never leads out of the app', () => {
@@ -13,6 +14,13 @@ describe('safePath', () => {
       '//example.test/x',
       'javascript:alert(1)',
       '/\\example.test',
+      // The URL parser drops tab and newlines: these would resolve to "https://evil.example/".
+      '/\t/evil.example',
+      '/\n/evil.example',
+      '/\r\n/evil.example',
+      '/\t\\evil.example',
+      '/start\u0000',
+      '/start\u007f',
       '',
       7,
       null,
