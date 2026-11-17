@@ -592,7 +592,7 @@ export class Search {
     const list = Object.entries(cur.queries).map(([account, q]) => ({ account, filter: q.filter }));
     this.loadingMore = false;
     this.#refreshing = true;
-    this.#moreAfter = false;
+    // Same query: a "load more" waiting for the previous refresh follows this one.
     void this.#load(++this.#gen, cur.key, list, cur.words);
   }
 

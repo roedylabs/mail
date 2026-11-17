@@ -816,6 +816,23 @@ describe('Search', () => {
       expect(page).toHaveBeenCalledTimes(2);
     });
 
+    it('a "load more" waiting for a refresh survives a second refresh of the same query', async () => {
+      page.mockImplementation(() => Promise.reject(new NetworkError('gone')));
+      await find('inv');
+      page.mockImplementation((_a, _q, position) =>
+        Promise.resolve(
+          position === 0
+            ? { hits: [hit('k1', 'e9')], positions: 1, total: 2 }
+            : { hits: [hit('k1', 'e10', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        ),
+      );
+      local.resume();
+      void local.more();
+      local.resume();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(local.hits.map((h) => h.id)).toEqual(['e9', 'e10']);
+    });
+
     it('does not search in storage on other errors', async () => {
       page.mockImplementation(() => Promise.reject(new Error('500')));
       await find('inv');
