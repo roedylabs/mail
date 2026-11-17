@@ -592,6 +592,7 @@ export class Search {
     const list = Object.entries(cur.queries).map(([account, q]) => ({ account, filter: q.filter }));
     this.loadingMore = false;
     this.#refreshing = true;
+    this.#moreAfter = false;
     void this.#load(++this.#gen, cur.key, list, cur.words);
   }
 
