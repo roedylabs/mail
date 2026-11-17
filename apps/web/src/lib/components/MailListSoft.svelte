@@ -30,6 +30,7 @@
     flatItems,
     rowAction,
     type BulkAction,
+    type ListItem,
     type ListRow,
     type ListValues,
     type Segment,
@@ -104,8 +105,13 @@
     onGoAccount,
   }: Props = $props();
 
-  /** Estimated heights until measured: head (gap, heading, gap) and row with gap. */
-  const EST = { head: [57, 48], row: [71, 92] } as const;
+  /**
+   * Estimated heights until measured: head (gap, heading, gap) and row with gap.
+   * On mobile a further head is 10 px lower than the first (see `.mobile .ghead`).
+   */
+  const EST = { head: [57, 50], row: [71, 92] } as const;
+  const estimate = (it: ListItem | undefined, at: 0 | 1) =>
+    it?.type === 'head' ? EST.head[at] - (at && !it.first ? 10 : 0) : EST.row[at];
 
   const items = $derived(flatItems(pf.groups));
   const v = new VirtualList(() => {
@@ -113,7 +119,7 @@
     const at = isMobile ? 1 : 0;
     return {
       count: list.length,
-      estimate: (i: number) => (list[i]?.type === 'head' ? EST.head[at] : EST.row[at]),
+      estimate: (i: number) => estimate(list[i], at),
       key: (i: number) => list[i]!.key,
     };
   });
@@ -439,7 +445,7 @@
           {@attach v.measure}
         >
           {#if it.type === 'head'}
-            <div class="ghead">
+            <div class="ghead" class:first={it.first}>
               <h2>{it.group.label}</h2>
               <span class="gn">{it.group.n}</span>
             </div>
@@ -1446,9 +1452,28 @@
     padding-bottom: 10px;
   }
 
+  /*
+   * 14 px between the last row of a group and the next heading, and 14 px below
+   * the hint and above the hint below the list: the spaces do not add up, the
+   * larger one wins. The end of a group keeps its 10 px (38 px to the bottom with
+   * the 28 px of `.m-body`), so a further head only adds the remaining 4 px.
+   */
   .mobile .ghead {
     gap: 8px;
-    padding: 14px 8px 10px;
+    padding: 4px 8px 10px;
+  }
+
+  .mobile .ghead.first {
+    padding-top: 14px;
+  }
+
+  /* The hint gives up its space instead of the head, so the head's height stays fixed for the virtual list. */
+  .mobile .note:has(+ .vlist) {
+    margin-bottom: 0;
+  }
+
+  .mobile .vlist + .foot {
+    margin-top: 4px;
   }
 
   .mobile .ghead h2 {
