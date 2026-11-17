@@ -98,6 +98,7 @@ async fn account(state: &AppState, user_id: &str, email: &'static str) -> String
                 username: email,
                 auth_kind: AuthKind::Token,
                 client_id: None,
+                backend_exchange: false,
                 secret_enc: b"encrypted",
                 access_token_enc: None,
                 expires_in: None,

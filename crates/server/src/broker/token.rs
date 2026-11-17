@@ -11,8 +11,12 @@
 //! (`needs_reauth`); temporary errors change nothing, and
 //! a still valid access token keeps going out. After a
 //! temporary error the broker does not ask the mail server again for a
-//! while ([`REFRESH_FAILED_LIMIT`]). When an account is removed it revokes
-//! the grant ([`revoke`]).
+//! while ([`REFRESH_FAILED_LIMIT`]). The broker refreshes with the client
+//! secret only grants the backend obtained itself by exchanging a code
+//! (`backend_exchange`); tokens from the browser it refreshes as a public
+//! client. When an account is removed it revokes the grant ([`revoke`]), as
+//! well as a grant from a code exchange that it does not keep
+//! ([`revoke_discarded`]).
 //!
 //! [`KeyedLocks`]: crate::locks::KeyedLocks
 
@@ -215,19 +219,27 @@ pub async fn client_secret(
 /// rejected refresh token is no longer valid anyway –, and not while
 /// the server throttles rejected clients ([`CLIENT_REJECTED_LIMIT`]). Locked
 /// accounts (`blocked`) the caller does not hand over in the first place.
+///
+/// Unlike the refresh, the revocation also authenticates with the registry
+/// client's secret for grants from the browser: revoking hands out no
+/// tokens, and the grant should go even if it belongs to the confidential
+/// client.
 pub fn revoke(state: &AppState, creds: Credentials, server: Option<Server>) {
     if creds.account.auth_kind != AuthKind::Oauth || creds.account.state != "ok" {
         return;
     }
     let state = state.clone();
     tokio::spawn(async move {
+        let result = async {
+            let as_client = AsClient::of(&state, &creds, server.as_ref(), true).await?;
+            revoke_as(&state, &creds.account.base_url, &as_client).await
+        }
+        .await;
         let id = creds.account.id.as_str();
-        let origin = Url::parse(&creds.account.base_url)
-            .map(|url| url.origin().ascii_serialization())
-            .unwrap_or_default();
-        match revoke_grant(&state, &creds, server.as_ref(), &origin).await {
+        let origin = &creds.account.base_url;
+        match result {
             Ok(Ok(())) => {
-                tracing::info!(account = %id, url = %origin, "grant revoked at the mail server")
+                tracing::info!(account = %id, url = %origin, "grant revoked at the mail server");
             }
             Ok(Err(reason)) => {
                 tracing::warn!(account = %id, url = %origin, reason, "grant not revoked at the mail server");
@@ -239,16 +251,63 @@ pub fn revoke(state: &AppState, creds: Credentials, server: Option<Server>) {
     });
 }
 
+/// A grant the backend just obtained by exchanging a code at a registry
+/// server, but does not keep: its session is unusable, the account is
+/// connected already (409 `dup`), the session names another account (409
+/// `other_account`) or the account was removed while signing in again.
+/// Nobody else holds its refresh token.
+pub struct Discarded {
+    pub server: Server,
+    pub client_id: String,
+    pub refresh_token: String,
+}
+
+/// Revokes a [`Discarded`] grant at the mail server in its own task, like
+/// [`revoke`]: the response does not wait for it, and errors only appear in
+/// the log. Otherwise the grant would stay at the mail server until it
+/// expires from inactivity.
+pub fn revoke_discarded(state: &AppState, user_id: &str, discarded: Discarded) {
+    let (state, user_id) = (state.clone(), user_id.to_owned());
+    tokio::spawn(async move {
+        let Discarded {
+            server,
+            client_id,
+            refresh_token,
+        } = discarded;
+        let result = async {
+            let as_client = AsClient {
+                http: &state.http,
+                secret: client_secret(&state, &server, &client_id).await?,
+                client_id: &client_id,
+                refresh_token,
+            };
+            revoke_as(&state, &server.base_url, &as_client).await
+        }
+        .await;
+        let origin = &server.base_url;
+        match result {
+            Ok(Ok(())) => {
+                tracing::info!(user = %user_id, url = %origin, "discarded grant revoked at the mail server");
+            }
+            Ok(Err(reason)) => {
+                tracing::warn!(user = %user_id, url = %origin, reason, "discarded grant not revoked at the mail server");
+            }
+            Err(error) => {
+                tracing::warn!(user = %user_id, url = %origin, "discarded grant not revoked at the mail server: {error:#}");
+            }
+        }
+    });
+}
+
 /// The revocation itself; `Ok(Err(reason))` if the mail server was not
 /// asked or refused.
-async fn revoke_grant(
+async fn revoke_as(
     state: &AppState,
-    creds: &Credentials,
-    server: Option<&Server>,
-    origin: &str,
+    base_url: &str,
+    as_client: &AsClient<'_>,
 ) -> anyhow::Result<Result<(), &'static str>> {
-    let base_url = Url::parse(&creds.account.base_url).context("base_url invalid")?;
-    let key = Key::Server(origin.to_owned());
+    let base_url = Url::parse(base_url).context("base_url invalid")?;
+    let key = Key::Server(base_url.origin().ascii_serialization());
     if state
         .limiter
         .remaining(&CLIENT_REJECTED_LIMIT, &key)
@@ -256,7 +315,6 @@ async fn revoke_grant(
     {
         return Ok(Err("limited"));
     }
-    let as_client = AsClient::of(state, creds, server).await?;
     let result = oauth::revoke(
         as_client.http,
         &base_url,
@@ -265,7 +323,7 @@ async fn revoke_grant(
     )
     .await;
     if let Err(error) = &result {
-        count_rejected_client(state, error, &as_client, key);
+        count_rejected_client(state, error, as_client, key);
     }
     Ok(result.map_err(|error| error.reason()))
 }
@@ -273,7 +331,8 @@ async fn revoke_grant(
 /// How the backend appears at an account's mail server: HTTP client
 /// (registry server or custom server with SSRF guard), the account's
 /// client with the secret – only for the registry's client
-/// ([`client_secret`]) – and the refresh token.
+/// ([`client_secret`]) and only where the caller allows it – and the refresh
+/// token.
 struct AsClient<'a> {
     http: &'a reqwest::Client,
     client_id: &'a str,
@@ -282,18 +341,21 @@ struct AsClient<'a> {
 }
 
 impl<'a> AsClient<'a> {
+    /// `with_secret`: whether the backend may act as the confidential client
+    /// for this grant.
     async fn of(
         state: &'a AppState,
         creds: &'a Credentials,
         server: Option<&Server>,
+        with_secret: bool,
     ) -> anyhow::Result<Self> {
         let client_id = creds
             .client_id
             .as_deref()
             .context("mail account without OAuth client")?;
         let secret = match server {
-            Some(server) => client_secret(state, server, client_id).await?,
-            None => None,
+            Some(server) if with_secret => client_secret(state, server, client_id).await?,
+            _ => None,
         };
         let http = state.mail_http(server.is_some());
         let refresh_token = open(state, SECRET_PURPOSE, &creds.secret_enc, &creds.account.id)?;
@@ -410,7 +472,10 @@ async fn refresh_once(state: &AppState, loaded: Loaded) -> Result<Option<Access>
     let id = creds.account.id.as_str();
     let base_url = Url::parse(&creds.account.base_url).context("base_url invalid")?;
     let origin = base_url.origin().ascii_serialization();
-    let as_client = AsClient::of(state, &creds, server.as_ref()).await?;
+    // The secret only for grants the backend obtained itself: whoever holds a
+    // refresh token of the confidential client must not get access tokens
+    // through the broker by connecting it as tokens from the browser.
+    let as_client = AsClient::of(state, &creds, server.as_ref(), creds.backend_exchange).await?;
 
     // Only check, do not reserve: concurrent refreshes of different
     // accounts are not a rejected client.
