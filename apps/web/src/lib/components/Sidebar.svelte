@@ -2,7 +2,10 @@
   Sidebar: "New email", tabs Mailboxes/Folders/Tags, mailboxes of the active
   account and the account switch. Collapsed (82 px) only icons. Folder tree
   and tag list come as snippets, the popup "Switch account" as `switcher`.
-  Tooltips only when collapsed or on the tabs not selected.
+  Tooltips only when collapsed or on the tabs not selected. On a tablet in
+  portrait it opens as a drawer over the mailbox (`drawer`): surface `--pop`,
+  shadow `--sh3`; focus moves into it, and leaving it with Tab closes it
+  (`closeDrawer`).
 -->
 <script lang="ts">
   import { sidebarDerived, type SidebarInput, type SidebarTab } from '#lib/shell.ts';
@@ -15,6 +18,10 @@
   interface Props extends SidebarInput {
     /** Sidebar collapsed (room 82 instead of 270 px). */
     collapsed: boolean;
+    /** Open as a drawer over the content (tablet in portrait). */
+    drawer?: boolean;
+    /** Focus has left the open drawer. */
+    closeDrawer?: () => void;
     onCreate?: () => void;
     onTab?: (tab: SidebarTab) => void;
     addF?: () => void;
@@ -38,6 +45,8 @@
     allT2,
     addFShow,
     collapsed,
+    drawer = false,
+    closeDrawer,
     onCreate,
     onTab,
     addF,
@@ -64,18 +73,34 @@
   // Position of the indicator below the active tab: columns 4fr (active) and 1fr.
   const indLeft = $derived(`calc(4px + (100% - 8px - 2 * var(--sgap)) * ${tabIndex / 6} + ${tabIndex} * var(--sgap))`);
   const slotW = $derived(hidden ? '16px' : collapsed ? '82px' : '270px');
+
+  let composeButton: HTMLButtonElement | undefined = $state();
+  // The opened drawer takes the focus, starting with "New email".
+  $effect(() => {
+    if (drawer) composeButton?.focus();
+  });
+
+  /** Tab out of the drawer closes it; not towards the "Sidebar" button, which toggles it itself. */
+  function onFocusOut(event: FocusEvent & { currentTarget: HTMLElement }) {
+    const to = event.relatedTarget;
+    if (!drawer || !(to instanceof HTMLElement) || event.currentTarget.contains(to) || to.closest('[data-sb-toggle]'))
+      return;
+    closeDrawer?.();
+  }
 </script>
 
-<div class="slot" style:width={slotW}>
+<div class="slot" style:width={slotW} onfocusout={onFocusOut}>
   <nav
     class="sidebar"
     class:hidden
+    class:drawer
     style:width={wide ? '270px' : '82px'}
     style:visibility={d.sbVis}
     style:--vis-delay={d.sbVisDelay}
     style:--label-op={d.labelOp}
   >
     <button
+      bind:this={composeButton}
       class="compose"
       onclick={onCreate}
       use:tooltip={{ text: d.cmpTip, side: 'right' }}
@@ -223,14 +248,23 @@
     flex-direction: column;
     padding: 4px 14px 0 16px;
     border-radius: 0 28px 28px 0;
-    background: var(--cnv);
+    /* Surface below the rings of the account tiles and the warning dot */
+    --sb-bg: var(--cnv);
+    background: var(--sb-bg);
     overflow: hidden;
     transition:
       width var(--dur, 220ms) cubic-bezier(0.3, 0.7, 0.2, 1),
       transform calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1),
       opacity var(--dur, 220ms),
       visibility 0s linear var(--vis-delay),
+      box-shadow var(--dur, 220ms),
       background-color var(--dur, 220ms);
+  }
+
+  .sidebar.drawer {
+    --sb-bg: var(--pop);
+    padding-bottom: 12px;
+    box-shadow: var(--sh3);
   }
 
   .sidebar.hidden {
@@ -609,7 +643,7 @@
     border-radius: 9px;
     display: grid;
     place-items: center;
-    box-shadow: 0 0 0 2px var(--cnv);
+    box-shadow: 0 0 0 2px var(--sb-bg);
     font-family: var(--font-serif);
     font-size: 12px;
   }
@@ -626,7 +660,7 @@
     height: 12px;
     border-radius: 9999px;
     background: var(--danger);
-    box-shadow: 0 0 0 2px var(--cnv);
+    box-shadow: 0 0 0 2px var(--sb-bg);
   }
 
   .acct-text {

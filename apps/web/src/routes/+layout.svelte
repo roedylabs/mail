@@ -291,6 +291,23 @@
   const noAccounts = $derived(!mailAccountCount && chrome === 'main');
   // The search takes the full width: sidebar slid out and no sidebar toggle, as without a mail account.
   const sbHidden = $derived(noAccounts || path === SEARCH);
+  /** Tablet in portrait: the sidebar lies as a drawer over the mailbox (`drawerOpen`), with a scrim. */
+  const drawerOpen = $derived(ui.isPortrait && ui.drawer && chrome === 'main' && !sbHidden);
+  /** Sidebar shows labels (270 px): expanded, or as an open drawer. */
+  const sbWide = $derived(!ui.collapsed || drawerOpen);
+  // Another page or layout closes the drawer (choosing a mailbox, folder or tag, composing, rotating).
+  $effect(() => {
+    void path;
+    void ui.layout;
+    untrack(() => (ui.drawer = false));
+  });
+  /** "Sidebar" in the mailbox opens the drawer in portrait, elsewhere it collapses the settings navigation. */
+  const toggleSidebar = () => ui.toggleSidebar(chrome === 'main');
+  /** Closes the drawer; with `refocus` focus goes back to the "Sidebar" button (Escape). */
+  function closeDrawer(refocus = false) {
+    ui.drawer = false;
+    if (refocus) document.querySelector<HTMLElement>('[data-sb-toggle]')?.focus();
+  }
   let searchInput: HTMLInputElement | undefined = $state();
 
   const dark = $derived(ui.dark);
@@ -534,6 +551,8 @@
   /** Mailbox, folder or tag of an account */
   function openMailbox(account: string, target: MailboxTarget, keepMenu = false) {
     const to = resolve('/mailbox/[account]/[...path]', mailboxParams(account, target));
+    // Choosing a mailbox, folder or tag closes the drawer, the same one again too.
+    ui.drawer = false;
     // The same mailbox again (row, 1–6) adds no further history entry.
     if (to !== path) go(to, keepMenu);
     else if (!keepMenu) ui.closeMenu();
@@ -725,7 +744,7 @@
       leaveResults();
     },
     toggleSidebar: () => {
-      ui.toggleSidebar();
+      toggleSidebar();
       leaveResults();
     },
     help: () => {
@@ -821,6 +840,7 @@
     else if (ui.help) ui.help = false;
     else if (tagFixShown) tagFixOpen = false;
     else if (ui.menu) ui.closeMenu();
+    else if (drawerOpen) closeDrawer(true);
     // Overlaid filter panel of the search (`rfOver`), also from a field of the panel.
     else if (path === SEARCH && search.panelOverlaid) search.closePanel();
     // Compose on desktop: first the "Send as" menu, then close (`cmpClose`), also from a field.
@@ -842,7 +862,7 @@
       if (ui.palette) ui.closePalette();
       else ui.openPalette();
     } else if (command === 'search') searchInput?.focus();
-    else if (command === 'sidebar') ui.toggleSidebar();
+    else if (command === 'sidebar') toggleSidebar();
     else if (command === 'settings') openSettings();
     else if (command === 'help') ui.openHelp();
     else if (command === 'mailservers') goAdmin(MAILSERVERS);
@@ -906,6 +926,8 @@
 
   const header = $derived({
     isMobile: ui.isMobile,
+    isTablet: ui.isTablet,
+    sbExpanded: chrome === 'main' ? sbWide : !ui.navCollapsed,
     appName: session.appName,
     logo: session.logo,
     sbToggleOn: !sbHidden,
@@ -1071,7 +1093,7 @@
         label: m.shell_sidebar_toggle(),
         icon: 'ti-layout-sidebar',
         k: '[',
-        run: () => ui.toggleSidebar(),
+        run: toggleSidebar,
       },
       ...adminCommands,
       {
@@ -1288,7 +1310,7 @@
       {
         accounts: scopeAccounts.map((a) => ({ id: a.id, email: a.email, ...tileOf(a), tree: trees[a.id] ?? [] })),
         allMode: all,
-        full: ui.isMobile || !ui.collapsed,
+        full: ui.isMobile || sbWide,
         mob: ui.isMobile,
         active: activeFolder,
         isOpen: (a, id) => mailboxes.isOpen(a, id),
@@ -1307,8 +1329,8 @@
     );
   });
 
-  /** Background below folder tree and tag list for rings and lines (`sbBg`): on mobile the sheet, otherwise the sidebar. */
-  const sbBg = $derived(ui.isMobile ? 'var(--pop)' : 'var(--cnv)');
+  /** Background below folder tree and tag list for rings and lines (`sbBg`): the sheet on mobile, the drawer, otherwise the sidebar. */
+  const sbBg = $derived(ui.isMobile || drawerOpen ? 'var(--pop)' : 'var(--cnv)');
 
   /** A tag of the view is open (`inT`: dot on the "Tags" tab), even before the tags are loaded. */
   const inTag = $derived(here !== null && 'tag' in here);
@@ -1376,7 +1398,7 @@
     return tagRows(
       {
         tree: tagTree,
-        full: ui.isMobile || !ui.collapsed,
+        full: ui.isMobile || sbWide,
         mob: ui.isMobile,
         active: here && 'tag' in here ? here.tag : null,
         isOpen: (id) => tags.isOpen(id),
@@ -1417,7 +1439,7 @@
             return box ? countsOf(box) : null;
           }),
         ),
-      wide: !ui.collapsed,
+      wide: sbWide,
       keys: prefs.values.gKeys,
       open: openRole,
     });
@@ -1433,7 +1455,7 @@
       scope,
       count: accountCount,
       open: swOpen,
-      wide: !ui.collapsed,
+      wide: sbWide,
       identities: scope.account ? compose.identitiesOf(scope.account.id) : null,
     }),
   );
@@ -1559,7 +1581,7 @@
       ? mailAccountNavValues({
           route: maRoute,
           isMobile: ui.isMobile,
-          collapsed: ui.collapsed,
+          collapsed: ui.navCollapsed,
           pickerOpen: ui.menu === 'masw',
           togglePicker: () => ui.toggleMenu('masw'),
           closePicker: () => ui.closeMenu(),
@@ -1634,7 +1656,7 @@
   const backSwipe = (back: () => Promise<void>): BackSwipe | null =>
     chrome === 'panel' && ui.swipeOn ? { animations: prefs.motion, back } : null;
   /** Tablet: the rows of the shell leave scrolling to the browser and the horizontal movement to the gestures. */
-  const tablet = $derived(ui.swipeOn && !ui.isMobile);
+  const tablet = $derived(ui.isTablet);
 
   /** "Advanced settings": without it "Developer" disappears from the navigation (`tgAdv`). */
   function toggleAdvanced() {
@@ -1653,7 +1675,7 @@
     const groups = navGroupValues({
       path,
       isMobile: ui.isMobile,
-      collapsed: ui.collapsed,
+      collapsed: ui.navCollapsed,
       advanced: prefs.values.advanced,
       open: openPage,
     });
@@ -1663,9 +1685,9 @@
       appName: session.appName,
       logo: session.logo,
       version: m.nav_version({ version: buildInfo.version }),
-      collapsed: ui.collapsed,
+      collapsed: ui.navCollapsed,
       backLabel,
-      backTip: ui.collapsed ? backLabel : undefined,
+      backTip: ui.navCollapsed ? backLabel : undefined,
       panelBack: () => void deskBack(),
       mPanelH: sectionName,
       isAdminView: section === 'admin',
@@ -1792,7 +1814,7 @@
     <div class="bare">{@render children()}</div>
     <div class="layer">{@render overlays()}</div>
   {:else if !ui.isMobile}
-    <div class="app">
+    <div class="app" class:tablet>
       {#if banners.length}<NoticeBar isMobile={false} {banners} />{/if}
       <Header
         {...header}
@@ -1801,7 +1823,7 @@
         {appsPop}
         {accountPop}
         {toggleBell}
-        toggleSidebar={() => ui.toggleSidebar()}
+        {toggleSidebar}
         goHome={() => go(HOME)}
         {onSearch}
         {onSearchKey}
@@ -1821,10 +1843,16 @@
         toggleAccount={() => ui.toggleMenu('account')}
       />
       <div class="body" class:tablet {@attach swipeBack(() => (tablet ? backSwipe(deskBack) : null))}>
+        {#if drawerOpen}
+          <!-- Scrim of the drawer: a click beside it closes it; Escape closes it from the keyboard. -->
+          <div class="scrim" role="presentation" onclick={() => closeDrawer()}></div>
+        {/if}
         {#if chrome === 'main'}
           <Sidebar
-            wide={!ui.collapsed}
+            wide={sbWide}
             collapsed={ui.collapsed}
+            drawer={drawerOpen}
+            closeDrawer={() => closeDrawer()}
             hidden={sbHidden}
             {sbTab}
             navRows={mailRows}
@@ -1848,7 +1876,7 @@
         {:else}
           <SettingsNav {...settingsNav} />
           <main class="card scroll no-scrollbar" {@attach scrollbar}>
-            <div class="panel">{@render content()}</div>
+            <div class="panel" class:portrait={ui.isPortrait}>{@render content()}</div>
           </main>
         {/if}
       </div>
@@ -2034,8 +2062,22 @@
     display: flex;
   }
 
+  /* Tablet: room for the home indicator below the shell */
+  .app.tablet {
+    padding-bottom: 10px;
+  }
+
   .body.tablet {
     touch-action: pan-y;
+  }
+
+  /* Scrim of the drawer (tablet in portrait), below the sidebar (z-index 30) */
+  .scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 20;
+    background: var(--scrim);
+    animation: snFade 180ms ease-out;
   }
 
   /* Back gesture (`swipeBack`): layer underneath the page (mobile) and arrow chip, shown by the gesture */
@@ -2087,6 +2129,10 @@
     max-width: 780px;
     margin: 0 auto;
     padding: 44px 40px 96px;
+  }
+
+  .panel.portrait {
+    padding: 36px 28px 96px;
   }
 
   .page {
