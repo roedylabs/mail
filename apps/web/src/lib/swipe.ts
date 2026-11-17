@@ -175,7 +175,7 @@ export function velocity(points: readonly TrackPoint[], at: number): [number, nu
 let tracking = false;
 let animating = false;
 
-interface Steps {
+export interface Steps {
   /** After 8 px: does the movement belong to this gesture? Otherwise tracking ends (scrolling stays with the browser). */
   decide: (dx: number, dy: number) => boolean;
   start: () => void;
@@ -191,9 +191,18 @@ interface Steps {
 
 const EDITABLE = 'input,textarea,select,[contenteditable="true"],[draggable="true"]';
 
-/** May a gesture start at this place (`onGDown`)? */
-function canStart(e: PointerEvent): boolean {
-  if (tracking || animating || !e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0)) return false;
+/**
+ * Gestures that wait for the decision on the pointer `down`: the attachments
+ * of nested elements all join the same pointer, the innermost (first in the
+ * bubbling order) is asked first and the first that takes the movement wins
+ * (one `gDecide` for all gestures).
+ */
+let pending: { down: PointerEvent; candidates: Steps[] } | null = null;
+
+/** May a gesture start at this place (`onGDown`)? Also while an inner gesture still waits for the decision on the same pointer. */
+export function canStart(e: PointerEvent): boolean {
+  if ((tracking && pending?.down !== e) || animating || !e.isPrimary || (e.pointerType === 'mouse' && e.button !== 0))
+    return false;
   return !(e.target instanceof Element && e.target.closest(EDITABLE));
 }
 
@@ -216,9 +225,19 @@ function swallowClick(): void {
   window.addEventListener('click', swallow, true);
 }
 
-/** Tracks the pointer from `down` across the window until release (`onGDown`, `onGMove`, `onGUp`). */
-function follow(down: PointerEvent, steps: Steps): void {
+/**
+ * Tracks the pointer from `down` across the window until release (`onGDown`,
+ * `onGMove`, `onGUp`). A further call for the same `down` (an outer element)
+ * only adds its steps as a candidate for the decision.
+ */
+export function follow(down: PointerEvent, steps: Steps): void {
+  if (tracking && pending?.down === down) {
+    pending.candidates.push(steps);
+    return;
+  }
   tracking = true;
+  const candidates = [steps];
+  pending = { down, candidates };
   const id = down.pointerId;
   let x0 = down.clientX;
   let y0 = down.clientY;
@@ -228,6 +247,7 @@ function follow(down: PointerEvent, steps: Steps): void {
 
   const stop = () => {
     tracking = false;
+    pending = null;
     window.removeEventListener('pointermove', onMove);
     window.removeEventListener('pointerup', onUp);
     window.removeEventListener('pointercancel', onUp);
@@ -245,10 +265,13 @@ function follow(down: PointerEvent, steps: Steps): void {
       return;
     }
     if (Math.hypot(dx, dy) < SLOP) return;
-    if (!steps.decide(dx, dy)) {
+    const won = candidates.find((c) => c.decide(dx, dy));
+    if (!won) {
       stop();
       return;
     }
+    steps = won;
+    pending = null;
     decided = true;
     x0 = e.clientX;
     y0 = e.clientY;

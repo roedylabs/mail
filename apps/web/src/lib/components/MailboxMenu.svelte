@@ -11,6 +11,9 @@
   import { tooltip } from '#lib/actions/tooltip.ts';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
+  import { prefs } from '#lib/state/prefs.svelte.ts';
+  import { ui } from '#lib/state/ui.svelte.ts';
+  import { swipeTabs, tabPanelStyle } from '#lib/tab-swipe.ts';
 
   interface Props extends MailboxMenuValues {
     /** Folder tree in the "Folders" tab. */
@@ -67,72 +70,80 @@
   >
 </div>
 
-<div class="tabs" role="tablist" aria-label={m.mailbox_menu_tabs()} style:grid-template-columns={rtCols}>
-  <span class="indicator" aria-hidden="true" style:left={indLeft} style:width={indWidth}></span>
-  {#each d.rtTabs as t (t.key)}
-    <button
-      role="tab"
-      class="tab"
-      class:on={t.on}
-      aria-selected={t.on}
-      aria-label={t.label}
-      onclick={() => onTab(t.key)}
-      style:gap={t.gap}
-    >
-      <span class="tab-icon">
-        <Icon name={t.icon} />
-        <span class="dot" style:opacity={dotOp(t.key, t.on)}></span>
-      </span>
-      <span class="tab-label" class:shown={t.on}>{t.label}</span>
-    </button>
-  {/each}
-</div>
-
-<div class="panels">
-  <div class="track" style:transform="translateX({-tabIndex * 100}%)">
-    <div
-      role="tabpanel"
-      class="panel rows no-scrollbar"
-      class:off={d.rtPm.hidden}
-      aria-hidden={d.rtPm.hidden}
-      style:visibility={d.rtPm.vis}
-      style:--vis-delay={d.rtPm.visDelay}
-    >
-      {#each mFolderRows as r (r.label)}
-        <button class="row" class:on={r.on} style:font-weight={r.fw} onclick={r.onClick}>
-          <span class="row-tile"><Icon name={r.icon} /></span><span>{r.label}</span>
-        </button>
-      {/each}
-    </div>
-    <div
-      role="tabpanel"
-      class="panel no-scrollbar"
-      class:off={d.rtPf.hidden}
-      aria-hidden={d.rtPf.hidden}
-      style:visibility={d.rtPf.vis}
-      style:--vis-delay={d.rtPf.visDelay}
-    >
-      {@render folders?.()}
-      {#if addFShow}
-        <button class="add" onclick={addF}>
-          <span class="add-tile"><Icon name="ti-plus" /></span>
-          <span>{m.sidebar_folder_new()}</span>
-        </button>
-      {/if}
-    </div>
-    <div
-      role="tabpanel"
-      class="panel no-scrollbar"
-      class:off={d.rtPt.hidden}
-      aria-hidden={d.rtPt.hidden}
-      style:visibility={d.rtPt.vis}
-      style:--vis-delay={d.rtPt.visDelay}
-    >
-      {@render tags?.()}
-      <button class="add" onclick={addT}>
-        <span class="add-tile"><Icon name="ti-plus" /></span>
-        <span>{m.sidebar_tag_new()}</span>
+<!-- Segment and panels; a horizontal swipe on the panels switches the tab (`swipeTabs`). -->
+<div data-g-tabsw>
+  <div
+    class="tabs"
+    role="tablist"
+    aria-label={m.mailbox_menu_tabs()}
+    style:grid-template-columns="var(--gcols, {rtCols})"
+  >
+    <span class="indicator" aria-hidden="true" style:left="var(--gil, {indLeft})" style:width="var(--giw, {indWidth})"
+    ></span>
+    {#each d.rtTabs as t, i (t.key)}
+      <button
+        role="tab"
+        class="tab"
+        class:on={t.on}
+        aria-selected={t.on}
+        aria-label={t.label}
+        onclick={() => onTab(t.key)}
+        style:color="var(--gt{i}c, {t.on ? 'var(--fg)' : 'var(--mfg)'})"
+        style:gap="var(--gt{i}g, {t.gap})"
+      >
+        <span class="tab-icon">
+          <Icon name={t.icon} />
+          <span class="dot" style:opacity={dotOp(t.key, t.on)}></span>
+        </span>
+        <span
+          class="tab-label"
+          style:max-width="var(--gt{i}w, {t.on ? '120px' : '0px'})"
+          style:opacity="var(--gt{i}o, {t.on ? 1 : 0})">{t.label}</span
+        >
       </button>
+    {/each}
+  </div>
+
+  <div
+    class="panels"
+    data-g-tabs
+    {@attach swipeTabs(() =>
+      ui.swipeOn
+        ? {
+            animations: prefs.motion,
+            index: tabIndex,
+            count: d.rtTabs.length,
+            fr: FR,
+            desk: false,
+            select: (i) => onTab(d.rtTabs[i]?.key ?? sbTab),
+          }
+        : null,
+    )}
+  >
+    <div class="track" style:transform="translateX(calc({-tabIndex * 100}% + var(--gdx, 0px)))">
+      <div role="tabpanel" class="panel rows no-scrollbar" aria-hidden={d.rtPm.hidden} style={tabPanelStyle(0, d.rtPm)}>
+        {#each mFolderRows as r (r.label)}
+          <button class="row" class:on={r.on} style:font-weight={r.fw} onclick={r.onClick}>
+            <span class="row-tile"><Icon name={r.icon} /></span><span>{r.label}</span>
+          </button>
+        {/each}
+      </div>
+      <div role="tabpanel" class="panel no-scrollbar" aria-hidden={d.rtPf.hidden} style={tabPanelStyle(1, d.rtPf)}>
+        {@render folders?.()}
+        {#if addFShow}
+          <button class="add" onclick={addF}>
+            <span class="add-tile"><Icon name="ti-plus" /></span>
+            <span>{m.sidebar_folder_new()}</span>
+          </button>
+        {/if}
+      </div>
+      <div role="tabpanel" class="panel no-scrollbar" aria-hidden={d.rtPt.hidden} style={tabPanelStyle(2, d.rtPt)}>
+        {@render tags?.()}
+        <button class="add" onclick={addT}>
+          <span class="add-tile"><Icon name="ti-plus" /></span>
+          <span>{m.sidebar_tag_new()}</span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -193,7 +204,8 @@
     padding: 4px;
     border-radius: 24px;
     background: var(--sunken);
-    transition: grid-template-columns calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1);
+    transition: grid-template-columns var(--gtd, calc(var(--dur, 220ms) * 1.4))
+      var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1));
   }
 
   .indicator {
@@ -205,8 +217,8 @@
     box-shadow: var(--sh1);
     pointer-events: none;
     transition:
-      left calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1),
-      width calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1);
+      left var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1)),
+      width var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1));
   }
 
   .tab {
@@ -220,22 +232,17 @@
     padding: 0 8px;
     border-radius: 20px;
     background: transparent;
-    color: var(--mfg);
     font-size: 14.5px;
     font-weight: 800;
     white-space: nowrap;
     transition:
-      color var(--dur, 220ms),
-      gap var(--dur, 220ms),
+      color var(--gtd, var(--dur, 220ms)),
+      gap var(--gtd, var(--dur, 220ms)),
       transform var(--dur, 220ms) cubic-bezier(0.3, 1.5, 0.5, 1);
   }
 
   .tab:active {
     transform: scale(0.96);
-  }
-
-  .tab.on {
-    color: var(--fg);
   }
 
   .tab-icon {
@@ -260,17 +267,10 @@
 
   .tab-label {
     min-width: 0;
-    max-width: 0;
     overflow: hidden;
-    opacity: 0;
     transition:
-      max-width calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1),
-      opacity var(--dur, 220ms);
-  }
-
-  .tab-label.shown {
-    max-width: 120px;
-    opacity: 1;
+      max-width var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1)),
+      opacity var(--gtd, var(--dur, 220ms));
   }
 
   .panels {
@@ -278,15 +278,17 @@
     height: 352px;
     overflow: hidden;
     margin: 0 -12px;
+    /* Scrolling stays with the browser, horizontal movement goes to the tab swipe. */
+    touch-action: pan-y;
   }
 
   .track {
     height: 100%;
     display: flex;
-    transition: transform calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1);
+    transition: transform var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1));
   }
 
-  /* Panel: hidden `op` 0 and `t` scale(.96), visibility delayed (`visDelay`) */
+  /* Panel: hidden opacity 0 and scale(.96), visibility delayed (`visDelay`) */
   .panel {
     flex: 0 0 100%;
     min-width: 0;
@@ -300,18 +302,13 @@
     gap: 6px;
     transform-origin: top center;
     transition:
-      opacity calc(var(--dur, 220ms) * 1.2),
-      transform calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1),
+      opacity var(--gtd, calc(var(--dur, 220ms) * 1.2)),
+      transform var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1)),
       visibility 0s linear var(--vis-delay);
   }
 
   .panel.rows {
     gap: 3px;
-  }
-
-  .panel.off {
-    opacity: 0;
-    transform: scale(0.96);
   }
 
   /* Row like `mrow()`: selected `bg` var(--accsoft), tile in accent color and rotated */

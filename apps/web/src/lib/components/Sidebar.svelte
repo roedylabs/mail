@@ -14,6 +14,9 @@
   import { tooltip } from '#lib/actions/tooltip.ts';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
+  import { prefs } from '#lib/state/prefs.svelte.ts';
+  import { ui } from '#lib/state/ui.svelte.ts';
+  import { swipeTabs, tabPanelStyle } from '#lib/tab-swipe.ts';
 
   interface Props extends SidebarInput {
     /** Sidebar collapsed (room 82 instead of 270 px). */
@@ -91,6 +94,7 @@
 
 <div class="slot" style:width={slotW} onfocusout={onFocusOut}>
   <nav
+    data-g-tabsw
     class="sidebar"
     class:hidden
     class:drawer
@@ -111,15 +115,21 @@
     </button>
 
     <!-- One tab stop, ←/→ and Home/End (tabs pattern). -->
-    <div class="tabs" role="tablist" aria-label={m.sidebar_tabs()} use:tablist style:grid-template-columns={d.rtCols}>
+    <div
+      class="tabs"
+      role="tablist"
+      aria-label={m.sidebar_tabs()}
+      use:tablist
+      style:grid-template-columns="var(--gcols, {d.rtCols})"
+    >
       <span
         class="indicator"
         aria-hidden="true"
-        style:left={indLeft}
-        style:width="calc((100% - 8px - 2 * var(--sgap)) * {4 / 6})"
+        style:left="var(--gil, {indLeft})"
+        style:width="var(--giw, calc((100% - 8px - 2 * var(--sgap)) * {4 / 6}))"
         style:opacity={wide ? 1 : 0}
       ></span>
-      {#each d.rtTabs as t (t.key)}
+      {#each d.rtTabs as t, i (t.key)}
         <button
           role="tab"
           class="tab"
@@ -128,7 +138,8 @@
           aria-selected={t.on}
           onclick={() => onTab?.(t.key)}
           use:tooltip={{ text: t.tip, side: 'right' }}
-          style:gap={t.gap}
+          style:gap="var(--gt{i}g, {t.gap})"
+          style:--gtc="var(--gt{i}c)"
         >
           <span class="tab-icon">
             <Icon name={t.icon} />
@@ -137,20 +148,37 @@
               style:opacity={!t.on && ((t.key === 'folders' && inFolder) || (t.key === 'tags' && inTag)) ? 1 : 0}
             ></span>
           </span>
-          <span class="tab-label" class:shown={t.on && wide}>{t.label}</span>
+          <span
+            class="tab-label"
+            style:max-width="var(--gt{i}w, {t.on && wide ? '120px' : '0px'})"
+            style:opacity="var(--gt{i}o, {t.on && wide ? 1 : 0})">{t.label}</span
+          >
         </button>
       {/each}
     </div>
 
-    <div class="panels" data-g-tabs={d.rtG}>
-      <div class="track" style:transform="translateX({-tabIndex * 100}%)">
-        <div
-          role="tabpanel"
-          class="panel rows"
-          aria-hidden={d.rtPm.hidden}
-          style:visibility={d.rtPm.vis}
-          style:--vis-delay={d.rtPm.visDelay}
-        >
+    <!-- Tablet, expanded: a horizontal swipe on the panels switches the tab (`swipeTabs`). -->
+    <div
+      class="panels"
+      data-g-tabs={d.rtG}
+      {@attach swipeTabs(() =>
+        ui.isTablet && d.rtG
+          ? {
+              animations: prefs.motion,
+              index: tabIndex,
+              count: d.rtTabs.length,
+              fr: 4,
+              desk: true,
+              select: (i) => {
+                const t = d.rtTabs[i];
+                if (t) onTab?.(t.key);
+              },
+            }
+          : null,
+      )}
+    >
+      <div class="track" style:transform="translateX(calc({-tabIndex * 100}% + var(--gdx, 0px)))">
+        <div role="tabpanel" class="panel rows" aria-hidden={d.rtPm.hidden} style={tabPanelStyle(0, d.rtPm)}>
           {#each navRows as r (r.id)}
             <button
               class="row"
@@ -170,13 +198,7 @@
             </button>
           {/each}
         </div>
-        <div
-          role="tabpanel"
-          class="panel"
-          aria-hidden={d.rtPf.hidden}
-          style:visibility={d.rtPf.vis}
-          style:--vis-delay={d.rtPf.visDelay}
-        >
+        <div role="tabpanel" class="panel" aria-hidden={d.rtPf.hidden} style={tabPanelStyle(1, d.rtPf)}>
           {@render folders?.()}
           {#if addFShow}
             <button class="add" onclick={addF} use:tooltip={{ text: d.addFTip, side: 'right' }}>
@@ -185,13 +207,7 @@
             </button>
           {/if}
         </div>
-        <div
-          role="tabpanel"
-          class="panel"
-          aria-hidden={d.rtPt.hidden}
-          style:visibility={d.rtPt.vis}
-          style:--vis-delay={d.rtPt.visDelay}
-        >
+        <div role="tabpanel" class="panel" aria-hidden={d.rtPt.hidden} style={tabPanelStyle(2, d.rtPt)}>
           {@render tags?.()}
           <button class="add" onclick={addT} use:tooltip={{ text: d.addTTip, side: 'right' }}>
             <span class="add-tile"><Icon name="ti-plus" /></span>
@@ -339,7 +355,8 @@
     padding: 4px;
     border-radius: 21px;
     background: var(--sunken);
-    transition: grid-template-columns calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1);
+    transition: grid-template-columns var(--gtd, calc(var(--dur, 220ms) * 1.4))
+      var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1));
   }
 
   .indicator {
@@ -351,8 +368,8 @@
     box-shadow: var(--sh1);
     pointer-events: none;
     transition:
-      left calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1),
-      width calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1),
+      left var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1)),
+      width var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1)),
       opacity var(--dur, 220ms);
   }
 
@@ -366,15 +383,16 @@
     justify-content: center;
     padding: 0 6px;
     border-radius: 17px;
-    color: var(--mfg);
+    /* While swiping the colour mixes between the tabs (`--gtc`). */
+    color: var(--gtc, var(--mfg));
     font-size: 13.5px;
     font-weight: 800;
     white-space: nowrap;
     transition:
       background-color var(--dur, 220ms),
       box-shadow var(--dur, 220ms),
-      color var(--dur, 220ms),
-      gap var(--dur, 220ms);
+      color var(--gtd, var(--dur, 220ms)),
+      gap var(--gtd, var(--dur, 220ms));
   }
 
   .tab:hover {
@@ -383,7 +401,7 @@
   }
 
   .tab.on {
-    color: var(--fg);
+    color: var(--gtc, var(--fg));
   }
 
   .tab.on:hover {
@@ -417,17 +435,10 @@
 
   .tab-label {
     min-width: 0;
-    max-width: 0;
     overflow: hidden;
-    opacity: 0;
     transition:
-      max-width calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1),
-      opacity var(--dur, 220ms);
-  }
-
-  .tab-label.shown {
-    max-width: 120px;
-    opacity: 1;
+      max-width var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1)),
+      opacity var(--gtd, var(--dur, 220ms));
   }
 
   .panels {
@@ -436,14 +447,17 @@
     position: relative;
     overflow: hidden;
     margin: 0 -6px;
+    /* Scrolling stays with the browser, horizontal movement goes to the tab swipe. */
+    touch-action: pan-y;
   }
 
   .track {
     height: 100%;
     display: flex;
-    transition: transform calc(var(--dur, 220ms) * 1.4) cubic-bezier(0.3, 0.7, 0.2, 1);
+    transition: transform var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1));
   }
 
+  /* Panel: hidden opacity 0 and scale(.96), visibility delayed (`visDelay`) */
   .panel {
     flex: 0 0 100%;
     min-width: 0;
@@ -455,8 +469,10 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
+    transform-origin: top center;
     transition:
-      opacity calc(var(--dur, 220ms) * 1.2),
+      opacity var(--gtd, calc(var(--dur, 220ms) * 1.2)),
+      transform var(--gtd, calc(var(--dur, 220ms) * 1.4)) var(--gte, cubic-bezier(0.3, 0.7, 0.2, 1)),
       visibility 0s linear var(--vis-delay);
   }
 

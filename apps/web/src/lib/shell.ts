@@ -236,7 +236,7 @@ export function sidebarDerived(
   const panel = (i: number): RailPanel =>
     i === index
       ? { hidden: false, vis: 'visible', visDelay: '0s' }
-      : { hidden: true, vis: 'hidden', visDelay: 'calc(var(--dur, 220ms) * 1.4)' };
+      : { hidden: true, vis: 'hidden', visDelay: 'var(--gtd, calc(var(--dur, 220ms) * 1.4))' };
   return {
     labelOp: wide ? 1 : 0,
     cmpTip: wide ? undefined : texts.compose,
