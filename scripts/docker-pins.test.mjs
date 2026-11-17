@@ -91,14 +91,19 @@ function buildxProblems(text) {
       step.push(next);
     }
     if (!step.some((l) => /^\s*uses:\s*['"]?docker\/setup-buildx-action@/.test(l))) continue;
-    // Only the action input counts: `driver-opts` under `with:` (not under `env:` or elsewhere).
-    const at = step.findIndex((l) => /^\s*with:\s*$/.test(l));
+    // Only the action input counts: `driver-opts` directly under the step's own `with:` (not under
+    // `env:`, nor text that looks like it inside another value).
+    const keyIndent = /^(\s*-\s+)/.exec(line)[1].length;
+    const at = step.findIndex((l, j) => j > 0 && l.search(/\S/) === keyIndent && /^\s*with:\s*$/.test(l));
     const inputs = [];
     if (at !== -1) {
-      const withIndent = step[at].search(/\S/);
+      let childIndent = -1;
       for (const l of step.slice(at + 1)) {
-        if (l.trim() && l.search(/\S/) <= withIndent) break;
-        inputs.push(l);
+        if (!l.trim()) continue;
+        const lineIndent = l.search(/\S/);
+        if (lineIndent <= keyIndent) break;
+        if (childIndent === -1) childIndent = lineIndent;
+        if (lineIndent === childIndent) inputs.push(l);
       }
     }
     if (!inputs.some((l) => /^\s*driver-opts:.*\bimage=\$\{\{\s*steps\.buildkit\.outputs\.image\s*\}\}/.test(l))) {
@@ -179,12 +184,25 @@ describe('buildxProblems', () => {
       '    uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
       '    env:',
       '      driver-opts: image=${{ steps.buildkit.outputs.image }}',
+      '  - name: Builder with the image in a multiline value',
+      '    uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
+      '    env:',
+      '      MESSAGE: |',
+      '        with:',
+      '          driver-opts: image=${{ steps.buildkit.outputs.image }}',
+      '  - name: Builder with the image nested deeper',
+      '    uses: docker/setup-buildx-action@0000000000000000000000000000000000000000 # v4',
+      '    with:',
+      '      other: |',
+      '        driver-opts: image=${{ steps.buildkit.outputs.image }}',
     ].join('\n');
     assert.deepEqual(buildxProblems(text), [
       'line 2: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 6: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 9: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
       'line 18: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
+      'line 22: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
+      'line 28: setup-buildx-action without driver-opts image=${{ steps.buildkit.outputs.image }}',
     ]);
   });
 });
