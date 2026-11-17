@@ -104,6 +104,7 @@
     type RoleId,
   } from '#lib/routes.ts';
   import { rememberPage } from '#lib/last-page.ts';
+  import { adminHome, advancedOff, rememberPanelPage, settingsHome } from '#lib/panel-memory.ts';
   import { setInMain } from '#lib/landmark.ts';
   import { pageTitle } from '#lib/page-title.ts';
   import {
@@ -157,12 +158,11 @@
 
   let { children }: LayoutProps = $props();
 
-  /** Targets of the switches; settings open with "Appearance". */
+  /** Targets of the switches; settings and administration without a page: `openSettings`, `openAdmin`. */
   const HOME = resolve('/start');
-  const SETTINGS = resolve('/settings/appearance');
   const NOTIFICATIONS = resolve('/settings/notifications');
   const PROFILE = resolve('/account/profile');
-  const ADMIN = resolve('/admin/users');
+  const USERS = resolve('/admin/users');
   const MAILSERVERS = resolve('/admin/mail-servers');
   const MAINTENANCE = resolve('/admin/maintenance');
   const SYSTEM_MAIL = resolve('/admin/email');
@@ -258,6 +258,10 @@
   $effect(() => {
     const id = session.user?.id;
     if (id && ready && !target && !forbidden && !page.error) rememberPage(id, page.url);
+  });
+  // Last opened page of settings and administration in this session (only in memory).
+  $effect(() => {
+    if (ready && !target && !forbidden && !page.error && chrome === 'panel') rememberPanelPage(path);
   });
   /**
    * Swiping the toast: paused during the gesture, sent at once when swiped away,
@@ -735,11 +739,11 @@
     addAccount: () => go(ADD_ACCOUNT),
     invite: () => {
       ui.userInvite = true;
-      go(ADMIN);
+      go(USERS);
     },
     openUser: (id) => {
       ui.userOpen = id;
-      go(ADMIN);
+      go(USERS);
     },
     searchFrom: (email) => searchFrom(email),
     logout: () => void logout(),
@@ -839,7 +843,7 @@
       else ui.openPalette();
     } else if (command === 'search') searchInput?.focus();
     else if (command === 'sidebar') ui.toggleSidebar();
-    else if (command === 'settings') go(SETTINGS);
+    else if (command === 'settings') openSettings();
     else if (command === 'help') ui.openHelp();
     else if (command === 'mailservers') goAdmin(MAILSERVERS);
     else if (command === 'next') ui.reader?.next();
@@ -1055,7 +1059,7 @@
     const list: Command[] = [
       { g: m.palette_group_actions(), label: m.palette_compose(), icon: 'ti-pencil-plus', k: 'C', run: openCompose },
       ...mailboxCommands(accounts.list ?? [], (account, role) => openMailbox(account, { role })),
-      { g: settings, label: m.palette_settings(), icon: 'ti-settings', k: ',', run: () => go(SETTINGS) },
+      { g: settings, label: m.palette_settings(), icon: 'ti-settings', k: ',', run: openSettings },
       {
         g: settings,
         label: dark ? m.palette_light() : m.palette_dark(),
@@ -1502,8 +1506,8 @@
     navItem(m.tabbar_more(), 'ti-dots', false, () => ui.toggleMenu('nav')),
   ]);
   const navRows = $derived([
-    navItem(m.shell_settings(), 'ti-settings', false, () => openSection(SETTINGS)),
-    ...(session.isAdmin ? [navItem(m.shell_admin(), 'ti-shield', false, () => openSection(ADMIN))] : []),
+    navItem(m.shell_settings(), 'ti-settings', false, openSettings),
+    ...(session.isAdmin ? [navItem(m.shell_admin(), 'ti-shield', false, openAdmin)] : []),
     navItem(m.shell_apps(), 'ti-grid-dots', false, () => (ui.menu = 'apps')),
   ]);
 
@@ -1577,10 +1581,19 @@
           : sectionName,
   );
 
-  /** Mobile from the "More" menu: first the area's list (`openSettings()` without a page). */
+  /**
+   * Settings or administration without a page of their own (`,`, the gear, "Open settings", More › Settings,
+   * "Administration"): the page last opened there in this session; on mobile first the area's list.
+   */
   function openSection(to: string) {
     ui.panelList = to;
     go(to);
+  }
+  function openSettings() {
+    openSection(hrefOf(settingsHome()));
+  }
+  function openAdmin() {
+    openSection(hrefOf(adminHome(prefs.values.advanced)));
   }
 
   function openPage(target: PanelPage) {
@@ -1623,6 +1636,7 @@
   function toggleAdvanced() {
     const on = !prefs.values.advanced;
     prefs.set({ advanced: on });
+    if (!on) advancedOff();
     if (!on && pageOf(path)?.id === 'developer') {
       const to = hrefOf(ADMIN_HOME);
       // On mobile the area's list the switch came from stays.
@@ -1797,8 +1811,8 @@
           searchInput?.focus();
         }}
         {toggleSf}
-        openAdmin={() => go(ADMIN)}
-        openSettingsBtn={() => go(SETTINGS)}
+        {openAdmin}
+        openSettingsBtn={openSettings}
         toggleApps={() => ui.toggleMenu('apps')}
         toggleAccount={() => ui.toggleMenu('account')}
       />
