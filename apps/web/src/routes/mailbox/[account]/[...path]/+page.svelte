@@ -104,6 +104,7 @@
   import { compose, NEW_DRAFT, parseMailto, replyInit, type ComposeNav } from '#lib/state/compose.svelte.ts';
   import { modKey } from '#lib/keys.ts';
   import { replyValues, type ReplyActions, type ReplyMode, type ReplyState } from '#lib/reply.ts';
+  import { RefreshLock } from '#lib/refresh-lock.svelte.ts';
   import { LOCAL_DRAFT } from '#lib/state/edit-queue.svelte.ts';
   import { edits, lacksAccess, refusedBy, type EditPart } from '#lib/state/edits.svelte.ts';
   import { planActions } from '#lib/state/plan-actions.ts';
@@ -348,11 +349,18 @@
     files: (files) => expandReply(files),
   };
 
-  let busy = $state(false);
-  /** Angle of the refresh icon: every refresh that starts turns it two more revolutions. */
-  let rot = $state(0);
+  /** "Refresh": lock of 900 ms (500 ms with motion off) and the turn of the icon. */
+  const refreshLock = new RefreshLock();
+  const rot = $derived(refreshLock.rot);
+  /** Refreshes whose response or lock is still out; the sync pill shows while there is one. */
+  let syncing = 0;
 
   async function refresh() {
+    // Offline only the error toast, the icon does not turn.
+    if (network.offline) {
+      ui.toasts.error(m.error_offline());
+      return;
+    }
     const current = list;
     const only = onlyAccount;
     if (only && !isReachable(only)) {
@@ -365,32 +373,31 @@
     }
     if (view?.unavailable) {
       // Reload the view's mailboxes; the sidebar shows "Sign-in required".
-      if (network.offline) ui.toasts.error(m.error_offline());
       for (const a of viewAccounts.filter(isReachable))
         if (mailboxes.of(a.id)?.status === 'error') void mailboxes.load(a.id).catch(() => {});
       void tags.ensure().catch(() => {});
       return;
     }
-    if (busy || !current || !view) return;
-    busy = true;
-    rot += 720;
-    // Sync pill while the request runs.
+    if (!current || !view) return;
+    // Locked for a fixed time, not until the response; a click in that time does nothing.
+    const unlocked = refreshLock.press(prefs.motion);
+    if (!unlocked) return;
+    // Sync pill until the response, at least as long as the lock.
+    syncing++;
     ui.syncing = true;
     const multi = view.multi;
-    // Refresh lock and sync pill last at least 600 ms, even if the response comes faster;
-    // clicks in that time add no further turn of the icon.
-    const minimum = new Promise((r) => setTimeout(r, 600));
     try {
       const { added, failed } = await current.refresh();
+      // The result comes at the earliest when the lock ends.
+      await unlocked;
       if (failed) {
         if (multi && failed < current.sources.length) ui.toasts.show(m.list_refresh_partial());
         else ui.toasts.error(failText(current.failure, m.error_list()));
       } else if (!added)
         ui.toasts.show(viewAccounts.every(isReachable) ? m.list_refresh_none() : m.list_refresh_partial());
     } finally {
-      await minimum;
-      busy = false;
-      ui.syncing = false;
+      await unlocked;
+      if (--syncing === 0) ui.syncing = false;
     }
   }
 

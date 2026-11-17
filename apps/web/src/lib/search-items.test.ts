@@ -639,7 +639,7 @@ describe('notifItems', () => {
   ];
 
   it('title, icon, text as the path, time on the right and unread bold', () => {
-    const list = notifItems(LIST, TIME, vi.fn());
+    const list = notifItems(LIST, TIME, vi.fn(), vi.fn());
     expect(list.map((c) => [c.cat, c.id, c.label, c.icon, c.path, c.side, c.unread, c.extra])).toEqual([
       ['notifs', 'n1', 'New sign-in', 'ti-login', 'Firefox on Linux', '09:30', true, 'Firefox on Linux'],
       [
@@ -659,7 +659,7 @@ describe('notifItems', () => {
   });
 
   it('scored by title before text, every word must match', () => {
-    const list = notifItems(LIST, TIME, vi.fn());
+    const list = notifItems(LIST, TIME, vi.fn(), vi.fn());
     const scored = (q: string) =>
       scoreAll(list, termsOf(q).terms)
         .sort((a, b) => b.score - a.score)
@@ -672,15 +672,21 @@ describe('notifItems', () => {
     expect(scored('firefox team')).toEqual([]);
   });
 
-  it('a hit leads to the target without expanding a user, without a target nothing happens', () => {
-    const go = vi.fn();
-    const list = notifItems(LIST, TIME, go);
+  it('a hit marks as read, then leads to the target without expanding a user', () => {
+    const calls: string[] = [];
+    const go = vi.fn((path: string) => calls.push(`go ${path}`));
+    const read = vi.fn((id: string) => calls.push(`read ${id}`));
+    const list = notifItems(LIST, TIME, go, read);
     list[0]!.run();
-    expect(go).toHaveBeenLastCalledWith('/account/security');
     list[1]!.run();
-    expect(go).toHaveBeenLastCalledWith('/admin/users');
-    go.mockClear();
-    list[2]!.run();
+    expect(calls).toEqual(['read n1', 'go /account/security', 'read n2', 'go /admin/users']);
+  });
+
+  it('without a target a hit only marks as read', () => {
+    const go = vi.fn();
+    const read = vi.fn();
+    notifItems(LIST, TIME, go, read)[2]!.run();
+    expect(read).toHaveBeenCalledExactlyOnceWith('n3');
     expect(go).not.toHaveBeenCalled();
   });
 
