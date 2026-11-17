@@ -426,6 +426,42 @@ describe('Shell layout', () => {
     expect(scheduledRetain).toHaveBeenLastCalledWith([]);
   });
 
+  it('slides the sidebar out on the search without the sidebar toggle and brings it back as before', async () => {
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: { accounts: [ACCOUNT] } }],
+      'GET tags': [{ body: { tags: [] } }],
+    });
+    const { findByText, queryByRole, container } = renderAt('/start');
+    await findByText('account1@s1.test');
+    const sidebar = () => container.querySelector<HTMLElement>('nav.sidebar');
+    const slot = () => sidebar()?.parentElement;
+    const toggle = () => queryByRole('button', { name: 'Show or hide sidebar' });
+    expect(sidebar()).not.toHaveClass('hidden');
+    expect(slot()?.style.width).toBe('270px');
+    expect(toggle()).not.toBeNull();
+    // Collapsed before the search: it comes back collapsed.
+    ui.toggleSidebar();
+    await tick();
+    expect(slot()?.style.width).toBe('82px');
+    page.url = new URL('http://localhost/search');
+    await tick();
+    expect(sidebar()).toHaveClass('hidden');
+    expect(sidebar()?.style.visibility).toBe('hidden');
+    expect(slot()?.style.width).toBe('16px');
+    expect(toggle()).toBeNull();
+    page.url = new URL('http://localhost/start');
+    await tick();
+    expect(sidebar()).not.toHaveClass('hidden');
+    expect(sidebar()?.style.visibility).toBe('visible');
+    expect(slot()?.style.width).toBe('82px');
+    expect(toggle()).not.toBeNull();
+    // `ui.reset()` keeps the sidebar state.
+    ui.collapsed = false;
+  });
+
   it('opens “New email” with C, from the palette and the sidebar with the view account', async () => {
     mockApi({
       'GET public/config': [{ body: CONFIG }],
