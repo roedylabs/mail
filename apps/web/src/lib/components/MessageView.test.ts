@@ -1,5 +1,6 @@
 import { MA_COLORS, MODES } from '@roedy/tokens';
 import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hideTooltip, TIP_DELAY, TIP_FADE } from '#lib/actions/tooltip.ts';
 import { renderMail } from '#lib/mail/render.ts';
@@ -158,6 +159,7 @@ function setup(
     conversationKey?: string;
     enter?: boolean;
     replyFocus?: number;
+    focusNav?: string | null;
   } = {},
 ) {
   const fns = {
@@ -636,26 +638,29 @@ describe('reading view', () => {
 
   it('gives the paging button focus again when the view returns after the skeleton', async () => {
     for (const isMobile of [false, true]) {
-      const first = setup({ isMobile, rd: values({ isMobile }), conversationKey: 'a', enter: true });
-      const next = first.view.getByRole('button', { name: 'Next message' });
-      next.focus();
-      await fireEvent.click(next);
-      expect(first.onNext).toHaveBeenCalledOnce();
-      // The skeleton replaced the view (the next conversation loads slowly), then it comes back without animation.
-      first.view.unmount();
+      // The route passes the button that had focus when the skeleton replaced the view.
+      const back = setup({ isMobile, rd: values({ isMobile }), enter: false, focusNav: 'next' });
+      const next = back.view.getByRole('button', { name: 'Next message' });
+      await waitFor(() => expect(document.activeElement).toBe(next));
+      expect(next).toHaveAttribute('data-nav', 'next');
+      expect(back.view.getByRole('button', { name: 'Previous message' })).toHaveAttribute('data-nav', 'prev');
+      // Read once: a later value does not move focus.
+      next.blur();
+      await back.view.rerender({ focusNav: 'prev' });
       expect(document.activeElement).toBe(document.body);
-      const again = setup({ isMobile, rd: values({ isMobile }), conversationKey: 'b', enter: false });
-      await waitFor(() =>
-        expect(document.activeElement).toBe(again.view.getByRole('button', { name: 'Next message' })),
-      );
-      again.view.unmount();
-      // By mouse (no focus before) and on a fresh opening nothing gets focus.
-      const mouse = setup({ isMobile, rd: values({ isMobile }), enter: false });
-      await fireEvent.click(mouse.view.getByRole('button', { name: 'Previous message' }));
-      mouse.view.unmount();
-      const fresh = setup({ isMobile, rd: values({ isMobile }), enter: false });
+      back.view.unmount();
+      // Not on a fresh opening, and not if focus went elsewhere meanwhile.
+      const fresh = setup({ isMobile, rd: values({ isMobile }), enter: true, focusNav: 'next' });
+      await tick();
       expect(document.activeElement).toBe(document.body);
       fresh.view.unmount();
+      const field = document.body.appendChild(document.createElement('input'));
+      field.focus();
+      const away = setup({ isMobile, rd: values({ isMobile }), enter: false, focusNav: 'next' });
+      await tick();
+      expect(document.activeElement).toBe(field);
+      away.view.unmount();
+      field.remove();
     }
   });
 

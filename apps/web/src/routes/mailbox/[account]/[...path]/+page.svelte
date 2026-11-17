@@ -576,6 +576,27 @@
   /** Conversation on screen: the scroll position resets when the shown content changes, not on the request. */
   const shownKey = $derived(rd ? rdKey : held ? last.key : null);
 
+  /**
+   * Paging button that has focus right before the skeleton replaces the reading view (`data-nav`):
+   * the view gets it back when it returns. Taken before the DOM update, cleared once the view is back.
+   */
+  let focusNav = $state<string | null>(null);
+  let viewOn = false;
+  $effect.pre(() => {
+    const on = !!shownRd;
+    untrack(() => {
+      if (viewOn && !on && opened) {
+        const el = document.activeElement;
+        focusNav = el instanceof HTMLElement ? (el.closest<HTMLElement>('[data-nav]')?.dataset['nav'] ?? null) : null;
+      } else if (!opened) focusNav = null;
+    });
+    viewOn = on;
+  });
+  // After the view read it (on mounting).
+  $effect(() => {
+    if (shownRd) untrack(() => (focusNav = null));
+  });
+
   /** Open reply bar (`pfRp`); only applies to the email it replies to. */
   let reply = $state.raw<ReplyState | null>(null);
   const rp = $derived(shownRd ? replyValues(shownRd.reply, reply, modKey(), network.offline) : null);
@@ -1670,6 +1691,7 @@
     <MessageView
       rd={shownRd}
       conversationKey={shownKey}
+      {focusNav}
       enter={!readShown}
       {replyFocus}
       isMobile={ui.isMobile}
