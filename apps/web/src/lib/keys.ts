@@ -161,9 +161,11 @@ export interface KeyContext {
   dialog: boolean;
   /** Confirmation or dialog of a page open: only Escape. */
   confirm: boolean;
-  /** Reading view open (`rdNav`): J/→ next, K/← previous conversation. */
+  /** Compose open on desktop (`cmp`): only Escape and ⌘K/Ctrl+K, ⌘/Ctrl+Enter stays with its field. */
+  compose?: boolean;
+  /** Reading view open (`rdNav`), also with an open menu: J/→ next, K/← previous conversation. */
   reader?: boolean;
-  /** Reading view with reply bar (`rn.r`): R replies, F forwards. */
+  /** Reading view with reply bar (`rn.r`), also with an open menu: R replies, F forwards. */
   reply?: boolean;
   /** List without reading view and menu (`pfNav`): ↑/↓ select a row, Enter opens it. */
   list?: boolean;
@@ -176,15 +178,20 @@ type KeyLike = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 's
 const SYMBOLS = new Set(['/', '[', ',', '?']);
 
 /** Input field, select list or editable content: keys stay with the field there. */
-export function editable(target: EventTarget | null): boolean {
+function editable(target: EventTarget | null): boolean {
   if (!(target instanceof HTMLElement)) return false;
   return /^(input|textarea|select)$/i.test(target.tagName) || target.isContentEditable;
+}
+
+/** Input field or text area: Escape there does not close the reading view, unlike a select list or editable content. */
+export function textField(target: EventTarget | null): boolean {
+  return target instanceof HTMLElement && /^(input|textarea)$/i.test(target.tagName);
 }
 
 /**
  * Command for a key: confirmation and mobile only Escape;
  * ⌘K/Ctrl+K and Escape always, everything else not in input fields, not in
- * open dialogs and only with `gKeys`. Another character opens the palette
+ * open dialogs, not in compose and only with `gKeys`. Another character opens the palette
  * with that character, 1–6 a mailbox, in the reading view J/K and
  * ←/→ page, R and F open the reply bar there, in the list ↑/↓ select a row and Enter opens it (not on
  * a button or link, whose Enter stays with them). Nothing with ⌘ or Ctrl; with Alt or AltGr (on
@@ -199,7 +206,7 @@ export function keyCommand(event: KeyLike, ctx: KeyContext): KeyCommand | null {
   const altGr = (event.ctrlKey && event.altKey) || event.getModifierState?.('AltGraph') === true;
   if (editable(event.target) || event.metaKey || (event.ctrlKey && !altGr)) return null;
   if ((event.altKey || altGr) && !SYMBOLS.has(key)) return null;
-  if (ctx.dialog || !ctx.keys) return null;
+  if (ctx.dialog || !ctx.keys || ctx.compose) return null;
   // J/K also with Caps Lock or Shift.
   if (ctx.reader && (key === 'j' || key === 'J' || key === 'ArrowRight')) return 'next';
   if (ctx.reader && (key === 'k' || key === 'K' || key === 'ArrowLeft')) return 'prev';

@@ -5,7 +5,7 @@ import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
-import type { ListedUser } from '#lib/users.svelte.ts';
+import { keptUsers, type ListedUser } from '#lib/users.svelte.ts';
 import Page from './+page.svelte';
 
 const nav = vi.hoisted(() => ({ goto: vi.fn(() => Promise.resolve()) }));
@@ -69,6 +69,7 @@ afterEach(() => {
   session.user = null;
   prefs.reset();
   ui.reset();
+  keptUsers.forget();
   window.dispatchEvent(new Event('resize'));
 });
 
@@ -293,5 +294,17 @@ describe('Users page', () => {
     expect(await view.findByText('Something went wrong')).toBeInTheDocument();
     await fireEvent.click(view.getByRole('button', { name: 'Try again' }));
     expect(await view.findByText('Alice Brown')).toBeInTheDocument();
+  });
+
+  it('shows the list at once on reopen and keeps it with a toast if loading fails', async () => {
+    const first = renderPage();
+    expect(await first.findByText('Alice Brown')).toBeInTheDocument();
+    first.unmount();
+    mockApi({ 'GET users': [{ status: 500, body: { error: 'internal' } }] });
+    const view = render(Page);
+    expect(view.getByText('Alice Brown')).toBeInTheDocument();
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t update the list.', error: true }));
+    expect(view.queryByText('Something went wrong')).toBeNull();
+    expect(view.getByText('Alice Brown')).toBeInTheDocument();
   });
 });

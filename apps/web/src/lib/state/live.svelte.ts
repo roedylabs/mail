@@ -7,7 +7,9 @@
  * open conversation reloads when it is affected. Without
  * `eventSourceUrl` or on persistent errors it polls at an interval
  * (polling) and tries push again later. When the connection is back,
- * it syncs immediately and rebuilds the stream (`reconnect`).
+ * it syncs immediately and rebuilds the stream (`reconnect`). Over HTTP/1.1
+ * only a few streams per origin may stay open (`push-slots.ts`); the other
+ * accounts poll until a slot becomes free.
  */
 
 import { isJmapError, type EventsOptions, type Id, type JmapClient } from '@roedy/jmap';
@@ -15,6 +17,7 @@ import { accounts } from '#lib/state/accounts.svelte.ts';
 import { edits } from '#lib/state/edits.svelte.ts';
 import { mailboxes } from '#lib/state/mailboxes.svelte.ts';
 import { message } from '#lib/state/message.svelte.ts';
+import { pushSlots, type PushSlots } from '#lib/state/push-slots.ts';
 import { scheduled } from '#lib/state/scheduled.svelte.ts';
 import { emailChangesOf, threads } from '#lib/state/threads.svelte.ts';
 
@@ -53,6 +56,11 @@ export type EmailChanges = { reset: true } | { reset: false; state: string; thre
 export interface LiveApi {
   /** Push stream; fails with `unsupported` without `eventSourceUrl`. */
   events(account: string, options: EventsOptions): Promise<void>;
+  /**
+   * Slot for the push stream on the account's server (see `PushSlots.acquire`):
+   * resolves once the stream may open, `onWait` if it has to wait first.
+   */
+  slot(account: string, signal: AbortSignal, onWait: () => void): Promise<void>;
   /** JMAP account of the emails (key in `StateChange.changed`). */
   accountId(account: string, signal: AbortSignal): Promise<Id>;
   /** Current state of the emails. */
@@ -69,11 +77,21 @@ export interface LiveTargets {
   reached?(account: string): Promise<void>;
 }
 
-export function jmapLiveApi(clientOf: (account: string) => Promise<JmapClient>): LiveApi {
+export function jmapLiveApi(
+  clientOf: (account: string) => Promise<JmapClient>,
+  slots: PushSlots = pushSlots(),
+): LiveApi {
   return {
     async events(account, options) {
       const client = await clientOf(account);
       return client.events(options);
+    },
+
+    async slot(account, signal, onWait) {
+      const { eventSourceUrl } = await (await clientOf(account)).session(signal);
+      // Without push, `events` reports `unsupported`.
+      if (!eventSourceUrl) return;
+      await slots.acquire(eventSourceUrl, signal, onWait);
     },
 
     async accountId(account, signal) {
@@ -99,9 +117,11 @@ interface AccountLive {
   account: string;
   /** Aborts everything: account removed, no longer usable or signed out. */
   stop: AbortController;
-  /** Running push stream. */
+  /** Running push stream, also while it waits for a slot. */
   push: AbortController | null;
   mode: 'push' | 'poll';
+  /** Polls until a push slot becomes free; the stream then opens by itself. */
+  waiting: boolean;
   /** While polling: since when (ms), for the next push attempt. */
   pollSince: number;
   /** `false` if the server cannot push (`unsupported`, `foreignOrigin`). */
@@ -208,6 +228,7 @@ export class LiveSync {
       stop: new AbortController(),
       push: null,
       mode: 'push',
+      waiting: false,
       pollSince: 0,
       pushable: true,
       timer: null,
@@ -237,12 +258,28 @@ export class LiveSync {
 
   async #push(live: AccountLive): Promise<void> {
     live.mode = 'push';
+    live.waiting = false;
     live.failures = 0;
     const ctl = new AbortController();
     live.push = ctl;
     try {
       live.accountId ??= await this.#api.accountId(live.account, ctl.signal);
       if (ctl.signal.aborted) return;
+      await this.#api.slot(live.account, ctl.signal, () => {
+        if (ctl.signal.aborted) return;
+        this.#poll(live);
+        live.waiting = true;
+        live.push = ctl;
+      });
+      if (ctl.signal.aborted) return;
+      if (live.waiting) {
+        // A slot became free: from polling to push, the stream syncs on `onOpen`.
+        live.waiting = false;
+        live.mode = 'push';
+        live.failures = 0;
+        if (live.timer) clearTimeout(live.timer);
+        live.timer = null;
+      }
       await this.#api.events(live.account, {
         signal: ctl.signal,
         types: LIVE_TYPES,
@@ -259,6 +296,7 @@ export class LiveSync {
       if (ctl.signal.aborted) return;
       // Without push at the server it stays with polling; everything else (token, network) tries push again later.
       if (isJmapError(error, 'unsupported') || isJmapError(error, 'foreignOrigin')) live.pushable = false;
+      ctl.abort();
       this.#poll(live);
     }
   }
@@ -278,11 +316,13 @@ export class LiveSync {
     if (live.stop.signal.aborted) return;
     live.mode = 'poll';
     live.push = null;
+    live.waiting = false;
     live.pollSince = Date.now();
     const tick = () => {
       live.timer = null;
       if (live.stop.signal.aborted) return;
-      if (live.pushable && Date.now() - live.pollSince >= PUSH_RETRY) {
+      // While waiting for a slot the stream takes over by itself.
+      if (live.pushable && !live.waiting && Date.now() - live.pollSince >= PUSH_RETRY) {
         void this.#push(live);
         return;
       }

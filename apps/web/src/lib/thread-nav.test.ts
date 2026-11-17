@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { parseMailboxPath, type MailboxLocation } from '#lib/routes.ts';
-import { followGone, openList, openThread, type GoneCheck } from '#lib/thread-nav.ts';
+import { followGone, openList, openThread, threadHref, type GoneCheck } from '#lib/thread-nav.ts';
 
 const nav = vi.hoisted(() => ({ goto: vi.fn() }));
 vi.mock('$app/navigation', () => ({ goto: nav.goto }));
@@ -24,6 +24,11 @@ describe('Navigation of the reading view', () => {
     expect(nav.goto).toHaveBeenLastCalledWith('/mailbox/a1/inbox/t1', { replace: false });
     openThread(at('/mailbox/all/inbox'), 'a2', 't7');
     expect(nav.goto).toHaveBeenLastCalledWith('/mailbox/all/inbox/a2%2Ft7', { replace: false });
+  });
+
+  it('builds the address of a thread, in "Alle Konten" with its account', () => {
+    expect(threadHref(at('/mailbox/a1/f/folder%201'), 'a1', 't1')).toBe('/mailbox/a1/f/folder%201/t1');
+    expect(threadHref(at('/mailbox/all/inbox/a1%2Ft1'), 'a2', 't7')).toBe('/mailbox/all/inbox/a2%2Ft7');
   });
 
   it('closes to the list of the view', () => {

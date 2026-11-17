@@ -4,6 +4,7 @@ import type { MailAccount } from '#lib/state/accounts.svelte.ts';
 import {
   CALLBACK_PATH,
   FORM0,
+  METADATA_TIMEOUT,
   PENDING_TTL,
   SCOPE,
   begin,
@@ -265,6 +266,27 @@ describe('redirect', () => {
     expect(await run({ ...LIST, servers: [{ ...SERVER, reach: 'err' }] })).toEqual({ ok: false, error: 'reach' });
     // No second fetch of `GET servers`.
     expect(seen.map((x) => x.url)).not.toContain(api('servers'));
+  });
+
+  it('gives up on the metadata after the timeout, like on a network error', async () => {
+    vi.useFakeTimers();
+    try {
+      // All connections to the server taken: the request waits until it is aborted.
+      const fetch = vi.fn(
+        (_input: RequestInfo | URL, init: RequestInit = {}) =>
+          new Promise<Response>((_resolve, reject) =>
+            init.signal?.addEventListener('abort', () => reject(init.signal?.reason as Error), { once: true }),
+          ),
+      ) as unknown as typeof globalThis.fetch;
+      const d = deps(fetch);
+      const result = begin(form(), { kind: 'new' }, LIST, [], d, new AbortController().signal);
+      await vi.advanceTimersByTimeAsync(METADATA_TIMEOUT - 1);
+      expect(d.assigned).toEqual([]);
+      await vi.advanceTimersByTimeAsync(1);
+      expect(await result).toEqual({ ok: false, error: 'cors' });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('no longer redirects after an abort', async () => {
