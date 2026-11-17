@@ -418,7 +418,7 @@ describe('search suggestions', () => {
     const [full, signIn] = rows as [HTMLElement, HTMLElement];
     expect(full).toHaveTextContent('Storage almost full');
     expect(full).toHaveTextContent('a1@example.com uses 92 % of its storage');
-    expect(full.querySelector('.side')?.textContent).not.toBe('');
+    expect(full.querySelector('.side')?.textContent ?? '').not.toBe('');
     expect(full.querySelector<HTMLElement>('.label')?.style.fontWeight).toBe('800');
     expect(signIn.querySelector<HTMLElement>('.label')?.style.fontWeight).toBe('700');
 
