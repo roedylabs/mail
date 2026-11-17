@@ -686,6 +686,9 @@ describe('Compose', () => {
     });
     expect(c.values(TIME)?.fields.map((f) => f.key)).toEqual(['to', 'cc', 'bcc']);
     expect(await c.openDraft('k1', 'm7')).toBe(true);
+    expect(c.values(TIME)?.backLabel).toBe('Drafts');
+    expect(await c.openDraft('k1', 'm7', { href: '/mailbox/k1/t/tag1', label: 'Project' })).toBe(true);
+    expect(c.values(TIME)?.backLabel).toBe('Project');
     c.setText('Hello Ben!');
     await vi.advanceTimersByTimeAsync(AUTOSAVE_MS);
     expect(saves[0]).toMatchObject({
