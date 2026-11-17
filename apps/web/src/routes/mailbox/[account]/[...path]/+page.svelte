@@ -562,15 +562,17 @@
   /**
    * When paging, the previous conversation stays until the next one is there (from storage within milliseconds):
    * no empty frame, toolbar and focus stay. After `SKELETON_DELAY` the skeleton takes over. Its actions do nothing
-   * meanwhile (`reader` and `rd` are `null`).
+   * meanwhile: they need `rd` or `reader`, both `null`.
    */
-  let lastRd = $state.raw<ReadValues | null>(null);
+  const rdKey = $derived(rd && opened ? JSON.stringify([opened.account, opened.threadId]) : null);
+  let last = $state.raw<{ rd: ReadValues | null; key: string | null }>({ rd: null, key: null });
   $effect.pre(() => {
-    if (rd || !opened) lastRd = rd;
+    if (rd || !opened) last = { rd, key: rdKey };
   });
-  const shownRd = $derived(
-    rd ?? (opened && readShown && conversation?.status === 'loading' && !reading.slow ? lastRd : null),
-  );
+  const held = $derived(!rd && !!opened && readShown && conversation?.status === 'loading' && !reading.slow);
+  const shownRd = $derived(rd ?? (held ? last.rd : null));
+  /** Conversation on screen: the scroll position resets when the shown content changes, not on the request. */
+  const shownKey = $derived(rd ? rdKey : held ? last.key : null);
 
   /** Open reply bar (`pfRp`); only applies to the email it replies to. */
   let reply = $state.raw<ReplyState | null>(null);
@@ -1334,10 +1336,14 @@
   });
 
   /** "Load once" (`hb.once`). */
-  const allowOnce = (key: string) => conversation?.allowOnce(key);
+  const allowOnce = (key: string) => {
+    // Only for the live conversation, not for the previous one shown while paging (email ids repeat across accounts).
+    if (rd) conversation?.allowOnce(key);
+  };
 
   /** "Load full message" (`tr.load`); if it fails, the notice stays (error toast as for the source). */
   function loadFull(key: string) {
+    if (!rd) return;
     const c = conversation;
     // Only while the conversation is open: otherwise the error would sit above another one.
     c?.loadFull(key).catch((error: unknown) => {
@@ -1442,6 +1448,7 @@
 
   /** "Try again" of the "not saved" card (`missRetry`); if it succeeds, the message shows. */
   async function retryMissing() {
+    if (!rd) return;
     const c = conversation;
     try {
       await c?.retry();
@@ -1457,7 +1464,8 @@
    * block: in a LAN without a default route it reports `true` permanently.
    */
   async function download(att: ReadAttachment) {
-    if (!opened) return;
+    // Not from the previous conversation shown while paging: `opened` may already be another account.
+    if (!opened || !rd) return;
     if (!usable) {
       ui.toasts.error(m.read_att_off_toast());
       return;
@@ -1659,7 +1667,7 @@
   {#if shownRd && rp}
     <MessageView
       rd={shownRd}
-      conversationKey={replyKey}
+      conversationKey={shownKey}
       enter={!readShown}
       {replyFocus}
       isMobile={ui.isMobile}
