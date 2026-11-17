@@ -309,7 +309,10 @@
     return !!t && draftOf(t, rolesOf(row.account).drafts);
   }
 
-  /** Compose with a draft, back to `from`: from an open conversation "Back to message" (`r.pfMsg`), otherwise the view. */
+  /**
+   * Compose with a draft, back to `from`: from an open conversation "Back to message" (`r.pfMsg`), otherwise the view.
+   * Without `from` (row, J/K) only as long as the address stays: paging on while the draft loads opens nothing.
+   */
   async function openDraft(account: string, id: string, sendAt?: number, from?: string) {
     const here = page.url.pathname + page.url.search;
     const href = from ?? here;
@@ -317,7 +320,8 @@
       href,
       label: opened && href === here ? m.compose_back_message() : (view?.title ?? m.mailbox_inbox()),
     };
-    if (await compose.openDraft(account, id, ret, sendAt))
+    const ok = await compose.openDraft(account, id, ret, sendAt);
+    if (ok && (from !== undefined || page.url.pathname + page.url.search === here))
       void goto(resolve('/compose/[draft]', { draft: encodeURIComponent(draftRef({ account, id })) }));
   }
 

@@ -9,10 +9,12 @@
  */
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
+import { page } from '$app/state';
 import { untrack } from 'svelte';
 import { api } from '#lib/api.ts';
 import { timeZoneOf } from '#lib/errors.ts';
 import { modKey } from '#lib/keys.ts';
+import { roleLabel } from '#lib/mailbox-nav.ts';
 import type { TimeContext } from '#lib/mail-list.ts';
 import { ALL_ACCOUNTS, mailboxParams } from '#lib/routes.ts';
 import { hitBox, searchCandidates } from '#lib/search-items.ts';
@@ -38,17 +40,24 @@ import { tags } from '#lib/state/tags.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import type { ListedUser } from '#lib/users.svelte.ts';
 
-/** Open a found email: thread in its folder; a draft opens compose, back to "Drafts" (`select` + `pfOpen`). */
+/**
+ * Open a found email: thread in its folder. An email in the account's drafts
+ * opens compose, back to "Drafts" (`select` + `pfOpen`); not if another page
+ * opened meanwhile.
+ */
 export function openHit(hit: MailHit, box: HitBox): void {
-  const { account, path } = mailboxParams(hit.account, box.target);
-  if (box.role === 'drafts') {
-    const ret = { href: resolve('/mailbox/[account]/[...path]', { account, path }), label: box.label };
+  const drafts = mailboxes.role(hit.account, 'drafts')?.id;
+  if (drafts && hit.mailboxIds[drafts]) {
+    const list = mailboxParams(hit.account, { role: 'drafts' });
+    const ret = { href: resolve('/mailbox/[account]/[...path]', list), label: roleLabel('drafts') };
     const draft = encodeURIComponent(draftRef({ account: hit.account, id: hit.id }));
+    const at = page.url.pathname;
     void compose.openDraft(hit.account, hit.id, ret).then((ok) => {
-      if (ok) void goto(resolve('/compose/[draft]', { draft }));
+      if (ok && page.url.pathname === at) void goto(resolve('/compose/[draft]', { draft }));
     });
     return;
   }
+  const { account, path } = mailboxParams(hit.account, box.target);
   void goto(resolve('/mailbox/[account]/[...path]', { account, path: `${path}/${encodeURIComponent(hit.threadId)}` }));
 }
 
