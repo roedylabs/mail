@@ -1120,6 +1120,8 @@ export class Compose {
     await Promise.allSettled([...this.#pending]);
     // After reloading the tab may not know the queue yet.
     await this.#outbox.restore();
+    // One that started meanwhile (e.g. closing) too: otherwise reusing the open draft would change its way back.
+    await Promise.allSettled([...this.#pending]);
     if (token !== this.#token) return false;
     ({ account, id } = this.#latest(account, id));
     // Sent: silently open nothing (the route goes to the drafts), so that no error toast replaces the toast "Message sent".
