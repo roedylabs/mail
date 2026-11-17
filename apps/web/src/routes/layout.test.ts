@@ -1285,6 +1285,13 @@ describe('Shell layout', () => {
     await fireEvent.click(getByRole('button', { name: 'Settings' }));
     expect(goto).toHaveBeenLastCalledWith('/settings/appearance');
     expect(ui.panelList).toBe('/settings/appearance');
+    // Leaving the area forgets the list: "Appearance" opened later with a target shows the page.
+    page.url = new URL('http://localhost/settings/appearance');
+    await tick();
+    expect(ui.panelList).toBe('/settings/appearance');
+    page.url = new URL('http://localhost/start');
+    await tick();
+    expect(ui.panelList).toBeNull();
   });
 
   it('reopens the last settings and administration page without a page of their own', async () => {
@@ -1292,7 +1299,8 @@ describe('Shell layout', () => {
       'GET public/config': [{ body: CONFIG }],
       'GET auth/me': [{ body: me('admin') }],
       'GET settings': [{ body: SETTINGS }],
-      'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+      'GET mail-accounts': [{ body: { accounts: [ACCOUNT] } }],
+      'GET tags': [{ body: { tags: [] } }],
     });
     const { findByText, getByRole, goto } = renderAt('/settings/shortcuts');
     await findByText('Page content');
@@ -1303,7 +1311,7 @@ describe('Shell layout', () => {
       await tick();
     };
     await open('/admin/audit-log');
-    await open('/no-account');
+    await open('/start');
     await fireEvent.keyDown(window, { key: ',' });
     expect(goto).toHaveBeenLastCalledWith('/settings/shortcuts');
     await fireEvent.click(getByRole('button', { name: 'Administration' }));
@@ -1313,7 +1321,7 @@ describe('Shell layout', () => {
     // The subpages of an email account leave "Security" as the page of the settings.
     await open('/account/security');
     await open('/account/mail-accounts/a1/overview');
-    await open('/no-account');
+    await open('/start');
     await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
     await fireEvent.click(within(getByRole('dialog', { name: 'Command palette' })).getByText('Open settings'));
     expect(goto).toHaveBeenLastCalledWith('/account/security');

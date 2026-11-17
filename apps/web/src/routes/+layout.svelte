@@ -1521,6 +1521,10 @@
   const panelList = $derived(
     ui.isMobile && chrome === 'panel' && (ui.panelList === path || sameMailAccountPage(ui.panelList, path)),
   );
+  // Leaving the area (Back, tab bar, links) forgets the list: a page opened later with a target of its own shows the page.
+  $effect(() => {
+    if (ready && chrome !== 'panel') ui.panelList = null;
+  });
   const backToApp = $derived(m.shell_back_to({ app: session.appName }));
   const sectionName = $derived(section === 'admin' ? m.shell_admin() : m.shell_settings());
 
