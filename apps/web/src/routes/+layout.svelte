@@ -12,7 +12,7 @@
   import '@fontsource-variable/nunito-sans/opsz.css';
   import '@fontsource/young-serif/400.css';
   import '../app.css';
-  import { onMount, untrack } from 'svelte';
+  import { onMount, tick, untrack } from 'svelte';
   import { afterNavigate, goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
@@ -141,7 +141,7 @@
   import { edits } from '#lib/state/edits.svelte.ts';
   import { network, pollVisible } from '#lib/state/network.svelte.ts';
   import { scopeOf, search } from '#lib/state/search.svelte.ts';
-  import { TOAST_BACK_MS, type ToastSwipe } from '#lib/swipe.ts';
+  import { swipeBack, TOAST_BACK_MS, type BackSwipe, type ToastSwipe } from '#lib/swipe.ts';
   import { ago } from '#lib/ago.ts';
   import { editLogs } from '#lib/mail-queue.ts';
   import { mailStores } from '#lib/mail-store.ts';
@@ -498,6 +498,11 @@
    * "Mailboxes" sheet, `swPick()`).
    */
   function go(to: string, keepMenu = false) {
+    void navigate(to, keepMenu);
+  }
+
+  /** Like `go`; resolves once the target is shown. */
+  function navigate(to: string, keepMenu = false): Promise<void> {
     if (keepMenu) keepMenuAt = to;
     else ui.closeMenu();
     // The target is the open address (active navigation entry): replace the entry instead of duplicating it,
@@ -505,9 +510,9 @@
     // not with `page.url`: that stays unchanged after shallow navigation (compose after saving).
     const here = window.location.href;
     // eslint-disable-next-line svelte/no-navigation-without-resolve -- callers pass resolve() results
-    if (new URL(to, here).href === here) void goto(to, { replace: true });
+    if (new URL(to, here).href === here) return goto(to, { replace: true });
     // eslint-disable-next-line svelte/no-navigation-without-resolve -- callers pass resolve() results
-    else void goto(to);
+    return goto(to);
   }
 
   /** Mailbox, folder or tag of an account */
@@ -1532,11 +1537,29 @@
     go(hrefOf(target.route));
   }
 
-  /** "Back" of the mobile header: from the page to the list, from the list to the app (`mBack`). */
-  function panelBack() {
-    if (ui.isMobile && !panelList) ui.panelList = path;
-    else go(maRoute ? hrefOf('/account/mail-accounts') : HOME);
+  /**
+   * "Back" of the mobile header: from the page to the list, from the list to the app (`mBack`);
+   * resolves once the target is shown.
+   */
+  function panelBack(): Promise<void> {
+    if (ui.isMobile && !panelList) {
+      ui.panelList = path;
+      return tick();
+    }
+    return navigate(maRoute ? hrefOf('/account/mail-accounts') : HOME);
   }
+
+  /** "Back" of the settings navigation (desktop and tablet): to the app, from a mail account to its list. */
+  const deskBack = (): Promise<void> => navigate(maNav ? hrefOf('/account/mail-accounts') : HOME);
+
+  /**
+   * Swiping right to go back (same target as "Back"): on mobile on the page of the panel,
+   * on tablets (coarse pointer without the mobile layout) on the row of navigation and panel.
+   */
+  const backSwipe = (back: () => Promise<void>): BackSwipe | null =>
+    chrome === 'panel' && ui.swipeOn ? { animations: prefs.motion, back } : null;
+  /** Tablet: the rows of the shell leave scrolling to the browser and the horizontal movement to the gestures. */
+  const tablet = $derived(ui.swipeOn && !ui.isMobile);
 
   /** "Advanced settings": without it "Developer" disappears from the navigation (`tgAdv`). */
   function toggleAdvanced() {
@@ -1567,7 +1590,7 @@
       collapsed: ui.collapsed,
       backLabel,
       backTip: ui.collapsed ? backLabel : undefined,
-      panelBack: () => go(maNav ? hrefOf('/account/mail-accounts') : HOME),
+      panelBack: () => void deskBack(),
       mPanelH: sectionName,
       isAdminView: section === 'admin',
       // In the mail account the subpages as one group without a heading.
@@ -1721,7 +1744,7 @@
         toggleApps={() => ui.toggleMenu('apps')}
         toggleAccount={() => ui.toggleMenu('account')}
       />
-      <div class="body">
+      <div class="body" class:tablet {@attach swipeBack(() => (tablet ? backSwipe(deskBack) : null))}>
         {#if chrome === 'main'}
           <Sidebar
             wide={!ui.collapsed}
@@ -1753,6 +1776,8 @@
           </main>
         {/if}
       </div>
+      <!-- Arrow chip of the back gesture (`swipeBack`). -->
+      <div class="back-chip" data-back-chip aria-hidden="true"><Icon name="ti-arrow-left" /></div>
       {#if ui.palette}
         <CommandPalette
           palQ={ui.palQ}
@@ -1792,8 +1817,10 @@
   {:else}
     <div class="app mobile">
       {#if banners.length}<NoticeBar isMobile={true} {banners} />{/if}
+      <!-- Layer underneath the page during the back gesture (`swipeBack`). -->
+      <div class="back-under" data-back-under aria-hidden="true"></div>
       <!-- Page area below the notice bar; the sync pill belongs to it and lies below the sheets. -->
-      <div class="page">
+      <div class="page" {@attach swipeBack(() => backSwipe(panelBack))}>
         {#if chrome === 'main'}
           {#if !mReading}
             <Header
@@ -1807,7 +1834,7 @@
           {#if !noAccounts && !mReading}<TabBar mTabsL={tabsL} mTabsR={tabsR} />{/if}
         {:else}
           <header class="m-back">
-            <button onclick={panelBack}>
+            <button onclick={() => void panelBack()}>
               <span class="m-back-icon"><Icon name="ti-arrow-left" /></span>
               <span class="m-back-label">{mBackLabel}</span>
             </button>
@@ -1824,6 +1851,7 @@
         {/if}
         {@render syncPill(true)}
       </div>
+      <div class="back-chip" data-back-chip aria-hidden="true"><Icon name="ti-arrow-left" /></div>
       {#if sheet === 'nav'}
         <Sheet label={m.tabbar_more()} onclose={() => ui.closeMenu()}>
           <NavMenu mNavTitle={m.tabbar_more()} mExtraRows={navRows} closeSheet={() => ui.closeMenu()} />
@@ -1928,6 +1956,38 @@
     flex: 1;
     min-height: 0;
     display: flex;
+  }
+
+  .body.tablet {
+    touch-action: pan-y;
+  }
+
+  /* Back gesture (`swipeBack`): layer underneath the page (mobile) and arrow chip, shown by the gesture */
+  .back-under {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: color-mix(in oklab, black 20%, var(--cnv));
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  .back-chip {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 80;
+    width: 44px;
+    height: 44px;
+    border-radius: 9999px;
+    display: grid;
+    place-items: center;
+    background: var(--surface);
+    color: var(--fg);
+    box-shadow: var(--sh2);
+    font-size: 20px;
+    opacity: 0;
+    pointer-events: none;
   }
 
   .card {

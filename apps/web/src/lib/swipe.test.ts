@@ -1,12 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { pointer } from '#lib/test/pointer.ts';
 import {
+  backChipY,
+  backFires,
+  backProgress,
+  backReady,
   dragSheet,
   flingDecay,
   rubber,
   sheetCloses,
   sheetOutMs,
   swipeAction,
+  swipeBack,
   swipeFires,
   swipeOffset,
   swipeRow,
@@ -16,6 +21,7 @@ import {
   toastOffset,
   toastOpacity,
   velocity,
+  type BackSwipe,
   type RowSwipe,
   type SheetDrag,
   type SwipeAction,
@@ -502,5 +508,199 @@ describe('dragSheet', () => {
     drag(off.el, 110, 300);
     expect(off.el.style.translate).toBe('');
     expect(off.closed).not.toHaveBeenCalled();
+  });
+});
+
+describe('back gesture maths', () => {
+  it('reaches full progress at 45 % of the width, at most 360 px', () => {
+    expect(backProgress(-20, 400)).toBe(0);
+    expect(backProgress(90, 400)).toBe(0.5);
+    expect(backProgress(400, 400)).toBe(1);
+    expect(backProgress(180, 1000)).toBe(0.5);
+  });
+
+  it('is ready beyond 25 % of the width, at most 180 px', () => {
+    expect(backReady(100, 400)).toBe(false);
+    expect(backReady(101, 400)).toBe(true);
+    expect(backReady(180, 1000)).toBe(false);
+    expect(backReady(181, 1000)).toBe(true);
+  });
+
+  it('goes back when ready or flung faster than 0.45 px/ms after more than 24 px', () => {
+    expect(backFires(120, 0, 400)).toBe(true);
+    expect(backFires(30, 0.5, 400)).toBe(true);
+    expect(backFires(24, 0.9, 400)).toBe(false);
+    expect(backFires(60, 0.45, 400)).toBe(false);
+  });
+
+  it('keeps the chip at finger height between 70 px from the top and 120 px from the bottom', () => {
+    expect(backChipY(300, 800)).toBe(278);
+    expect(backChipY(40, 800)).toBe(70);
+    expect(backChipY(790, 800)).toBe(680);
+  });
+});
+
+describe('swipeBack', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  /** Page inside a 400 × 800 px root with the layer underneath and the chip. */
+  function page(o: Partial<BackSwipe> | null = {}) {
+    const root = document.createElement('div');
+    root.innerHTML =
+      '<div data-back-under></div><div class="page"><div class="strip" style="overflow-x: auto"><button type="button">Row</button></div><input></div><div data-back-chip></div>';
+    document.body.append(root);
+    Object.defineProperty(root, 'offsetWidth', { value: 400 });
+    Object.defineProperty(root, 'offsetHeight', { value: 800 });
+    const el = root.querySelector<HTMLElement>('.page');
+    const under = root.querySelector<HTMLElement>('[data-back-under]');
+    const chip = root.querySelector<HTMLElement>('[data-back-chip]');
+    const strip = root.querySelector<HTMLElement>('.strip');
+    if (!el || !under || !chip || !strip) throw new Error('no page');
+    const back = vi.fn(() => Promise.resolve());
+    const off = swipeBack(() => (o ? { animations: false, back, ...o } : null))(el);
+    return { root, el, under, chip, strip, back, off };
+  }
+
+  /** Swipes from (100, 300) sideways by `dx`: decided after 10 px, released after standing still. */
+  function drag(target: Element, dx: number, end = 'pointerup') {
+    const x = 100 + Math.sign(dx) * 10;
+    pointer('pointerdown', 100, 300, target);
+    pointer('pointermove', x, 300);
+    pointer('pointermove', x + dx, 300);
+    vi.advanceTimersByTime(200);
+    pointer(end, x + dx, 300);
+    window.dispatchEvent(new MouseEvent('click'));
+  }
+
+  it('moves and shrinks the page, fades in the layer and brings the chip to finger height', () => {
+    vi.useFakeTimers();
+    const { el, under, chip } = page();
+    pointer('pointerdown', 100, 300, el);
+    pointer('pointermove', 110, 300);
+    expect(el.style.transition).toBe('none');
+    expect(el.style.background).toBe('var(--cnv)');
+    expect(el.style.overflow).toBe('hidden');
+    expect(el.style.boxShadow).toBe('var(--sh3)');
+    expect(under.style.transition).toBe('none');
+    pointer('pointermove', 200, 320);
+    // 90 px of 180 px: half way, not yet ready.
+    expect(el.style.translate).toBe('14px 0.8px');
+    expect(el.style.scale).toBe('0.96');
+    expect(el.style.borderRadius).toBe('18px');
+    expect(under.style.opacity).toBe('0.5');
+    expect(chip.style.opacity).toBe('1');
+    expect(chip.style.translate).toBe('-19px 298px');
+    expect(chip.style.scale).toBe('0.825');
+    expect(chip.style.background).toBe('var(--surface)');
+    expect(chip.style.color).toBe('var(--fg)');
+    pointer('pointermove', 220, 320);
+    // Beyond 100 px (25 % of 400 px): ready.
+    expect(chip.style.scale).toBe('1.08');
+    expect(chip.style.background).toBe('var(--acc)');
+    expect(chip.style.color).toBe('var(--accink)');
+    vi.advanceTimersByTime(200);
+    pointer('pointerup', 220, 320);
+    window.dispatchEvent(new MouseEvent('click'));
+    // Released when ready: goes back (without animations at once).
+    vi.advanceTimersByTime(0);
+  });
+
+  it('flies out when ready, goes back and then resets the page and fades out the layer', async () => {
+    vi.useFakeTimers();
+    const { el, under, chip, back } = page({ animations: true });
+    drag(el, 120);
+    expect(el.style.transition).toBe(
+      'translate 190ms cubic-bezier(0.4, 0, 1, 1), scale 190ms cubic-bezier(0.4, 0, 1, 1), opacity 190ms ease-in',
+    );
+    expect(el.style.translate).toBe('140px');
+    expect(el.style.scale).toBe('0.86');
+    expect(el.style.opacity).toBe('0');
+    expect(chip.style.opacity).toBe('0');
+    expect(chip.style.scale).toBe('1.3');
+    vi.advanceTimersByTime(189);
+    expect(back).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(back).toHaveBeenCalledTimes(1);
+    await vi.waitFor(() => expect(el.style.opacity).toBe(''));
+    expect(el.style.translate).toBe('');
+    expect(el.style.background).toBe('');
+    expect(under.style.transition).toBe('opacity 260ms');
+    expect(under.style.opacity).toBe('0');
+  });
+
+  it('goes back on a fling before the threshold', () => {
+    vi.useFakeTimers();
+    const { el, back } = page();
+    pointer('pointerdown', 100, 300, el);
+    pointer('pointermove', 110, 300);
+    vi.advanceTimersByTime(10);
+    pointer('pointermove', 125, 300);
+    vi.advanceTimersByTime(10);
+    pointer('pointermove', 140, 300);
+    pointer('pointerup', 140, 300);
+    window.dispatchEvent(new MouseEvent('click'));
+    vi.advanceTimersByTime(0);
+    expect(back).toHaveBeenCalledTimes(1);
+  });
+
+  it('springs back below the threshold and after pointercancel', () => {
+    vi.useFakeTimers();
+    const { el, under, chip, back } = page({ animations: true });
+    drag(el, 60);
+    expect(el.style.transition).toBe(
+      'translate 380ms cubic-bezier(0.2, 1.15, 0.35, 1), scale 380ms cubic-bezier(0.2, 1.15, 0.35, 1), border-radius 380ms',
+    );
+    expect(el.style.translate).toBe('0px');
+    expect(el.style.scale).toBe('1');
+    expect(el.style.borderRadius).toBe('0px');
+    expect(under.style.transition).toBe('opacity 380ms');
+    expect(under.style.opacity).toBe('0');
+    expect(chip.style.transition).toBe('opacity 160ms, translate 380ms');
+    expect(chip.style.opacity).toBe('0');
+    vi.advanceTimersByTime(410);
+    expect(el.style.transition).toBe('');
+    expect(el.style.translate).toBe('');
+    // Cancelled by the browser or the system: back, even when ready.
+    drag(el, 200, 'pointercancel');
+    vi.advanceTimersByTime(410);
+    expect(back).not.toHaveBeenCalled();
+    expect(el.style.translate).toBe('');
+  });
+
+  it('ignores movement to the left, vertical movement, fields, scrolled content and a missing gesture', () => {
+    vi.useFakeTimers();
+    const { el, strip, back } = page();
+    drag(el, -120);
+    pointer('pointerdown', 100, 300, el);
+    pointer('pointermove', 110, 330);
+    pointer('pointermove', 200, 500);
+    expect(el.style.translate).toBe('');
+    pointer('pointerup', 200, 500);
+    const input = el.querySelector('input');
+    if (!input) throw new Error('no input');
+    drag(input, 120);
+    // Content scrolled sideways scrolls back first.
+    Object.defineProperty(strip, 'scrollWidth', { value: 800 });
+    Object.defineProperty(strip, 'clientWidth', { value: 300 });
+    strip.scrollLeft = 40;
+    drag(strip, 120);
+    expect(el.style.translate).toBe('');
+    vi.advanceTimersByTime(0);
+    expect(back).not.toHaveBeenCalled();
+    // Not scrolled: the gesture goes back.
+    strip.scrollLeft = 0;
+    drag(strip, 120);
+    vi.advanceTimersByTime(0);
+    expect(back).toHaveBeenCalledTimes(1);
+    document.body.innerHTML = '';
+
+    const off = page(null);
+    drag(off.el, 120);
+    expect(off.el.style.translate).toBe('');
+    vi.advanceTimersByTime(0);
+    expect(off.back).not.toHaveBeenCalled();
   });
 });
