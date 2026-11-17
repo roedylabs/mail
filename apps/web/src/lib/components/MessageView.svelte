@@ -55,6 +55,19 @@
   interface Props {
     rd: ReadValues;
     isMobile: boolean;
+    /**
+     * Conversation shown: another one replaces the content in place and
+     * starts at the top (`pfOpen` › `scrollTop = 0`), without rebuilding the
+     * view or animating it in again.
+     */
+    conversationKey?: string | null;
+    /** Animate in when appearing (`snFromL`): only on opening, not when paging; read once. */
+    enter?: boolean;
+    /**
+     * Grows with "Reply" and "Reply all" (`pfReply`): the text of the bar
+     * gets focus each time, also when the bar is already open.
+     */
+    replyFocus?: number;
     /** Back to the list (`rd.close`). */
     onClose: () => void;
     onPrev: () => void;
@@ -109,6 +122,9 @@
   let {
     rd,
     isMobile,
+    conversationKey = null,
+    enter = true,
+    replyFocus = 0,
     onClose,
     onPrev,
     onNext,
@@ -137,6 +153,32 @@
     rp,
     replyActions,
   }: Props = $props();
+
+  // Only on mounting: the view stays when paging, the class must not go away mid-animation.
+  const animate = untrack(() => enter);
+
+  /** Scroll area of the message (desktop `.scroll`, mobile `.m-card`). */
+  let scroller: HTMLElement | undefined = $state();
+  // Another conversation starts at the top, not at the previous one's position.
+  let shownKey = untrack(() => conversationKey);
+  $effect(() => {
+    const key = conversationKey;
+    if (key === shownKey) return;
+    shownKey = key;
+    untrack(() => {
+      if (scroller) scroller.scrollTop = 0;
+    });
+  });
+
+  /** Text of the open reply bar. */
+  let replyField: HTMLTextAreaElement | undefined = $state();
+  let focusedFor = untrack(() => replyFocus);
+  $effect(() => {
+    const n = replyFocus;
+    if (n === focusedFor) return;
+    focusedFor = n;
+    untrack(() => replyField?.focus());
+  });
 
   /** Colors that the message theme (`rd.tv`) replaces in the message area. */
   const TV_VARS = [
@@ -329,6 +371,7 @@
     oninput={(e) => replyActions.text(e.currentTarget.value)}
     onkeydown={mobile ? undefined : onReplyKey}
     placeholder={rp.ph}
+    bind:this={replyField}
     use:autofocus={rp.notFwd}></textarea>
 {/snippet}
 
@@ -581,7 +624,7 @@
 {/snippet}
 
 {#if !isMobile}
-  <div class="rd">
+  <div class="rd" class:enter={animate}>
     <div class="bar-wrap">
       <div role="toolbar" aria-label={m.read_toolbar()} class="bar">
         <button type="button" class="back" onclick={onClose} use:tooltip={m.read_back_tip()}
@@ -760,6 +803,7 @@
 
     <div
       class="scroll no-scrollbar"
+      bind:this={scroller}
       {@attach scrollbar}
       style={tvStyle}
       style:margin={rd.tv.m}
@@ -819,7 +863,7 @@
     </div>
   </div>
 {:else}
-  <div class="m-rd">
+  <div class="m-rd" class:enter={animate}>
     <div class="m-bar">
       <!-- Name "Back" with the visible folder (WCAG 2.5.3). -->
       <button type="button" class="m-back" onclick={onClose}
@@ -851,7 +895,7 @@
         aria-expanded={moreOpen}><Icon name="ti-dots-vertical" /></button
       >
     </div>
-    <main class="m-card no-scrollbar" style={tvStyle}>
+    <main class="m-card no-scrollbar" style={tvStyle} bind:this={scroller}>
       <div class="m-in">
         <h1 class="m-subj">{rd.subj}</h1>
         <div class="m-chips">{@render chips(false)}</div>
@@ -948,6 +992,9 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .rd.enter {
     animation: snFromL 380ms cubic-bezier(0.2, 0.9, 0.3, 1);
   }
 
@@ -1936,6 +1983,9 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .m-rd.enter {
     animation: snFromL 340ms cubic-bezier(0.2, 0.9, 0.3, 1);
   }
 

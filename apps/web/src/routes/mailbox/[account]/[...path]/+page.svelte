@@ -92,6 +92,7 @@
     type MoveTargets,
     type ReadAttachment,
     type ReadMoveOption,
+    type ReadValues,
   } from '#lib/message-view.ts';
   import { sidebarScope } from '#lib/mailbox-nav.ts';
   import { m } from '#lib/paraglide/messages.js';
@@ -295,13 +296,14 @@
    * Address of a thread: in "All accounts" with its account (`<account>/<thread>`
    * as one part). A draft opens compose with it (`pfOpen`).
    */
-  function open(row: Pick<ListRow, 'account' | 'threadId' | 'id'>) {
+  /** Open a row; `paging` (J/K, arrows) keeps focus in the reading view, which stays. */
+  function open(row: Pick<ListRow, 'account' | 'threadId' | 'id'>, paging = false) {
     if (!location) return;
     if (opensCompose(row)) {
       openDraft(row.account, row.id);
       return;
     }
-    openThread(location, row.account, row.threadId);
+    openThread(location, row.account, row.threadId, false, paging);
   }
 
   /** Row, J/K or arrow button opens compose: every row in "Drafts", elsewhere if the row's email is a draft. */
@@ -437,29 +439,6 @@
   /** Expanded and collapsed emails (`pfTh`); another conversation starts afresh. */
   let folds = $state<Record<string, boolean>>({});
 
-  $effect(() => {
-    // Another conversation or the list closes menus, popovers and source (`pfOpen`, `pfClose`, `stopM`).
-    sheet = null;
-    untrack(() => {
-      closeSource();
-      if (ui.menu === 'rdtag' || ui.menu === 'rdmove') ui.closeMenu();
-    });
-    if (!threadKey) {
-      conversation = null;
-      return;
-    }
-    untrack(() => {
-      if (!opened) return;
-      folds = {};
-      marked.clear();
-      const { conversation: c, cached } = message.open(opened.account, opened.threadId, !usable);
-      conversation = c;
-      // Back in a conversation: reload in the background (new replies, keywords).
-      if (cached && c.status !== 'loading') void c.refresh().catch(() => {});
-      else void reading.run(c.ready).catch(() => {});
-    });
-  });
-
   // While the mail accounts load, the message skeleton counts too.
   $effect(() => {
     if (!opened || threadAccount !== undefined) return;
@@ -570,9 +549,32 @@
     return () => mailRenderer.release();
   });
 
+  /**
+   * The reading view animates in once per opening (from the list, the search or an address), not when paging
+   * to the next conversation, even if it has to load first. Back in the list it animates again next time.
+   */
+  let readShown = $state(false);
+  $effect(() => {
+    if (!opened) readShown = false;
+    else if (rd) readShown = true;
+  });
+
+  /**
+   * When paging, the previous conversation stays until the next one is there (from storage within milliseconds):
+   * no empty frame, toolbar and focus stay. After `SKELETON_DELAY` the skeleton takes over. Its actions do nothing
+   * meanwhile (`reader` and `rd` are `null`).
+   */
+  let lastRd = $state.raw<ReadValues | null>(null);
+  $effect.pre(() => {
+    if (rd || !opened) lastRd = rd;
+  });
+  const shownRd = $derived(
+    rd ?? (opened && readShown && conversation?.status === 'loading' && !reading.slow ? lastRd : null),
+  );
+
   /** Open reply bar (`pfRp`); only applies to the email it replies to. */
   let reply = $state.raw<ReplyState | null>(null);
-  const rp = $derived(rd ? replyValues(rd.reply, reply, modKey(), network.offline) : null);
+  const rp = $derived(shownRd ? replyValues(shownRd.reply, reply, modKey(), network.offline) : null);
   const canReply = $derived(rd?.canReply ?? false);
 
   /**
@@ -585,10 +587,17 @@
     untrack(() => (reply = null));
   });
 
-  /** Reply, reply all, forward (`pfReply`): opens the bar or switches the kind, the text stays. */
+  /** Counts "Reply" and "Reply all": each time the text of the bar gets focus, also when it is already open. */
+  let replyFocus = $state(0);
+
+  /**
+   * Reply, reply all, forward (`pfReply`): opens the bar or switches the kind, the text stays.
+   * Reply and reply all focus the text, forward does not (its address field takes focus when it appears).
+   */
   function openReply(mode: ReplyMode) {
     if (!rd?.canReply) return;
     reply = reply ? { ...reply, mode } : { mode, text: '', to: '' };
+    if (mode !== 'fwd') replyFocus++;
   }
 
   function setReply(patch: Partial<Pick<ReplyState, 'mode' | 'text' | 'to'>>) {
@@ -1379,7 +1388,7 @@
     if (!target) return;
     // Menus outside the reading view stay open (`pfOpen`); its own popovers close with the conversation, all with compose.
     if (location && !opensCompose(target)) ui.keepMenuAt = threadHref(location, target.account, target.threadId);
-    open(target);
+    open(target, true);
   }
 
   // J/K, ←/→ and Escape of the reading view on desktop, also while a conversation loads or fails.
@@ -1515,6 +1524,32 @@
     source = null;
   }
 
+  // Load the conversation before the DOM update: when paging, the reading view gets the next conversation in the
+  // same update and stays (no animation, focus stays on the toolbar) instead of disappearing for one update.
+  // Below `sheet`, `marked` and `source`: a pre effect runs right away on init.
+  $effect.pre(() => {
+    // Another conversation or the list closes menus, popovers and source (`pfOpen`, `pfClose`, `stopM`).
+    sheet = null;
+    untrack(() => {
+      closeSource();
+      if (ui.menu === 'rdtag' || ui.menu === 'rdmove') ui.closeMenu();
+    });
+    if (!threadKey) {
+      conversation = null;
+      return;
+    }
+    untrack(() => {
+      if (!opened) return;
+      folds = {};
+      marked.clear();
+      const { conversation: c, cached } = message.open(opened.account, opened.threadId, !usable);
+      conversation = c;
+      // Back in a conversation: reload in the background (new replies, keywords).
+      if (cached && c.status !== 'loading') void c.refresh().catch(() => {});
+      else void reading.run(c.ready).catch(() => {});
+    });
+  });
+
   // If the reading view stands for another email (the list caught up, a new reply), the source closes (`rdSrc === rm.id`).
   $effect(() => {
     if (source && source.emailId !== rd?.id) untrack(closeSource);
@@ -1621,41 +1656,41 @@
 {:else if errPage}
   <ErrorView code={errPage} retry={retryConversation} />
 {:else if opened}
-  {#if rd && rp}
-    <!-- New per conversation: it starts at the top, not at the previous one's scroll position. -->
-    {#key threadKey}
-      <MessageView
-        {rd}
-        isMobile={ui.isMobile}
-        onClose={closeMessage}
-        onPrev={() => void step(-1)}
-        onNext={() => void step(1)}
-        onToggle={toggle}
-        onDownload={download}
-        onTheme={() => (ui.readInverted = !ui.readInverted)}
-        onSource={openSource}
-        onMore={() => (sheet = 'more')}
-        onStar={readStar}
-        onUnread={readUnread}
-        onCancel={readCancel}
-        onSendNow={readSendNow}
-        onRestore={readRestore}
-        onSpam={readSpam}
-        onDel={readDel}
-        moreOpen={sheet !== null}
-        onTagMenu={() => ui.toggleMenu('rdtag')}
-        onMoveMenu={() => ui.toggleMenu('rdmove')}
-        onTagPick={readTag}
-        onMovePick={readMove}
-        onExtOnce={allowOnce}
-        onExtAlways={allowSender}
-        onFull={loadFull}
-        onMissRetry={() => void retryMissing()}
-        onMailto={writeTo}
-        {rp}
-        {replyActions}
-      />
-    {/key}
+  {#if shownRd && rp}
+    <MessageView
+      rd={shownRd}
+      conversationKey={replyKey}
+      enter={!readShown}
+      {replyFocus}
+      isMobile={ui.isMobile}
+      onClose={closeMessage}
+      onPrev={() => void step(-1)}
+      onNext={() => void step(1)}
+      onToggle={toggle}
+      onDownload={download}
+      onTheme={() => (ui.readInverted = !ui.readInverted)}
+      onSource={openSource}
+      onMore={() => (sheet = 'more')}
+      onStar={readStar}
+      onUnread={readUnread}
+      onCancel={readCancel}
+      onSendNow={readSendNow}
+      onRestore={readRestore}
+      onSpam={readSpam}
+      onDel={readDel}
+      moreOpen={sheet !== null}
+      onTagMenu={() => ui.toggleMenu('rdtag')}
+      onMoveMenu={() => ui.toggleMenu('rdmove')}
+      onTagPick={readTag}
+      onMovePick={readMove}
+      onExtOnce={allowOnce}
+      onExtAlways={allowSender}
+      onFull={loadFull}
+      onMissRetry={() => void retryMissing()}
+      onMailto={writeTo}
+      {rp}
+      {replyActions}
+    />
   {:else if reading.slow}
     <Skeleton kind="rd" isMobile={ui.isMobile} />
   {/if}

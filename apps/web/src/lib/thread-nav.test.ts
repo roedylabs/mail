@@ -26,6 +26,11 @@ describe('Navigation of the reading view', () => {
     expect(nav.goto).toHaveBeenLastCalledWith('/mailbox/all/inbox/a2%2Ft7', { replace: false });
   });
 
+  it('keeps focus when paging to the next thread', () => {
+    openThread(at('/mailbox/a1/inbox/t1'), 'a1', 't2', false, true);
+    expect(nav.goto).toHaveBeenLastCalledWith('/mailbox/a1/inbox/t2', { replace: false, reset: false });
+  });
+
   it('builds the address of a thread, in "Alle Konten" with its account', () => {
     expect(threadHref(at('/mailbox/a1/f/folder%201'), 'a1', 't1')).toBe('/mailbox/a1/f/folder%201/t1');
     expect(threadHref(at('/mailbox/all/inbox/a1%2Ft1'), 'a2', 't7')).toBe('/mailbox/all/inbox/a2%2Ft7');
