@@ -18,15 +18,17 @@
  * the offline text; `backup_running` shows the running button there without
  * a toast and checks again after `BK_RUNNING_WAIT`. Restore and delete report
  * a text per reason (`backup_running`, `backup_invalid`, `backup_newer`,
- * `backup_older`, `backup_other_key`, `maintenance_required`), otherwise the
- * generic one. After a restore everything is different: configuration,
+ * `backup_other_key`, `maintenance_required`, `backup_unverified`), otherwise
+ * the generic one. After a restore everything is different: configuration,
  * account, settings and mail accounts reload, and without a session the
  * layout shows the sign-in.
  *
  * Restoring only works in maintenance mode: until then "Restore" is locked
  * and a notice above the list offers to turn it on. If the server answers
  * `maintenance_required` (turned off elsewhere in the meantime), the switch
- * follows the server.
+ * follows the server. Older backups without an authenticity value (`legacy`)
+ * can never be restored: their row says so, and "Restore" stays locked with a
+ * tooltip of its own, also in maintenance mode.
  */
 import { SvelteSet } from 'svelte/reactivity';
 import { api, API_BASE, ApiError, isApiError, retryAfter } from '#lib/api.ts';
@@ -67,12 +69,13 @@ export interface MaintenanceMode {
   message: string | null;
 }
 
-/** Row of the list; `size` in bytes. */
+/** Row of the list; `size` in bytes. `legacy`: older, without an authenticity value, cannot be restored. */
 export interface Backup {
   id: string;
   at: string;
   size: number;
   auto: boolean;
+  legacy: boolean;
 }
 
 /** Response of `admin/backups`, of `schedule` and `restore`. */
@@ -142,9 +145,9 @@ const BK_ERRORS: readonly [number, string, () => string][] = [
   [409, 'backup_running', m.maintenance_bk_running],
   [422, 'backup_invalid', m.maintenance_bk_invalid],
   [409, 'backup_newer', m.maintenance_bk_newer],
-  [422, 'backup_older', m.maintenance_bk_older],
   [409, 'backup_other_key', m.maintenance_bk_other_key],
   [409, 'maintenance_required', m.maintenance_bk_maint_required],
+  [422, 'backup_unverified', m.maintenance_bk_unverified],
 ];
 
 /** Text of the error toast for restore and delete. */
@@ -451,9 +454,12 @@ export class MaintenancePage {
     );
   }
 
-  /** "Restore": always with confirmation and word, even if confirmations are turned off; only in maintenance mode. */
+  /**
+   * "Restore": always with confirmation and word, even if confirmations are turned off; only in maintenance mode
+   * and never for a `legacy` backup.
+   */
   restore(id: string, title: string): void {
-    if (!this.on) return;
+    if (!this.on || this.backups.find((b) => b.id === id)?.legacy) return;
     ui.ask({
       force: true,
       title: m.maintenance_bk_restore_title(),
@@ -570,7 +576,10 @@ export interface BkRow {
   /** Download link. */
   href: string;
   onDownload: () => void;
-  /** "Restore" locked (outside maintenance mode) with the tooltip on the desktop. */
+  /**
+   * "Restore" locked (outside maintenance mode or `legacy`) with the tooltip on the desktop; the one of `legacy`
+   * takes precedence.
+   */
   rs: { dis: boolean; tip: string | undefined };
   onRestore: () => void;
   onRemove: () => void;
@@ -650,7 +659,6 @@ export function maintenanceValues(
   const storage = p.storage;
   const last = list.reduce((a, b) => Math.max(a, Date.parse(b.at)), 0);
   const logo = (storage?.assets ?? 0) > 0;
-  const rsDis = !p.on;
 
   return {
     skSet: p.status === 'loading' && p.loading.slow,
@@ -680,15 +688,20 @@ export function maintenanceValues(
     bkRows: list.map((b, i) => {
       const at = Date.parse(b.at);
       const title = `${formatDate(at, input.dateFmt, input.tz)}, ${clock(at, input)}`;
+      const kind = b.auto ? m.maintenance_bk_auto() : m.maintenance_bk_manual();
+      const rsDis = b.legacy || !p.on;
       return {
         id: b.id,
         title,
-        sub: `${storageSize(b.size)} · ${b.auto ? m.maintenance_bk_auto() : m.maintenance_bk_manual()}`,
+        sub: `${storageSize(b.size)} · ${kind}${b.legacy ? ` · ${m.maintenance_bk_legacy_sub()}` : ''}`,
         sep: i > 0,
         icon: b.auto ? 'ti-clock' : 'ti-hand-click',
         href: `${API_BASE}/${BACKUPS}/${b.id}/download`,
         onDownload: () => ui.toasts.show(m.maintenance_bk_download()),
-        rs: { dis: rsDis, tip: rsDis ? m.maintenance_bk_maint_tip() : undefined },
+        rs: {
+          dis: rsDis,
+          tip: b.legacy ? m.maintenance_bk_legacy_tip() : rsDis ? m.maintenance_bk_maint_tip() : undefined,
+        },
         onRestore: () => p.restore(b.id, title),
         onRemove: () => p.remove(b.id),
       };

@@ -35,7 +35,14 @@ const ON: MaintenanceMode = { on: true, message: null };
 const STORAGE: StorageView = { database: 148 * MB, assets: 0, asset_name: null, compacted_at: null };
 
 function backup(patch: Partial<Backup> = {}): Backup {
-  return { id: 'b1', at: new Date(Date.now() - 9 * HOUR).toISOString(), size: 200 * MB, auto: true, ...patch };
+  return {
+    id: 'b1',
+    at: new Date(Date.now() - 9 * HOUR).toISOString(),
+    size: 200 * MB,
+    auto: true,
+    legacy: false,
+    ...patch,
+  };
 }
 
 function backups(patch: Partial<BackupsView> = {}): BackupsView {
@@ -304,6 +311,26 @@ describe('Administration › Maintenance page', () => {
     expect(ui.confirm?.title).toBe('Restore backup?');
   });
 
+  it('marks a legacy backup and locks "Restore" with its own tooltip, also in maintenance mode', async () => {
+    const legacy = backups({ backups: [backup(), backup({ id: 'b2', auto: false, legacy: true })] });
+    await loaded({ 'GET admin/maintenance': [{ body: ON }], 'GET admin/backups': [{ body: legacy }] });
+    const list = section('Backups');
+    expect(list.querySelector('.bk-maint')).toBeNull();
+    const [free, old] = [...list.querySelectorAll<HTMLElement>('.bk-row')];
+    expect(within(free as HTMLElement).getByText('200 MB · Automatic')).toBeInTheDocument();
+    expect(
+      within(old as HTMLElement).getByText('200 MB · Manual · Older version, can’t be restored'),
+    ).toBeInTheDocument();
+    const restore = within(old as HTMLElement).getByRole('button', { name: 'Restore' });
+    expect(restore).toHaveAttribute('aria-disabled', 'true');
+    expect(restore).toHaveClass('restore', 'locked');
+    expect(tooltips.targets.get(restore)?.text).toBe('Comes from an older version and can’t be restored');
+    await fireEvent.click(restore);
+    expect(ui.confirm).toBeNull();
+    const other = within(free as HTMLElement).getByRole('button', { name: 'Restore' });
+    expect(other).toHaveAttribute('aria-disabled', 'false');
+  });
+
   it('shows no notice without backups', async () => {
     await loaded({ 'GET admin/backups': [{ body: backups({ backups: [] }) }] });
     expect(section('Backups').querySelector('.bk-maint')).toBeNull();
@@ -460,5 +487,18 @@ describe('Administration › Maintenance page', () => {
     expect(tooltips.targets.get(row.getByRole('button', { name: 'Delete' }))?.text).toBeUndefined();
     expect(within(list).queryByText('Interval between backups')).toBeNull();
     expect(within(list).getByText('Older backups are deleted')).toBeInTheDocument();
+  });
+
+  it('marks a legacy backup on mobile without a tooltip', async () => {
+    mobile();
+    const legacy = backups({ backups: [backup({ legacy: true })] });
+    await loaded({ 'GET admin/maintenance': [{ body: ON }], 'GET admin/backups': [{ body: legacy }] });
+    const row = within(section('Backups').querySelector('.bk-row') as HTMLElement);
+    expect(row.getByText('200 MB · Automatic · Older version, can’t be restored')).toBeInTheDocument();
+    const restore = row.getByRole('button', { name: 'Restore' });
+    expect(restore.querySelector('svg')).toHaveClass('tabler-icon-history');
+    expect(restore).toHaveAttribute('aria-disabled', 'true');
+    expect(restore).toHaveClass('locked');
+    expect(tooltips.targets.get(restore)?.text).toBeUndefined();
   });
 });

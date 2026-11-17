@@ -27,8 +27,8 @@ const MB = 1024 * 1024;
 /** Text for a backup that is already running. */
 const RUNNING = 'A backup is running right now. Try again in a moment.';
 
-const OLD: Backup = { id: 'b1', at: '2026-11-04T00:30:00Z', size: 200 * MB, auto: true };
-const NEW: Backup = { id: 'b2', at: '2026-11-06T09:00:00Z', size: 100 * MB, auto: false };
+const OLD: Backup = { id: 'b1', at: '2026-11-04T00:30:00Z', size: 200 * MB, auto: true, legacy: false };
+const NEW: Backup = { id: 'b2', at: '2026-11-06T09:00:00Z', size: 100 * MB, auto: false, legacy: false };
 
 function view(over: Partial<BackupsView> = {}): BackupsView {
   return { backups: [NEW, OLD], auto: true, every: 'daily', keep: 30, next_at: '2026-11-07T09:00:00Z', ...over };
@@ -305,7 +305,7 @@ describe('backups', () => {
 
   it('creates a backup, the button runs until the response', async () => {
     let answer: (reply: { status: number; body: Backup }) => void = () => {};
-    const row: Backup = { id: 'b3', at: '2026-11-06T12:00:00Z', size: MB, auto: false };
+    const row: Backup = { id: 'b3', at: '2026-11-06T12:00:00Z', size: MB, auto: false, legacy: false };
     const { v } = await loaded({
       'POST admin/backups': [() => new Promise((resolve) => (answer = resolve))],
     });
@@ -321,7 +321,7 @@ describe('backups', () => {
   });
 
   it('updates the next date after backing up', async () => {
-    const row: Backup = { id: 'b3', at: '2026-11-06T12:00:00Z', size: MB, auto: false };
+    const row: Backup = { id: 'b3', at: '2026-11-06T12:00:00Z', size: MB, auto: false, legacy: false };
     const { api, v } = await loaded({
       'POST admin/backups': [{ status: 201, body: row }],
       'GET admin/backups': [
@@ -394,7 +394,7 @@ describe('backups', () => {
   });
 
   it('names a backup that a response in between already knows only once', async () => {
-    const row: Backup = { id: 'b3', at: '2026-11-06T12:00:00Z', size: MB, auto: false };
+    const row: Backup = { id: 'b3', at: '2026-11-06T12:00:00Z', size: MB, auto: false, legacy: false };
     let answer: (reply: { status: number; body: Backup }) => void = () => {};
     const { p, v } = await loaded({
       'POST admin/backups': [() => new Promise((resolve) => (answer = resolve))],
@@ -581,7 +581,7 @@ describe('backups', () => {
   it.each([
     [422, 'backup_invalid', 'This backup is corrupted and can’t be restored.'],
     [409, 'backup_newer', 'This backup is from a newer version and can only be restored after an update.'],
-    [422, 'backup_older', 'This backup was created by an earlier version in a format that can no longer be restored.'],
+    [422, 'backup_unverified', 'This backup comes from an older version or was changed and can’t be restored.'],
     [
       409,
       'backup_other_key',
@@ -623,6 +623,27 @@ describe('backups', () => {
     ]);
     v().bkRows[1]?.onRestore();
     expect(ui.confirm?.title).toBe(m.maintenance_bk_restore_title());
+    expect(written(api, 'POST')).toHaveLength(0);
+  });
+
+  it('locks a legacy backup with its own tooltip, also in maintenance mode', async () => {
+    const legacy = () => ({ 'GET admin/backups': [{ body: view({ backups: [NEW, { ...OLD, legacy: true }] }) }] });
+    const off = await loaded(legacy());
+    expect(off.v().bkRows.map((r) => [r.sub, r.rs])).toEqual([
+      ['100 MB · Manual', { dis: true, tip: 'Only possible in maintenance mode' }],
+      [
+        '200 MB · Automatic · Older version, can’t be restored',
+        { dis: true, tip: 'Comes from an older version and can’t be restored' },
+      ],
+    ]);
+
+    const { api, v } = await restorable(legacy());
+    expect(v().bkRows.map((r) => r.rs)).toEqual([
+      { dis: false, tip: undefined },
+      { dis: true, tip: 'Comes from an older version and can’t be restored' },
+    ]);
+    v().bkRows[1]?.onRestore();
+    expect(ui.confirm).toBeNull();
     expect(written(api, 'POST')).toHaveLength(0);
   });
 

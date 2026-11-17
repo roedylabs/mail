@@ -35,14 +35,14 @@ use crate::{
 /// Why a backup does not fit this instance.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Refused {
-    /// Not a readable archive, a damaged database, too large to unpack, or
-    /// changed since it was created (the MAC does not fit).
+    /// Not a readable archive, a damaged database or too large to unpack.
     Invalid,
     /// Created with a newer program version.
     Newer,
-    /// In the first format, without MAC: where its database comes from cannot
-    /// be checked.
-    Older,
+    /// Without an authenticity value (the first format, without MAC, `legacy`
+    /// in the list) or with one that does not fit: where its database comes
+    /// from cannot be checked, or it was changed since it was created.
+    Unverified,
     /// Created with a different instance key: secrets such as multi-factor and
     /// mail account credentials would not be readable.
     OtherKey,
@@ -61,7 +61,7 @@ impl fmt::Display for Refused {
         f.write_str(match self {
             Self::Invalid => "backup not readable",
             Self::Newer => "backup from a newer program version",
-            Self::Older => "backup in an older format without MAC",
+            Self::Unverified => "backup not authentic",
             Self::OtherKey => "backup with a different instance key",
             Self::Unauthorized => "session ended",
             Self::Forbidden => "no longer an administrator",

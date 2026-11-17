@@ -8,7 +8,8 @@
 //! The manifest carries an HMAC with the instance key over all of its fields
 //! and the SHA-256 of the database ([`Manifest::mac`]). Whoever can write to
 //! the backup directory (it may be a share) but does not have the key cannot
-//! pack a database of their own: [`read`] rejects it.
+//! pack a database of their own: [`read`] rejects it
+//! ([`Refused::Unverified`]).
 
 use std::{
     cell::Cell,
@@ -28,7 +29,8 @@ use super::{key_mark, restore::Refused};
 use crate::{broker::crypto::SecretKey, db};
 
 /// Version of the format; this program reads only this one. Format 1 had no
-/// MAC and is rejected ([`Refused::Older`]).
+/// MAC: it is `legacy` in the list ([`legacy`]) and rejected
+/// ([`Refused::Unverified`]).
 const FORMAT: u32 = 2;
 const MANIFEST: &str = "manifest.json";
 /// Purpose of the MAC over manifest and database.
@@ -51,8 +53,9 @@ const LEVEL: i32 = 3;
 /// Buffer while hashing and unpacking.
 const CHUNK: usize = 64 * 1024;
 
-/// Details of the backup. The list does without them (it reads the file
-/// name); they explain the file even when it has a different name.
+/// Details of the backup. The list reads only `format` ([`legacy`]), the rest
+/// comes from the file name; they explain the file even when it has a
+/// different name.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Manifest {
     pub format: u32,
@@ -66,7 +69,9 @@ pub struct Manifest {
     /// it only tells a backup of another instance apart from a forged one.
     pub key: String,
     /// HMAC-SHA-256 (Base64) with the instance key over all fields above and
-    /// the SHA-256 of the database. [`write`] sets it, [`read`] checks it.
+    /// the SHA-256 of the database. [`write`] sets it, [`read`] checks it;
+    /// a missing one does not fit either.
+    #[serde(default)]
     pub mac: String,
 }
 
@@ -108,13 +113,15 @@ impl Manifest {
     /// Whether the manifest and the database with the hash `database` come
     /// from this instance and are unchanged.
     fn check(&self, secrets: &SecretKey, database: &[u8; 32]) -> anyhow::Result<()> {
-        let mac = STANDARD.decode(&self.mac).map_err(invalid)?;
-        if self.mac_parts(database, |parts| secrets.verify(MAC_PURPOSE, parts, &mac)) {
+        let fits = STANDARD.decode(&self.mac).is_ok_and(|mac| {
+            self.mac_parts(database, |parts| secrets.verify(MAC_PURPOSE, parts, &mac))
+        });
+        if fits {
             return Ok(());
         }
         anyhow::ensure!(self.key == key_mark(secrets), Refused::OtherKey);
         tracing::warn!("backup not authentic: manifest or database changed");
-        Err(Refused::Invalid.into())
+        Err(Refused::Unverified.into())
     }
 }
 
@@ -209,10 +216,10 @@ pub fn pack(path: &Path, entries: &[(&str, &[u8])]) -> anyhow::Result<()> {
 
 /// Reads the whole archive (including the checksum at the end), unpacks the
 /// database into `database` (mode 0600) and checks the MAC with `secrets`.
-/// Whatever cannot be read, unpacks to more than the limit or does not carry
-/// a valid MAC is [`Refused::Invalid`] (or [`Refused::OtherKey`],
-/// [`Refused::Newer`], [`Refused::Older`]); an error while writing stays a
-/// server error. After any error `database` is gone again. Blocks.
+/// Whatever cannot be read or unpacks to more than the limit is
+/// [`Refused::Invalid`]; without a fitting MAC it is [`Refused::Unverified`]
+/// (or [`Refused::OtherKey`]), from a newer format [`Refused::Newer`]. An
+/// error while writing stays a server error. After any error `database` is gone again. Blocks.
 pub fn read(archive: &Path, database: &Path, secrets: &SecretKey) -> anyhow::Result<Manifest> {
     let file = File::open(archive)?;
     let limit = limit(file.metadata()?.len());
@@ -295,16 +302,46 @@ struct Format {
     format: u32,
 }
 
-fn read_manifest(entry: impl Read) -> anyhow::Result<Manifest> {
+fn manifest_text(entry: impl Read) -> io::Result<Vec<u8>> {
     let mut text = Vec::new();
-    entry
-        .take(MAX_MANIFEST)
-        .read_to_end(&mut text)
-        .map_err(invalid)?;
+    entry.take(MAX_MANIFEST).read_to_end(&mut text)?;
+    Ok(text)
+}
+
+fn read_manifest(entry: impl Read) -> anyhow::Result<Manifest> {
+    let text = manifest_text(entry).map_err(invalid)?;
     let Format { format } = serde_json::from_slice(&text).map_err(invalid)?;
     anyhow::ensure!(format <= FORMAT, Refused::Newer);
-    anyhow::ensure!(format == FORMAT, Refused::Older);
+    if format < FORMAT {
+        tracing::warn!(format, "backup not authentic: older format without MAC");
+        return Err(Refused::Unverified.into());
+    }
     serde_json::from_slice(&text).map_err(invalid)
+}
+
+/// Whether `archive` is in an older format without MAC (`legacy` in the list).
+/// Reads only up to the manifest, which comes first, within [`OVERHEAD`];
+/// whatever cannot be read that way is not `legacy`: restoring tells what is
+/// wrong with it. Blocks.
+pub fn legacy(archive: &Path) -> bool {
+    fn format(archive: &Path) -> anyhow::Result<Option<u32>> {
+        let decoder = zstd::Decoder::new(File::open(archive)?)?;
+        let mut tar = tar::Archive::new(Budgeted {
+            inner: decoder,
+            left: Rc::new(Cell::new(OVERHEAD)),
+        });
+        for entry in tar.entries()? {
+            let entry = entry?;
+            let manifest =
+                entry.header().entry_type().is_file() && *entry.path()? == *Path::new(MANIFEST);
+            if manifest {
+                let Format { format } = serde_json::from_slice(&manifest_text(entry)?)?;
+                return Ok(Some(format));
+            }
+        }
+        Ok(None)
+    }
+    matches!(format(archive), Ok(Some(format)) if format < FORMAT)
 }
 
 /// A file being unpacked; deleted again unless [`Self::keep`] is called.
@@ -413,6 +450,7 @@ mod tests {
         assert_eq!(manifest.key, key_mark(&secrets));
         assert_eq!(STANDARD.decode(&manifest.mac).unwrap().len(), 32);
         assert_eq!(std::fs::read(&database).unwrap(), vec![7; 100_000]);
+        assert!(!legacy(&archive));
     }
 
     #[cfg(unix)]
@@ -507,8 +545,44 @@ mod tests {
         pack(&path, &[(MANIFEST, &manifest), (db::DB_FILE, DATA)]).unwrap();
         let target = tmp.path().join("target");
 
-        assert_eq!(refused(read(&path, &target, &secrets)), Refused::Older);
+        assert_eq!(refused(read(&path, &target, &secrets)), Refused::Unverified);
         assert!(!target.exists());
+        assert!(legacy(&path));
+    }
+
+    /// A current manifest without MAC is no older backup, but cannot be
+    /// checked either.
+    #[test]
+    fn a_missing_mac_is_refused() {
+        let tmp = tempfile::tempdir().unwrap();
+        let secrets = SecretKey::random().unwrap();
+        let path = tmp.path().join("archive.tar.zst");
+        let mut manifest = serde_json::to_value(signed(&secrets, DATA)).unwrap();
+        manifest.as_object_mut().unwrap().remove("mac");
+        let manifest = serde_json::to_vec(&manifest).unwrap();
+        pack(&path, &[(MANIFEST, &manifest), (db::DB_FILE, DATA)]).unwrap();
+        let target = tmp.path().join("target");
+
+        assert_eq!(refused(read(&path, &target, &secrets)), Refused::Unverified);
+        assert!(!target.exists());
+        assert!(!legacy(&path));
+    }
+
+    /// Anything that is not a readable backup is not `legacy` either.
+    #[test]
+    fn only_an_older_manifest_is_legacy() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("archive.tar.zst");
+
+        assert!(!legacy(&path), "missing file");
+        std::fs::write(&path, b"not zstd").unwrap();
+        assert!(!legacy(&path), "not an archive");
+        pack(&path, &[(db::DB_FILE, DATA)]).unwrap();
+        assert!(!legacy(&path), "without manifest");
+        pack(&path, &[(MANIFEST, br#"{ "format": 3 }"#)]).unwrap();
+        assert!(!legacy(&path), "newer format");
+        pack(&path, &[(MANIFEST, br#"{ "format": 1 }"#)]).unwrap();
+        assert!(legacy(&path), "first format");
     }
 
     /// The manifest of a real backup does not fit another database, nor any
@@ -527,8 +601,8 @@ mod tests {
             refused(result)
         };
 
-        assert_eq!(forged(&good, b"other data"), Refused::Invalid);
-        assert_eq!(forged(&good, b""), Refused::Invalid);
+        assert_eq!(forged(&good, b"other data"), Refused::Unverified);
+        assert_eq!(forged(&good, b""), Refused::Unverified);
         let changes: [fn(&mut Manifest); 6] = [
             |m| m.version.push('1'),
             |m| m.schema += 1,
@@ -540,12 +614,13 @@ mod tests {
         for change in changes {
             let mut manifest = good.clone();
             change(&mut manifest);
-            assert_eq!(forged(&manifest, DATA), Refused::Invalid, "{manifest:?}");
+            assert_eq!(forged(&manifest, DATA), Refused::Unverified, "{manifest:?}");
+            assert!(!legacy(&path), "{manifest:?}");
         }
         let mut shifted = good.clone();
         let last = shifted.version.pop().unwrap();
         shifted.created_at.insert(0, last);
-        assert_eq!(forged(&shifted, DATA), Refused::Invalid);
+        assert_eq!(forged(&shifted, DATA), Refused::Unverified);
     }
 
     #[test]

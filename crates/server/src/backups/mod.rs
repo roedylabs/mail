@@ -3,7 +3,8 @@
 //!
 //! - The files in `<ROEDY_DATA_DIR>/backups` are the list: the name carries the
 //!   time, kind and ID, the size comes from the file system. That way they
-//!   survive a restore, and a copied-in file shows up by itself.
+//!   survive a restore, and a copied-in file shows up by itself. Only the page
+//!   also reads the manifest's format ([`Backups::legacy`]).
 //! - [`create`] writes a snapshot through the online backup API and packs it
 //!   ([`archive`]). Finished files only appear by being renamed; intermediate
 //!   files live in [`Workspace`] and go with it.
@@ -220,6 +221,13 @@ impl Backups {
 
     pub fn path(&self, backup: &Backup) -> PathBuf {
         self.dir.join(&backup.file)
+    }
+
+    /// Whether `backup` is in the older format without an authenticity value
+    /// ([`archive::legacy`]); only the list needs this, so [`Self::list`]
+    /// reads no file. Blocks.
+    pub fn legacy(&self, backup: &Backup) -> bool {
+        archive::legacy(&self.path(backup))
     }
 
     /// `false` if the file is already gone.

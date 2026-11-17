@@ -1,11 +1,13 @@
 //! Administration › Maintenance: backups.
 //!
-//! - `GET admin/backups`: list, schedule and next run.
+//! - `GET admin/backups`: list, schedule and next run. `legacy` marks a backup
+//!   in the older format without an authenticity value: it cannot be restored.
 //! - `POST admin/backups`: "Back up now".
 //! - `PUT admin/backups/schedule`: changes the given fields.
 //! - `GET admin/backups/:id/download`: the file.
 //! - `POST admin/backups/:id/restore`: resets all data, only in maintenance
-//!   mode (otherwise 409 `maintenance_required`). The page asks for
+//!   mode (otherwise 409 `maintenance_required`) and only with a fitting
+//!   authenticity value (otherwise 422 `backup_unverified`). The page asks for
 //!   confirmation (`Sicherung wiederherstellen?`).
 //! - `DELETE admin/backups/:id`.
 //!
@@ -60,15 +62,19 @@ struct Row {
     at: String,
     size: u64,
     auto: bool,
+    /// In the older format without an authenticity value
+    /// ([`backups::Backups::legacy`]): restoring it is refused.
+    legacy: bool,
 }
 
-impl From<Backup> for Row {
-    fn from(backup: Backup) -> Self {
+impl Row {
+    fn new(backup: Backup, legacy: bool) -> Self {
         Self {
             id: backup.id,
             at: backup.at.to_string(),
             size: backup.size,
             auto: backup.auto,
+            legacy,
         }
     }
 }
@@ -92,7 +98,13 @@ impl View {
         let now = Timestamp::now();
         let next_at = settings.next_at(backups::last_run(conn, &list)?, now);
         Ok(Self {
-            backups: list.into_iter().map(Row::from).collect(),
+            backups: list
+                .into_iter()
+                .map(|backup| {
+                    let legacy = backups.legacy(&backup);
+                    Row::new(backup, legacy)
+                })
+                .collect(),
             auto: settings.auto,
             every: settings.every,
             keep: settings.keep,
@@ -147,7 +159,8 @@ async fn create(
     })
     .await
     .map_err(anyhow::Error::from)??;
-    Ok((StatusCode::CREATED, Json(backup.into())))
+    // A new backup always carries the authenticity value.
+    Ok((StatusCode::CREATED, Json(Row::new(backup, false))))
 }
 
 /// Body of `schedule`: the changed fields.
@@ -252,8 +265,8 @@ fn refused(error: anyhow::Error) -> ApiError {
             ApiError::rejected(StatusCode::UNPROCESSABLE_ENTITY, "backup_invalid")
         }
         Some(Refused::Newer) => ApiError::rejected(StatusCode::CONFLICT, "backup_newer"),
-        Some(Refused::Older) => {
-            ApiError::rejected(StatusCode::UNPROCESSABLE_ENTITY, "backup_older")
+        Some(Refused::Unverified) => {
+            ApiError::rejected(StatusCode::UNPROCESSABLE_ENTITY, "backup_unverified")
         }
         Some(Refused::OtherKey) => ApiError::rejected(StatusCode::CONFLICT, "backup_other_key"),
         Some(Refused::Unauthorized) => ApiError::Unauthorized,
@@ -270,8 +283,9 @@ fn refused(error: anyhow::Error) -> ApiError {
 /// Only in maintenance mode, so that nobody changes data while it is being
 /// reset; otherwise 409 `maintenance_required` (the page shows the switch as
 /// off), also if it is turned off before the copy, even if on again by then
-/// ([`backups::restore`] checks again). Like every refused restore, this changes nothing and writes no audit
-/// entry.
+/// ([`backups::restore`] checks again). A backup without an authenticity value
+/// or with one that does not fit is refused with 422 `backup_unverified`. Like
+/// every refused restore, this changes nothing and writes no audit entry.
 async fn restore(
     State(state): State<AppState>,
     AdminUser(user): AdminUser,

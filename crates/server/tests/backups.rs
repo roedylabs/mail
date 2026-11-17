@@ -402,6 +402,7 @@ async fn a_backup_holds_database_and_manifest() {
     let row = env.create().await;
 
     assert_eq!(row["auto"], false);
+    assert_eq!(row["legacy"], false);
     assert!(row["size"].as_u64().unwrap() > 0);
     let view = env.show().await;
     assert_eq!(view["backups"], json!([row]));
@@ -1191,7 +1192,7 @@ async fn a_backup_with_another_key_changes_nothing() {
 /// Whoever can write to the backup directory and read a backup, but does not
 /// have the instance key, smuggles in no database: neither a changed one nor
 /// one with an administrator of their own, packed with the copied manifest
-/// (and with it the copied `key`).
+/// (and with it the copied `key`). The authenticity value no longer fits.
 #[tokio::test]
 async fn a_forged_backup_with_a_copied_key_changes_nothing() {
     let env = env().await;
@@ -1233,7 +1234,7 @@ async fn a_forged_backup_with_a_copied_key_changes_nothing() {
             "{}",
             reply.body
         );
-        assert_eq!(reply.error(), "backup_invalid");
+        assert_eq!(reply.error(), "backup_unverified");
         untouched(&env).await;
         let ben: String = db::call(&env.state.db, |conn| {
             Ok(
@@ -1277,23 +1278,36 @@ async fn a_backup_that_unpacks_too_large_changes_nothing() {
     untouched(&env).await;
 }
 
-/// The first format had no MAC; nothing shows where its database came from.
+/// Packs the database of `path` again with its manifest changed by `change`,
+/// without a new MAC.
+fn repack(path: &Path, change: impl FnOnce(&mut Value)) {
+    let mut manifest: Value = serde_json::from_slice(&entry(path, "manifest.json")).unwrap();
+    change(&mut manifest);
+    let manifest = serde_json::to_vec(&manifest).unwrap();
+    let database = entry(path, db::DB_FILE);
+    archive::pack(
+        path,
+        &[("manifest.json", &manifest), (db::DB_FILE, &database)],
+    )
+    .unwrap();
+}
+
+/// The first format had no authenticity value; nothing shows where its
+/// database came from. The list marks it as `legacy`.
 #[tokio::test]
-async fn a_backup_in_the_old_format_changes_nothing() {
+async fn a_backup_without_an_authenticity_value_is_legacy_and_changes_nothing() {
     let env = env().await;
     let id = env.create().await["id"].as_str().unwrap().to_owned();
     env.add_user("tom", "Tom Newman", Role::User).await;
     let path = env.state.backups.path(&env.list()[0]);
-    let mut manifest: Value = serde_json::from_slice(&entry(&path, "manifest.json")).unwrap();
-    manifest["format"] = json!(1);
-    manifest.as_object_mut().unwrap().remove("mac");
-    let manifest = serde_json::to_vec(&manifest).unwrap();
-    let database = entry(&path, db::DB_FILE);
-    archive::pack(
-        &path,
-        &[("manifest.json", &manifest), (db::DB_FILE, &database)],
-    )
-    .unwrap();
+    repack(&path, |manifest| {
+        manifest["format"] = json!(1);
+        manifest.as_object_mut().unwrap().remove("mac");
+    });
+
+    let view = env.show().await;
+    assert_eq!(view["backups"][0]["id"], id.as_str());
+    assert_eq!(view["backups"][0]["legacy"], true);
 
     let reply = env.restore(&id).await;
 
@@ -1303,8 +1317,45 @@ async fn a_backup_in_the_old_format_changes_nothing() {
         "{}",
         reply.body
     );
-    assert_eq!(reply.error(), "backup_older");
+    assert_eq!(reply.error(), "backup_unverified");
     untouched(&env).await;
+}
+
+/// A current backup whose authenticity value is missing or no longer fits its
+/// fields is not `legacy`, but it is refused all the same.
+#[tokio::test]
+async fn a_backup_with_a_missing_or_wrong_authenticity_value_changes_nothing() {
+    let env = env().await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    env.add_user("tom", "Tom Newman", Role::User).await;
+    let path = env.state.backups.path(&env.list()[0]);
+    let good = std::fs::read(&path).unwrap();
+    let changes: [fn(&mut Value); 3] = [
+        |manifest| {
+            manifest.as_object_mut().unwrap().remove("mac");
+        },
+        |manifest| manifest["auto"] = json!(true),
+        |manifest| manifest["mac"] = json!("AAAA"),
+    ];
+
+    for change in changes {
+        std::fs::write(&path, &good).unwrap();
+        repack(&path, change);
+
+        let view = env.show().await;
+        assert_eq!(view["backups"][0]["legacy"], false);
+
+        let reply = env.restore(&id).await;
+
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{}",
+            reply.body
+        );
+        assert_eq!(reply.error(), "backup_unverified");
+        untouched(&env).await;
+    }
 }
 
 /// The audit log is not reset: downloads, exports and sign-ins since the
