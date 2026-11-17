@@ -1,12 +1,14 @@
 <!--
   Mobile sheet of the shell (`M_SHEETS`): one component for all content
   (navigation "More", account, notifications, apps …). Closes on a click on
-  the backdrop and with Escape. Swipe gestures via `use:swipe`. A second sheet
+  the backdrop, with Escape and when dragged down (`dragSheet`). A second sheet
   (`level` 2, e.g. "Switch account" above "Mailboxes") lies above it; the first
   then moves back (`behind`, `mSh1T`) and leaves Escape to it.
 -->
 <script lang="ts">
   import { focustrap } from '#lib/actions/focustrap.ts';
+  import { prefs } from '#lib/state/prefs.svelte.ts';
+  import { dragSheet } from '#lib/swipe.ts';
   import type { Snippet } from 'svelte';
 
   interface Props {
@@ -23,6 +25,7 @@
   let { label, onclose, children, level = 1, behind = false }: Props = $props();
 
   let panel: HTMLDivElement | undefined = $state();
+  let scrim: HTMLDivElement | undefined = $state();
 
   // Focus into the sheet, also back when the sheet above closes – unless the
   // focus trap has already put it back on the opener inside.
@@ -42,7 +45,7 @@
 <svelte:window {onkeydown} />
 
 <!-- Next to the panel, hence `data-scrim`: the focus trap keeps it clickable. -->
-<div class="scrim" class:top={level === 2} role="presentation" data-scrim onmousedown={onclose}></div>
+<div bind:this={scrim} class="scrim" class:top={level === 2} role="presentation" data-scrim onmousedown={onclose}></div>
 <!-- Behind a level 2 sheet neither operable nor visible to screen readers. -->
 <div
   class="sheet"
@@ -52,6 +55,7 @@
   role="dialog"
   aria-modal="true"
   use:focustrap
+  {@attach dragSheet(() => ({ animations: prefs.motion, scrim: scrim ?? null }))}
   aria-label={label}
   tabindex="-1"
   bind:this={panel}

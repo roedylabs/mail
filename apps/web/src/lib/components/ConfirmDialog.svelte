@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import { focustrap } from '#lib/actions/focustrap.ts';
+  import { dialogDrag } from '#lib/dialog-drag.ts';
   import type { ConfirmDialogValues } from '#lib/shell.ts';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
@@ -42,6 +43,7 @@
     role="alertdialog"
     aria-modal="true"
     use:focustrap
+    {@attach dialogDrag(() => cf.hasCancel)}
     aria-labelledby="{uid}-t"
     aria-describedby="{uid}-d"
   >

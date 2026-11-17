@@ -1,6 +1,7 @@
 /**
- * Swipe gestures of the message list and the toast: actions per direction
- * from the settings, threshold, rubber band, sliding out or springing back.
+ * Swipe gestures of the message list and the toast, and dragging sheets and
+ * dialogs down to close them: actions per direction from the settings,
+ * threshold, rubber band, sliding out or springing back.
  *
  * The gestures paint directly on the DOM (offset, clip and colour of the
  * background), not via Svelte state: otherwise every pointer move would change
@@ -139,6 +140,17 @@ export const toastOpacity = (dx: number, dy: number): number =>
 export const toastGone = (dx: number, dy: number, vx: number, vy: number): boolean =>
   Math.hypot(dx, Math.max(0, dy)) > 56 || Math.hypot(vx, Math.max(0, vy)) > 0.5;
 
+/** A sheet closes when dragged further than 30 % of its height and not flung back up, or when flung down faster than 0.5 px/ms. */
+export const sheetCloses = (off: number, height: number, vy: number): boolean =>
+  (off > height * 0.3 && vy > -0.3) || vy > 0.5;
+
+/** Duration in ms of a sheet sliding out: its height at the release velocity (at least 1.6 px/ms), 150 to 300 ms. */
+export const sheetOutMs = (height: number, vy: number): number =>
+  Math.round(Math.max(150, Math.min(300, height / Math.max(Math.abs(vy), 1.6))));
+
+/** Velocity in px/ms of a fling after `dt` ms: decays by 0.996 per ms. */
+export const flingDecay = (v: number, dt: number): number => v * 0.996 ** dt;
+
 /** Point of the pointer: x, y and time stamp of the event. */
 export type TrackPoint = readonly [x: number, y: number, t: number];
 
@@ -260,9 +272,10 @@ function follow(down: PointerEvent, steps: Steps): void {
   window.addEventListener('pointercancel', onUp);
 }
 
-/** Curves for springing back and sliding out. */
+/** Curves for springing back and sliding out; a sheet slides down with `SHEET_OUT`. */
 const SPRING = 'cubic-bezier(.2,1.15,.35,1)';
 const ACCEL = 'cubic-bezier(.4,0,1,1)';
+const SHEET_OUT = 'cubic-bezier(.3,.6,.4,1)';
 
 /** Runs `fn` after `ms` and blocks new gestures until then (`later`). */
 function later(ms: number, fn: () => void): void {
@@ -470,6 +483,157 @@ export function swipeToast(get: () => ToastSwipe): Attachment<HTMLElement> {
             el.style.translate = '';
             el.style.filter = '';
           }, t + 30);
+        },
+      });
+    };
+
+    el.addEventListener('pointerdown', onDown);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      clearTimeout(resetTimer);
+    };
+  };
+}
+
+// --- Sheet ---
+
+/** Momentum scrolling after releasing a sheet (`gFling`); a new touch stops it. */
+let flingRaf = 0;
+
+/** Scrolls `sc` on with the velocity `v` in px/ms until it stops or reaches the end. */
+function fling(sc: HTMLElement, v: number): void {
+  cancelAnimationFrame(flingRaf);
+  if (Math.abs(v) < 0.05) return;
+  let last = performance.now();
+  const step = (now: number) => {
+    const dt = Math.min(32, now - last);
+    last = now;
+    v = flingDecay(v, dt);
+    const before = sc.scrollTop;
+    sc.scrollTop = before + v * dt;
+    if (Math.abs(v) > 0.03 && sc.scrollTop !== before) flingRaf = requestAnimationFrame(step);
+  };
+  flingRaf = requestAnimationFrame(step);
+}
+
+/** Nearest element between `from` and `stop` (exclusive) that scrolls vertically (`gScroller`). */
+function scroller(from: Element, stop: Element): HTMLElement | null {
+  for (let n: Element | null = from; n && n !== stop; n = n.parentElement) {
+    if (!(n instanceof HTMLElement)) continue;
+    const o = getComputedStyle(n).overflowY;
+    if ((o === 'auto' || o === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+  }
+  return null;
+}
+
+/** Values of a sheet or dialog that can be dragged down to close it. */
+export interface SheetDrag {
+  /** Setting "Animations": without it, the sheet closes or comes back immediately. */
+  animations: boolean;
+  /**
+   * Backdrop of the layer: fades while dragging, and the gesture closes the
+   * layer with a `mousedown` on it, exactly like a click on the backdrop.
+   * Without it the parent element (a dialog inside its backdrop).
+   */
+  scrim?: HTMLElement | null;
+}
+
+/**
+ * Dragging a sheet (mobile) or dialog (tablet) down to close it, as an
+ * attachment on the panel; `null` from `get` turns it off (desktop with a
+ * mouse, a confirmation without "Cancel"). Vertical movement anywhere on the
+ * panel except in fields; inside content that is scrolled, the content
+ * scrolls first and the panel only follows from `scrollTop ≤ 0` downwards
+ * (with a mouse it follows at once and scrolls the content itself).
+ * Upwards only as a rubber band, the backdrop fades with the offset. Released
+ * far or fast enough, the panel slides out and the layer closes; otherwise, and
+ * always after `pointercancel`, it springs back. Content that was scrolled
+ * keeps scrolling with momentum.
+ */
+export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> {
+  return (el) => {
+    let resetTimer: ReturnType<typeof setTimeout> | undefined;
+
+    const onDown = (e: PointerEvent) => {
+      cancelAnimationFrame(flingRaf);
+      if (!canStart(e)) return;
+      const o = get();
+      if (!o) return;
+      const ms = (n: number) => (o.animations ? n : 0);
+      const target = e.target instanceof Element ? e.target : el;
+      const mouse = e.pointerType === 'mouse';
+      let scrim: HTMLElement | null = null;
+      let sc: HTMLElement | null = null;
+      let st0 = 0;
+      let height = 0;
+      let off = 0;
+
+      const reset = () => {
+        el.style.transition = '';
+        el.style.translate = '';
+        if (scrim) {
+          scrim.style.transition = '';
+          scrim.style.opacity = '';
+        }
+      };
+
+      follow(e, {
+        decide: (dx, dy) => {
+          if (Math.abs(dx) > Math.abs(dy)) return false;
+          sc = scroller(target, el);
+          if (!mouse && sc && !(dy > 0 && sc.scrollTop <= 0)) return false;
+          st0 = sc ? sc.scrollTop : 0;
+          return true;
+        },
+        start: () => {
+          clearTimeout(resetTimer);
+          scrim = o.scrim === undefined ? el.parentElement : o.scrim;
+          height = el.offsetHeight;
+          el.style.transition = 'none';
+          if (scrim) scrim.style.transition = 'none';
+        },
+        move: (_dx, dy) => {
+          off = dy;
+          if (sc) {
+            const want = st0 - dy;
+            sc.scrollTop = Math.max(0, want);
+            off = want < 0 ? -want : 0;
+          }
+          el.style.translate = `0 ${off >= 0 ? off : -rubber(-off, 30)}px`;
+          if (scrim) scrim.style.opacity = String(Math.max(0, 1 - Math.max(0, off) / height));
+        },
+        end: (_vx, vy, cancelled) => {
+          if (sc && off <= 0) {
+            if (!cancelled) fling(sc, -vy);
+            reset();
+            return;
+          }
+          // Cancelled by the browser or the system (`pointercancel`): back, even beyond the threshold.
+          if (!cancelled && sheetCloses(off, height, vy)) {
+            const t = ms(sheetOutMs(height, vy));
+            el.style.transition = `translate ${t}ms ${SHEET_OUT}`;
+            el.style.translate = `0 ${height + 24}px`;
+            if (scrim) {
+              scrim.style.transition = `opacity ${t}ms ease`;
+              scrim.style.opacity = '0';
+            }
+            later(t, () => {
+              scrim?.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+              // Still there (the layer refused to close): back into place.
+              requestAnimationFrame(() => {
+                if (el.isConnected) reset();
+              });
+            });
+            return;
+          }
+          const t = ms(440);
+          el.style.transition = `translate ${t}ms ${SPRING}`;
+          el.style.translate = '0 0';
+          if (scrim) {
+            scrim.style.transition = `opacity ${t}ms ease`;
+            scrim.style.opacity = '1';
+          }
+          resetTimer = setTimeout(reset, t + 30);
         },
       });
     };

@@ -1,6 +1,7 @@
 import { fireEvent, render } from '@testing-library/svelte';
 import { createRawSnippet, flushSync } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
+import { pointer } from '#lib/test/pointer.ts';
 import Sheet from './Sheet.svelte';
 
 const body = createRawSnippet(() => ({ render: () => '<p>Content</p>' }));
@@ -36,6 +37,30 @@ describe('Sheet', () => {
     await rerender({ behind: false });
     expect(sheet.inert).toBe(false);
     expect(document.activeElement).toBe(sheet);
+  });
+
+  it('closes like the backdrop when dragged down far enough, the backdrop fading along', () => {
+    vi.useFakeTimers();
+    try {
+      const onclose = vi.fn();
+      const { container, getByRole } = render(Sheet, { label: 'More', onclose, children: body });
+      const sheet = getByRole('dialog');
+      const scrim = container.querySelector<HTMLElement>('.scrim');
+      Object.defineProperty(sheet, 'offsetHeight', { value: 400 });
+      pointer('pointerdown', 100, 100, sheet);
+      pointer('pointermove', 100, 110);
+      pointer('pointermove', 100, 310);
+      expect(sheet.style.translate).toBe('0px 200px');
+      expect(scrim?.style.opacity).toBe('0.5');
+      vi.advanceTimersByTime(200);
+      pointer('pointerup', 100, 310);
+      window.dispatchEvent(new MouseEvent('click'));
+      expect(onclose).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(250);
+      expect(onclose).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('skips Escape that is already handled, and lies on top as level 2', () => {
