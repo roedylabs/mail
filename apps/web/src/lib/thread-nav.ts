@@ -18,15 +18,17 @@ export interface GoneCheck extends ShownThread {
   movedTo: string | null;
 }
 
-/**
- * Open a thread in the view: in "All accounts" with its account
- * (`<account>/<thread>` as one segment). `replace` replaces the history
- * entry instead of adding a new one.
- */
-export function openThread(location: MailboxLocation, account: string, threadId: string, replace = false): void {
+/** Address of a thread in the view: in "All accounts" with its account (`<account>/<thread>` as one segment). */
+export function threadHref(location: MailboxLocation, account: string, threadId: string): string {
   const params = mailboxParams(location.account, location);
   const thread = encodeURIComponent(location.account === ALL_ACCOUNTS ? `${account}/${threadId}` : threadId);
-  void goto(resolve('/mailbox/[account]/[...path]', { ...params, path: `${params.path}/${thread}` }), { replace });
+  return resolve('/mailbox/[account]/[...path]', { ...params, path: `${params.path}/${thread}` });
+}
+
+/** Open a thread in the view (`threadHref`). `replace` replaces the history entry instead of adding a new one. */
+export function openThread(location: MailboxLocation, account: string, threadId: string, replace = false): void {
+  // eslint-disable-next-line svelte/no-navigation-without-resolve -- threadHref() returns a resolve() result
+  void goto(threadHref(location, account, threadId), { replace });
 }
 
 /** Back to the list of the view. */

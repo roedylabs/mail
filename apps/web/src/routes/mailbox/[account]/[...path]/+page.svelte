@@ -96,7 +96,7 @@
   import { sidebarScope } from '#lib/mailbox-nav.ts';
   import { m } from '#lib/paraglide/messages.js';
   import { ALL_ACCOUNTS, mailboxParams, parseMailboxPath, type RoleId } from '#lib/routes.ts';
-  import { followGone, openList, openThread } from '#lib/thread-nav.ts';
+  import { followGone, openList, openThread, threadHref } from '#lib/thread-nav.ts';
   import { accounts } from '#lib/state/accounts.svelte.ts';
   import { compose, draftRef, NEW_DRAFT, parseMailto, replyInit, type ComposeNav } from '#lib/state/compose.svelte.ts';
   import { modKey } from '#lib/keys.ts';
@@ -1335,7 +1335,10 @@
       if (threadKey !== before) return;
       target = current.threads[at.index + 1];
     }
-    if (target) open({ account: target.account, threadId: target.threadId });
+    if (!target) return;
+    // Menus outside the reading view stay open (`pfOpen`); its own popovers close with the conversation.
+    if (location) ui.keepMenuAt = threadHref(location, target.account, target.threadId);
+    open({ account: target.account, threadId: target.threadId });
   }
 
   // J/K, ←/→ and Escape of the reading view on desktop, also while a conversation loads or fails.

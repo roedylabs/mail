@@ -477,13 +477,10 @@
     if (prefs.remote) rememberLang(lang);
   });
 
-  /** Target of a navigation that leaves the open sheet in place (`go()` with `keepMenu`). */
-  let keepMenuAt: string | null = null;
-
-  // Close open menus on a page change – except after the account selection in the "Mailboxes" sheet (`swPick()`).
+  // Close open menus on a page change – except for `ui.keepMenuAt` (account selection in the "Mailboxes" sheet, paging).
   $effect(() => {
-    const keep = path === keepMenuAt;
-    keepMenuAt = null;
+    const keep = path === ui.keepMenuAt;
+    ui.keepMenuAt = null;
     if (!keep) ui.closeMenu();
   });
 
@@ -498,7 +495,7 @@
    * "Mailboxes" sheet, `swPick()`).
    */
   function go(to: string, keepMenu = false) {
-    if (keepMenu) keepMenuAt = to;
+    if (keepMenu) ui.keepMenuAt = to;
     else ui.closeMenu();
     // The target is the open address (active navigation entry): replace the entry instead of duplicating it,
     // like SvelteKit for links to the current page. It compares with the browser's address,
