@@ -177,11 +177,24 @@ describe('Mail servers page', () => {
     expect(view.getAllByRole('button', { name: 'Add server' })).toHaveLength(1);
   });
 
-  it('shows the error page when the list does not load, and reloads', async () => {
+  it('shows the skeleton until the first response, without list and policy', async () => {
+    mockApi({ 'GET admin/servers': [() => new Promise(() => {})], 'GET admin/servers/policy': [{ body: POLICY }] });
+    const view = render(Page);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Mail servers');
+    expect(view.queryByText('Loading data …')).toBeNull();
+    expect(await view.findByText('Loading data …')).toBeInTheDocument();
+    expect(view.queryByRole('heading', { level: 2 })).toBeNull();
+    expect(view.queryByRole('button')).toBeNull();
+  });
+
+  it('shows the card instead of list and policy when the first load fails, and reloads', async () => {
     const view = renderPage({
       'GET admin/servers': [{ status: 500, body: { error: 'internal' } }, { body: LIST }],
     });
-    expect(await view.findByText('Something went wrong')).toBeInTheDocument();
+    const card = await view.findByRole('alert');
+    expect(card).toHaveTextContent('Couldn’t load mail servers');
+    expect(card).toHaveTextContent('That didn’t work. Please try again.');
+    expect(view.queryByRole('heading', { level: 2 })).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Try again' }));
     expect(await view.findByText('VPS 1')).toBeInTheDocument();
   });

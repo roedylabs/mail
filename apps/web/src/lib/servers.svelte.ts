@@ -34,7 +34,7 @@ import {
   type DiagReasons,
   type DiagStatus,
 } from '#lib/diagnosis.ts';
-import { failText } from '#lib/errors.ts';
+import { failText, loadFailText } from '#lib/errors.ts';
 import type { IconName } from '#lib/icons.ts';
 import type { KeyInput } from '#lib/keys.ts';
 import { m } from '#lib/paraglide/messages.js';
@@ -42,7 +42,7 @@ import { overlayClose, type OverlayEvent } from '#lib/shell.ts';
 import { onForget } from '#lib/state/forget.ts';
 import { Kept } from '#lib/state/kept.ts';
 import { session } from '#lib/state/session.svelte.ts';
-import { ui } from '#lib/state/ui.svelte.ts';
+import { Loading, ui } from '#lib/state/ui.svelte.ts';
 import { MAX_DOMAINS, domainsOf, hostOf, httpOther, isDomain, localHttp } from '#lib/url.ts';
 import { clockText, waitText } from '#lib/wait.ts';
 
@@ -181,8 +181,10 @@ onForget(() => {
 export class ServersPage {
   rows = $state<AdminServer[]>([]);
   status = $state<ListStatus>('loading');
-  /** First load failed: "offline" without a response, otherwise "500". */
-  failure = $state<'offline' | '500'>('500');
+  /** Reason the first load failed (text of the card). */
+  failure = $state('');
+  /** Skeleton only after the skeleton delay. */
+  readonly loading = new Loading();
   redirectUri = $state<string | null>(null);
   systemServer = $state<string | null>(null);
   /** "Users can enter their own server URLs". */
@@ -252,11 +254,15 @@ export class ServersPage {
     const reopened = this.#reopened;
     this.#reopened = false;
     try {
-      const [list, policy] = await Promise.all([
-        api<ServerList>('GET', 'admin/servers'),
-        // After toggles still on their way: otherwise the response could be older than a confirmed one.
-        policyWrites.catch(() => {}).then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
-      ]);
+      const [list, policy] = await this.loading.run(
+        Promise.all([
+          api<ServerList>('GET', 'admin/servers'),
+          // After toggles still on their way: otherwise the response could be older than a confirmed one.
+          policyWrites
+            .catch(() => {})
+            .then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
+        ]),
+      );
       if (seq !== this.#seq || this.#disposed) return;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
       if (changes !== keptServers.changes) {
@@ -284,7 +290,7 @@ export class ServersPage {
         void session.refreshUser().catch(() => {});
       }
       if (this.status !== 'ready') {
-        this.failure = error instanceof ApiError ? '500' : 'offline';
+        this.failure = loadFailText(error);
         this.status = 'failed';
       } else {
         ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
@@ -292,8 +298,9 @@ export class ServersPage {
     }
   }
 
-  /** Load again after "Try again" of the error page. */
+  /** "Try again" of the card: skeleton again until the response. */
   async retry(): Promise<void> {
+    this.status = 'loading';
     await this.load();
   }
 

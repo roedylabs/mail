@@ -335,11 +335,24 @@ describe('Users page', () => {
     expect(view.queryByRole('button', { name: 'Extend' })).toBeNull();
   });
 
-  it('shows the error page when the list does not load, and reloads', async () => {
+  it('shows the skeleton until the first response, without search and list', async () => {
+    mockApi({ 'GET users': [() => new Promise(() => {})] });
+    const view = render(Page);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Users');
+    expect(view.queryByText('Loading data …')).toBeNull();
+    expect(await view.findByText('Loading data …')).toBeInTheDocument();
+    expect(view.queryByRole('textbox')).toBeNull();
+    expect(view.queryByRole('button')).toBeNull();
+  });
+
+  it('shows the card instead of the list when the first load fails, and reloads', async () => {
     const view = renderPage({
       'GET users': [{ status: 500, body: { error: 'internal' } }, { body: { users: USERS } }],
     });
-    expect(await view.findByText('Something went wrong')).toBeInTheDocument();
+    const card = await view.findByRole('alert');
+    expect(card).toHaveTextContent('Couldn’t load users');
+    expect(card).toHaveTextContent('That didn’t work. Please try again.');
+    expect(view.queryByRole('textbox')).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Try again' }));
     expect(await view.findByText('Alice Brown')).toBeInTheDocument();
   });

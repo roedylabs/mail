@@ -12,7 +12,7 @@
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { tooltip } from '#lib/actions/tooltip.ts';
-  import ErrorView from '#lib/components/ErrorView.svelte';
+  import FirstLoad from '#lib/components/FirstLoad.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
   import { pickPop, selIds, selKey } from '#lib/select.ts';
@@ -119,9 +119,14 @@
   <p class="m-lead">{info?.desc}</p>
 {/if}
 
-{#if p.status === 'failed'}
-  <div class="failed"><ErrorView code={p.failure} retry={() => p.retry()} /></div>
-{:else}
+<FirstLoad
+  status={p.status}
+  slow={p.loading.slow}
+  title={m.users_load_failed()}
+  text={p.failure}
+  onRetry={() => void p.retry()}
+  {isMobile}
+>
   <div class="bar" class:mobile={isMobile}>
     <div class="search">
       <span class="search-icon"><Icon name="ti-search" /></span>
@@ -550,7 +555,7 @@
       </div>
     {/each}
 
-    {#if p.status === 'ready' && v.uEmpty}
+    {#if v.uEmpty}
       <div class="empty" class:mobile={isMobile}>
         <span class="empty-tile"><Icon name="ti-user-search" /></span>
         <div class="empty-text">{v.uEmptyText}</div>
@@ -558,7 +563,7 @@
       </div>
     {/if}
   </div>
-{/if}
+</FirstLoad>
 
 <style>
   .title {
@@ -588,12 +593,6 @@
     font-size: 15px;
     line-height: 1.5;
     color: var(--mfg);
-  }
-
-  .failed {
-    margin-top: 26px;
-    display: flex;
-    flex-direction: column;
   }
 
   /* Search and "Invite" */

@@ -22,7 +22,7 @@ import { ApiError, api, fieldsOf, isApiError, retryAfter } from '#lib/api.ts';
 import { copyPending } from '#lib/clipboard.svelte.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
-import { failText, timeZoneOf } from '#lib/errors.ts';
+import { failText, loadFailText, timeZoneOf } from '#lib/errors.ts';
 import type { IconName } from '#lib/icons.ts';
 import type { KeyInput } from '#lib/keys.ts';
 import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
@@ -31,7 +31,7 @@ import { pickList, type SelectValues } from '#lib/select.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { Kept } from '#lib/state/kept.ts';
 import { initialsOf, session } from '#lib/state/session.svelte.ts';
-import { ui } from '#lib/state/ui.svelte.ts';
+import { Loading, ui } from '#lib/state/ui.svelte.ts';
 import { waitText } from '#lib/wait.ts';
 import { intlLocale } from '#lib/locale.ts';
 
@@ -166,8 +166,10 @@ export const keptUsers = new Kept<ListedUser[]>();
 export class UsersPage {
   rows = $state<ListedUser[]>([]);
   status = $state<ListStatus>('loading');
-  /** First load failed: "offline" without a response, otherwise "500". */
-  failure = $state<'offline' | '500'>('500');
+  /** Reason the first load failed (text of the card). */
+  failure = $state('');
+  /** Skeleton only after the skeleton delay. */
+  readonly loading = new Loading();
 
   q = $state('');
   filter = $state<UsersFilter>('all');
@@ -283,7 +285,7 @@ export class UsersPage {
     this.#reopened = false;
     const changes = keptUsers.changes;
     try {
-      const { users } = await api<{ users: ListedUser[] }>('GET', 'users');
+      const { users } = await this.loading.run(api<{ users: ListedUser[] }>('GET', 'users'));
       if (seq !== this.#seq || this.#disposed) return;
       // Confirmed in the meantime (e.g. removed): the list is older, so reload.
       if (changes !== keptUsers.changes) {
@@ -303,7 +305,7 @@ export class UsersPage {
         void session.refreshUser().catch(() => {});
       }
       if (this.status !== 'ready') {
-        this.failure = error instanceof ApiError ? '500' : 'offline';
+        this.failure = loadFailText(error);
         this.status = 'failed';
       } else {
         ui.toasts.error(reopened ? m.error_list() : failText(error, m.error_list()));
@@ -341,8 +343,9 @@ export class UsersPage {
     };
   }
 
-  /** Load again after "Try again" of the error page. */
+  /** "Try again" of the card: skeleton again until the response. */
   async retry(): Promise<void> {
+    this.status = 'loading';
     await this.load();
   }
 

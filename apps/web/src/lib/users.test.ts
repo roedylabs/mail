@@ -278,18 +278,20 @@ describe('List', () => {
     ).toEqual(['Administrator', 'Administrator']);
   });
 
-  it('shows the error page if the first load fails', async () => {
+  it('shows the card if the first load fails, with the reason', async () => {
     mockApi({ 'GET users': [{ status: 500, body: { error: 'internal' } }] });
     const p = new UsersPage();
     await p.load();
     expect(p.status).toBe('failed');
-    expect(p.failure).toBe('500');
+    expect(p.failure).toBe('That didn’t work. Please try again.');
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.reject(new TypeError('offline'))),
     );
-    await p.retry();
-    expect(p.failure).toBe('offline');
+    const retry = p.retry();
+    expect(p.status).toBe('loading');
+    await retry;
+    expect(p.failure).toBe('No connection. Please try again.');
   });
 
   it('reloads the account without a session instead of only showing the error page', async () => {
