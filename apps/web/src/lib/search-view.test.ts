@@ -47,7 +47,7 @@ describe('Opening a found email', () => {
     openDraft.mockResolvedValue(true);
     const box: HitBox = { label: 'Drafts', role: 'drafts', target: { role: 'drafts' } };
     openHit(hit({ id: 'e2', mailboxIds: { 'mb-drafts': true } }), box);
-    expect(openDraft).toHaveBeenCalledWith('a1', 'e2', { href: '/mailbox/a1/drafts', label: 'Drafts' });
+    expect(openDraft).toHaveBeenCalledWith('a1', 'e2', { href: '/mailbox/a1/drafts', label: 'Drafts' }, undefined);
     await vi.waitFor(() => expect(nav.goto).toHaveBeenCalledWith('/compose/a1%2Fe2'));
   });
 
@@ -58,7 +58,7 @@ describe('Opening a found email', () => {
       role: 'inbox',
       target: { role: 'inbox' },
     });
-    expect(openDraft).toHaveBeenCalledWith('a1', 'e1', { href: '/mailbox/a1/drafts', label: 'Drafts' });
+    expect(openDraft).toHaveBeenCalledWith('a1', 'e1', { href: '/mailbox/a1/drafts', label: 'Drafts' }, undefined);
     await vi.waitFor(() => expect(nav.goto).toHaveBeenCalledWith('/compose/a1%2Fe1'));
   });
 

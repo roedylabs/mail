@@ -95,12 +95,13 @@
   } from '#lib/message-view.ts';
   import { sidebarScope } from '#lib/mailbox-nav.ts';
   import { m } from '#lib/paraglide/messages.js';
+  import { openDraft as loadDraft } from '#lib/open-draft.ts';
   import { ALL_ACCOUNTS, mailboxParams, parseMailboxPath, type RoleId } from '#lib/routes.ts';
   import { followGone, openList, openThread, threadHref } from '#lib/thread-nav.ts';
   import { returnLabel, returnToSearch } from '#lib/search-return.ts';
   import { search } from '#lib/state/search.svelte.ts';
   import { accounts } from '#lib/state/accounts.svelte.ts';
-  import { compose, draftRef, NEW_DRAFT, parseMailto, replyInit, type ComposeNav } from '#lib/state/compose.svelte.ts';
+  import { compose, NEW_DRAFT, parseMailto, replyInit, type ComposeNav } from '#lib/state/compose.svelte.ts';
   import { modKey } from '#lib/keys.ts';
   import { replyValues, type ReplyActions, type ReplyMode, type ReplyState } from '#lib/reply.ts';
   import { LOCAL_DRAFT } from '#lib/state/edit-queue.svelte.ts';
@@ -296,7 +297,7 @@
   function open(row: Pick<ListRow, 'account' | 'threadId' | 'id'>) {
     if (!location) return;
     if (opensCompose(row)) {
-      void openDraft(row.account, row.id);
+      openDraft(row.account, row.id);
       return;
     }
     openThread(location, row.account, row.threadId);
@@ -311,19 +312,20 @@
 
   /**
    * Compose with a draft, back to `from`: from an open conversation "Back to message" (`r.pfMsg`), otherwise the view.
-   * Without `from` (row, J/K) only without another navigation meanwhile: paging on while the draft loads opens nothing.
+   * Only without another navigation since `since` (by default now): paging on while the draft loads opens nothing.
    */
-  async function openDraft(account: string, id: string, sendAt?: number, from?: string) {
+  function openDraft(
+    account: string,
+    id: string,
+    opts: { sendAt?: number | undefined; from?: string | undefined; since?: number } = {},
+  ) {
     const here = page.url.pathname + page.url.search;
-    const href = from ?? here;
+    const href = opts.from ?? here;
     const ret = {
       href,
       label: opened && href === here ? m.compose_back_message() : (view?.title ?? m.mailbox_inbox()),
     };
-    const at = search.navigations;
-    const ok = await compose.openDraft(account, id, ret, sendAt);
-    if (ok && (from !== undefined || search.navigations === at))
-      void goto(resolve('/compose/[draft]', { draft: encodeURIComponent(draftRef({ account, id })) }));
+    void loadDraft(account, id, ret, opts);
   }
 
   /** `mailto:` link in a message: compose with its account, back "Back to message". */
@@ -1136,8 +1138,10 @@
     // Only the shown email (`pfCancel([rm.id], true)`): compose opens exactly that one.
     // Back to the list: the reading view is closed even if the address has not changed yet.
     const from = listHref();
+    // From the click on: closing the reading view is the one navigation that does not count.
+    const since = search.mark(1);
     const done = await cancel([{ account: r.account, emails: [r.rm] }], closeMessage);
-    if (done.some((d) => d.id === r.rm.id)) void openDraft(r.account, r.rm.id, sendAt, from);
+    if (done.some((d) => d.id === r.rm.id)) openDraft(r.account, r.rm.id, { sendAt, from, since });
   }
 
   /**
@@ -1153,11 +1157,11 @@
     if (!cancelEdits([r.rm], roles).size) return nothing();
     if (refusedBy([r.account])) return;
     const from = listHref();
+    // From the undo or the failure on, but closing the reading view never counts.
+    const closed = search.mark(1);
     closeMessage();
-    void planActions.sendNow(
-      { ...r.rm, account: r.account },
-      roles,
-      () => void openDraft(r.account, r.rm.id, undefined, from),
+    void planActions.sendNow({ ...r.rm, account: r.account }, roles, () =>
+      openDraft(r.account, r.rm.id, { from, since: Math.max(closed, search.mark()) }),
     );
   }
 
