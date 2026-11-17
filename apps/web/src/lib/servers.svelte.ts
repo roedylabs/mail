@@ -219,8 +219,6 @@ export class ServersPage {
   #ownKnown = false;
   /** Local changes per server; a test result only applies without newer ones. */
   #edits: Record<string, number> = {};
-  /** Counts local changes of the list; a response older than the last one does not apply. */
-  #changes = 0;
   /** Stored servers that are tested after the running test. */
   #queue: string[] = [];
   #policySeq = 0;
@@ -245,7 +243,7 @@ export class ServersPage {
   async load(): Promise<void> {
     const seq = ++this.#seq;
     const policySeq = this.#policySeq;
-    const changes = this.#changes;
+    const changes = keptServers.changes;
     const reopened = this.#reopened;
     this.#reopened = false;
     try {
@@ -256,7 +254,7 @@ export class ServersPage {
       ]);
       if (seq !== this.#seq || this.#disposed) return;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
-      if (changes !== this.#changes) {
+      if (changes !== keptServers.changes) {
         this.#reopened = reopened;
         void this.load();
         return;
@@ -335,7 +333,7 @@ export class ServersPage {
 
   /** Take over a server from a response (add, edit, test). */
   #put(server: AdminServer): void {
-    this.#changes++;
+    keptServers.changed();
     const known = this.rows.some((s) => s.id === server.id);
     this.rows = known ? this.rows.map((s) => (s.id === server.id ? server : s)) : [...this.rows, server];
   }
@@ -411,7 +409,7 @@ export class ServersPage {
       danger: true,
       run: () => {
         const before = this.rows;
-        this.#changes++;
+        keptServers.changed();
         this.#removing.push(server.id);
         this.#removingRows.push(server);
         this.rows = before.filter((s) => s.id !== server.id);
@@ -428,7 +426,7 @@ export class ServersPage {
             }
             this.#removing = this.#removing.filter((x) => x !== server.id);
             this.#removingRows = this.#removingRows.filter((s) => s.id !== server.id);
-            this.#changes++;
+            keptServers.changed();
             if (!this.rows.some((s) => s.id === server.id)) {
               this.rows = [...this.rows, ...before.filter((s) => s.id === server.id)];
             }
@@ -440,7 +438,7 @@ export class ServersPage {
   }
 
   #removed(id: string, sys: boolean): void {
-    this.#changes++;
+    keptServers.changed();
     this.#removing = this.#removing.filter((x) => x !== id);
     this.#removingRows = this.#removingRows.filter((s) => s.id !== id);
     if (sys) {

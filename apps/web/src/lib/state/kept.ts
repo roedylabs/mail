@@ -9,6 +9,7 @@ import { onForget } from '#lib/state/forget.ts';
 export class Kept<T> {
   #value: T | null = null;
   #gen = 0;
+  #changes = 0;
 
   constructor() {
     onForget(() => this.forget());
@@ -25,6 +26,18 @@ export class Kept<T> {
     return (value) => {
       if (gen === this.#gen) this.#value = value;
     };
+  }
+
+  /**
+   * Counts changes of the list, of every page of the session: a load that
+   * started before one does not apply, also if a page already left confirms it.
+   */
+  get changes(): number {
+    return this.#changes;
+  }
+
+  changed(): void {
+    this.#changes++;
   }
 
   forget(): void {

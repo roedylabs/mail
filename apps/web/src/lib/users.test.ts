@@ -1187,6 +1187,27 @@ describe('Reopening', () => {
     await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
   });
 
+  it('a removal the left page confirms later makes the reopened page load again', async () => {
+    let removed: (reply: { status: number }) => void = () => {};
+    let answer: (reply: { body: { users: ListedUser[] } }) => void = () => {};
+    const later = USERS.filter((u) => u.id !== 'u3');
+    const { p } = await loaded({ 'DELETE users/u3': [() => new Promise((resolve) => (removed = resolve))] });
+    const u3 = p.rows.find((u) => u.id === 'u3');
+    if (!u3) throw new Error('no u3');
+    p.remove(u3);
+    ui.confirmOk();
+    p.dispose();
+    mockApi({ 'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: later } }] });
+    const q = new UsersPage();
+    expect(q.rows.map((u) => u.id)).toContain('u3');
+    const load = q.load();
+    removed({ status: 204 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    answer({ body: { users: USERS } });
+    await load;
+    await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
+  });
+
   it('signing out discards the list, also of a page left afterwards', async () => {
     const { p } = await loaded();
     p.dispose();

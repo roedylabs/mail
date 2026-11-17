@@ -145,8 +145,6 @@ export class SecurityPage {
 
   #seq = 0;
   #enrollSeq = 0;
-  /** Counts changes confirmed by the server; a load that started before one does not apply. */
-  #changes = 0;
   #disposed = false;
   /** Reopened with the kept data: the next load reports a failure only as "Couldn’t update the list.". */
   #reopened = false;
@@ -175,7 +173,7 @@ export class SecurityPage {
     const seq = ++this.#seq;
     const reopened = this.#reopened;
     this.#reopened = false;
-    const changes = this.#changes;
+    const changes = keptSecurity.changes;
     try {
       const [mfa, list] = await Promise.all([
         api<MfaOverview>('GET', 'auth/totp/devices'),
@@ -183,7 +181,7 @@ export class SecurityPage {
       ]);
       if (seq !== this.#seq || this.#disposed) return;
       // Changed in the meantime (app added or removed, devices signed out): the response is older, so reload.
-      if (changes !== this.#changes) {
+      if (changes !== keptSecurity.changes) {
         this.#reopened = reopened;
         void this.load();
         return;
@@ -260,7 +258,7 @@ export class SecurityPage {
       this.pwShowCur = this.pwShowNew = false;
       this.pwErr = null;
       // All other sessions are ended, open links from mails discarded.
-      this.#changes++;
+      keptSecurity.changed();
       this.sessions = this.sessions.filter((s) => s.current);
       const user = session.user;
       if (user) session.user = { ...user, password_changed_at: res.password_changed_at, email_change: null };
@@ -577,7 +575,7 @@ export class SecurityPage {
           // Already ended or expired.
           if (!isApiError(error, 404)) throw error;
         }
-        this.#changes++;
+        keptSecurity.changed();
         this.sessions = this.sessions.filter((s) => s.id !== id);
         this.hidden.delete(id);
       },
@@ -597,7 +595,7 @@ export class SecurityPage {
       },
       commit: async (keepalive) => {
         await api('POST', 'auth/sessions/revoke-others', undefined, { keepalive });
-        this.#changes++;
+        keptSecurity.changed();
         this.sessions = this.sessions.filter((s) => s.current);
         for (const id of ids) this.hidden.delete(id);
         // Open links from mails are discarded.
@@ -616,7 +614,7 @@ export class SecurityPage {
 
   /** Apps and codes after a change confirmed by the server. */
   #applyMfa(res: MfaOverview): void {
-    this.#changes++;
+    keptSecurity.changed();
     this.devices = res.devices;
     this.recovery = res.recovery;
   }

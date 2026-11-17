@@ -191,8 +191,6 @@ export class UsersPage {
   readonly #taken = new SvelteSet<string>();
   readonly #invalid = new SvelteSet<string>();
   #overlays: Overlay[] = [];
-  /** Counts changes confirmed by the server; a load that started before one does not apply. */
-  #changes = 0;
   #seq = 0;
   #formId = 0;
   #disposed = false;
@@ -283,12 +281,12 @@ export class UsersPage {
     const seq = ++this.#seq;
     const reopened = this.#reopened;
     this.#reopened = false;
-    const changes = this.#changes;
+    const changes = keptUsers.changes;
     try {
       const { users } = await api<{ users: ListedUser[] }>('GET', 'users');
       if (seq !== this.#seq || this.#disposed) return;
       // Confirmed in the meantime (e.g. removed): the list is older, so reload.
-      if (changes !== this.#changes) {
+      if (changes !== keptUsers.changes) {
         this.#reopened = reopened;
         void this.load();
         return;
@@ -334,7 +332,7 @@ export class UsersPage {
     return {
       settle: () => {
         lift();
-        this.#changes++;
+        keptUsers.changed();
       },
       revert: () => {
         lift();
@@ -725,7 +723,7 @@ export class UsersPage {
       if (this.#disposed) return;
       const now = res.invite;
       if (now) {
-        this.#changes++;
+        keptUsers.changed();
         this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
       }
       if (this.sendFail === u.id) this.sendFail = null;
@@ -750,7 +748,7 @@ export class UsersPage {
       if (this.#disposed) return;
       const now = res.invite;
       if (now) {
-        this.#changes++;
+        keptUsers.changed();
         this.rows = this.rows.map((r) => (r.id === u.id ? now : r));
       }
       // A failed "Resend" before no longer applies: the invitation is valid again.
