@@ -10,7 +10,8 @@
     "Restore" is an icon there.
   - **Restore** only in maintenance mode: until then it is locked (on the
     desktop with a tooltip), and a notice above the list offers to turn
-    maintenance mode on.
+    maintenance mode on. An older backup without an authenticity value
+    (`legacy`) stays locked with a tooltip of its own; its row says why.
   - The tile, button, switch and schedule styles are classes derived from
     `on` and the busy state of the respective button.
 -->
