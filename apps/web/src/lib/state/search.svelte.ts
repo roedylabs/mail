@@ -376,6 +376,11 @@ export class Search {
   #now = false;
   /** Hits while only local areas are chosen; back on messages they apply again. */
   #parked: MailResult | null = null;
+  /**
+   * Shown hits are being replaced by a refresh of the same query (parked hits
+   * back, `resume()`): `more()` waits, otherwise one would discard the other's pages.
+   */
+  #refreshing = false;
   /** The last query already failed: no further toast while typing. */
   #failed = false;
   /** Hit just opened: the navigation it starts becomes the return path's target. */
@@ -560,6 +565,7 @@ export class Search {
     clearTimeout(this.#timer);
     const gen = ++this.#gen;
     this.loadingMore = false;
+    this.#refreshing = false;
     if (!key) {
       if (this.mail) this.#parked = this.mail;
       this.mail = null;
@@ -569,6 +575,7 @@ export class Search {
     // refreshes them as far as they were loaded, so that loaded pages do not disappear.
     const back = !this.mail && this.#parked?.key === key ? this.#parked : null;
     if (back) this.mail = back;
+    this.#refreshing = !!back;
     this.#parked = null;
     const extent: Record<string, number> = {};
     if (back) for (const [account, p] of Object.entries(back.pages)) extent[account] = p.loaded;
@@ -580,15 +587,22 @@ export class Search {
     const cur = this.mail;
     if (!cur?.local || cur.key !== this.#want) return;
     const list = Object.entries(cur.queries).map(([account, q]) => ({ account, filter: q.filter }));
+    this.loadingMore = false;
+    this.#refreshing = true;
     void this.#load(++this.#gen, cur.key, list, cur.words);
   }
 
   /**
    * First page of an account: from the server, without a response from storage.
    * With `extent` further pages up to that many positions (hits loaded before);
-   * if one of them fails, the pages so far apply.
+   * if one of them fails, `failed` carries the error and the caller keeps the hits it had.
    */
-  async #page(account: string, query: MailQuery, words: readonly string[], extent = 0): Promise<MailPage> {
+  async #page(
+    account: string,
+    query: MailQuery,
+    words: readonly string[],
+    extent = 0,
+  ): Promise<MailPage & { failed?: unknown }> {
     let first: MailPage;
     try {
       first = await this.#api.page(account, query, 0, MAIL_PAGE);
@@ -597,13 +611,19 @@ export class Search {
       return localPage(await this.#saved(account), account, query.filter, words);
     }
     const out = { ...first, hits: [...first.hits] };
+    // A message that arrived in between shifts the positions: the next page repeats the last hit.
+    const seen = out.hits.map((h) => h.id);
     while (out.positions < extent && first.positions > 0 && out.total != null && out.positions < out.total) {
       try {
         first = await this.#api.page(account, query, out.positions, MAIL_PAGE);
-      } catch {
-        break;
+      } catch (error) {
+        return { ...out, failed: error };
       }
-      out.hits.push(...first.hits);
+      for (const h of first.hits) {
+        if (seen.includes(h.id)) continue;
+        seen.push(h.id);
+        out.hits.push(h);
+      }
       out.positions += first.positions;
       out.total = first.total;
     }
@@ -624,6 +644,9 @@ export class Search {
       list.map((q) => this.#page(q.account, queries[q.account]!, words, extent[q.account])),
     );
     if (gen !== this.#gen) return;
+    this.#refreshing = false;
+    // Hits shown for this query (back from the search): an account whose refresh stops halfway keeps them.
+    const prev = this.mail?.key === key ? this.mail : null;
     const pages: Record<string, AccountPage> = {};
     const hits: MailHit[] = [];
     let failed: unknown = null;
@@ -633,7 +656,18 @@ export class Search {
         failed ??= r.reason;
         return;
       }
-      pages[list[i]!.account] = after(0, r.value);
+      const account = list[i]!.account;
+      const kept = prev?.pages[account];
+      if (r.value.failed !== undefined) {
+        failed ??= r.value.failed;
+        if (kept && prev) {
+          pages[account] = kept;
+          hits.push(...prev.hits.filter((h) => h.account === account));
+          local ||= prev.local;
+          return;
+        }
+      }
+      pages[account] = after(0, r.value);
       hits.push(...r.value.hits);
       local ||= !!r.value.local;
     });
@@ -645,14 +679,15 @@ export class Search {
   /** Loads more messages as long as an account has more (area messages only). */
   async more(): Promise<void> {
     const cur = this.mail;
-    if (!cur || this.loadingMore || cur.key !== this.#want) return;
+    if (!cur || this.loadingMore || this.#refreshing || cur.key !== this.#want) return;
     const open = Object.entries(cur.pages).filter(([, p]) => p.total != null && p.loaded < p.total);
     if (!open.length) return;
     const gen = this.#gen;
     this.loadingMore = true;
     const got = await Promise.allSettled(open.map(([a, p]) => this.#api.page(a, cur.queries[a]!, p.loaded, MAIL_PAGE)));
-    if (gen !== this.#gen || this.mail !== cur) return;
+    if (gen !== this.#gen) return;
     this.loadingMore = false;
+    if (this.mail !== cur) return;
     const pages = { ...cur.pages };
     const seen = cur.hits.map((h) => `${h.account}/${h.id}`);
     const hits = [...cur.hits];
@@ -833,6 +868,7 @@ export class Search {
     this.#want = '';
     this.#now = false;
     this.#parked = null;
+    this.#refreshing = false;
     this.#failed = false;
     this.#pending = null;
     clearTimeout(this.#pendingTimer);

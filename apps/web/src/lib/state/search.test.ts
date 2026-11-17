@@ -642,6 +642,79 @@ describe('Search', () => {
       expect(s.hits.map((h) => h.id)).toEqual(['f1', 'f2']);
     });
 
+    /** Two pages loaded, back from the opened hit: the refresh is scheduled. */
+    async function returned() {
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      await s.more();
+      s.expectReturn('results');
+      s.done();
+      sync(['k1']);
+      s.navigating(THREAD, true);
+      s.takeReturn(THREAD);
+      sync(['k1']);
+    }
+
+    it('loading more waits for the refresh and works again afterwards', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'f1')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'f2', '2026-11-01T09:00:00Z')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'f3', '2026-10-31T09:00:00Z')], positions: 1, total: 3 },
+      ]);
+      await returned();
+      await s.more();
+      expect(s.loadingMore).toBe(false);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(s.hits.map((h) => h.id)).toEqual(['f1', 'f2']);
+      await s.more();
+      expect([s.loadingMore, s.hits.map((h) => h.id)]).toEqual([false, ['f1', 'f2', 'f3']]);
+      expect(page.mock.calls.map((c) => c[2])).toEqual([0, 1, 0, 1, 2]);
+    });
+
+    it('the refresh skips a hit that a shifted position repeats', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'n1', '2026-11-03T09:00:00Z')], positions: 1, total: 3 },
+        { hits: [hit('k1', 'n1', '2026-11-03T09:00:00Z')], positions: 1, total: 3 },
+      ]);
+      await returned();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(s.hits.map((h) => h.id)).toEqual(['n1']);
+    });
+
+    it('a refresh that fails on a later page keeps the hits loaded before and reports it', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'f1')], positions: 1, total: 2 },
+      ]);
+      const error = vi.spyOn(ui.toasts, 'error');
+      await returned();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(s.hits.map((h) => h.id)).toEqual(['e1', 'e2']);
+      expect(error).toHaveBeenCalledOnce();
+      error.mockRestore();
+    });
+
+    it('a discarded page of "load more" does not leave loading stuck', async () => {
+      let answer: (p: MailPage) => void = () => {};
+      pages.set('k1', [{ hits: [hit('k1', 'e1')], positions: 1, total: 2 }]);
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      page.mockImplementationOnce(() => new Promise<MailPage>((r) => (answer = r)));
+      const more = s.more();
+      expect(s.loadingMore).toBe(true);
+      s.mail = { ...s.mail! };
+      answer({ hits: [hit('k1', 'e2')], positions: 1, total: 2 });
+      await more;
+      expect(s.loadingMore).toBe(false);
+    });
+
     it('none without a navigation in the same task (contact, action) or to a list', async () => {
       s.expectReturn('results');
       await vi.advanceTimersByTimeAsync(0);
