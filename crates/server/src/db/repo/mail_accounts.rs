@@ -72,6 +72,8 @@ pub struct NewAccount<'a> {
     pub username: &'a str,
     pub auth_kind: AuthKind,
     pub client_id: Option<&'a str>,
+    /// `oauth`: the backend exchanged the code ([`Credentials::backend_exchange`]).
+    pub backend_exchange: bool,
     pub secret_enc: &'a [u8],
     pub access_token_enc: Option<&'a [u8]>,
     /// Validity of the access token in seconds from now.
@@ -147,11 +149,11 @@ pub fn insert(conn: &Connection, account: &NewAccount<'_>) -> anyhow::Result<()>
     conn.execute(
         "INSERT INTO mail_accounts (id, user_id, base_url, email, account_id, username, \
          auth_kind, client_id, secret_enc, access_token_enc, access_expires_at, \
-         session_json, color) \
+         session_json, color, backend_exchange) \
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, \
          CASE WHEN ?11 IS NULL THEN NULL \
               ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?11 || ' seconds') END, \
-         ?12, ?13)",
+         ?12, ?13, ?14)",
         (
             account.id,
             account.user_id,
@@ -166,6 +168,7 @@ pub fn insert(conn: &Connection, account: &NewAccount<'_>) -> anyhow::Result<()>
             account.expires_in,
             account.session_json,
             account.color,
+            account.backend_exchange,
         ),
     )
     .context("mail account not created")?;
@@ -178,6 +181,10 @@ pub struct Credentials {
     pub account: MailAccount,
     /// `oauth`: client the tokens were issued for.
     pub client_id: Option<String>,
+    /// `oauth`: the backend obtained the grant itself by exchanging the code
+    /// with the client secret; only then does the token broker refresh with
+    /// the secret. Tokens from the browser count as those of a public client.
+    pub backend_exchange: bool,
     /// Refresh token or access token, encrypted.
     pub secret_enc: Vec<u8>,
     pub access_token_enc: Option<Vec<u8>>,
@@ -197,7 +204,7 @@ pub fn credentials(
     conn.query_row(
         &format!(
             "SELECT {COLUMNS}, client_id, secret_enc, access_token_enc, access_expires_at, \
-             session_json, token_used_at FROM mail_accounts \
+             session_json, token_used_at, backend_exchange FROM mail_accounts \
              WHERE id = ?1 AND (?2 IS NULL OR user_id = ?2)"
         ),
         (id, user_id),
@@ -210,6 +217,7 @@ pub fn credentials(
                 access_expires_at: row.get(16)?,
                 session_json: row.get(17)?,
                 token_used_at: row.get(18)?,
+                backend_exchange: row.get(19)?,
             })
         },
     )
@@ -278,6 +286,7 @@ pub fn mark_needs_reauth(conn: &Connection, id: &str, used: &[u8]) -> rusqlite::
 /// New tokens after "Sign in again" ([`NewAccount`] without account details).
 pub struct Reauth<'a> {
     pub client_id: Option<&'a str>,
+    pub backend_exchange: bool,
     pub secret_enc: &'a [u8],
     pub access_token_enc: Option<&'a [u8]>,
     pub expires_in: Option<u32>,
@@ -295,7 +304,7 @@ pub fn reauth(
         "UPDATE mail_accounts SET client_id = ?3, secret_enc = ?4, access_token_enc = ?5, \
          access_expires_at = CASE WHEN ?6 IS NULL THEN NULL \
               ELSE strftime('%Y-%m-%dT%H:%M:%fZ', 'now', '+' || ?6 || ' seconds') END, \
-         session_json = ?7, state = 'ok' \
+         session_json = ?7, backend_exchange = ?8, state = 'ok' \
          WHERE id = ?1 AND user_id = ?2",
         (
             id,
@@ -305,6 +314,7 @@ pub fn reauth(
             reauth.access_token_enc,
             reauth.expires_in,
             reauth.session_json,
+            reauth.backend_exchange,
         ),
     )? == 1)
 }
@@ -491,6 +501,7 @@ mod tests {
             username: "max@example.com",
             auth_kind: AuthKind::Oauth,
             client_id: Some("client"),
+            backend_exchange: false,
             secret_enc: b"sealed",
             access_token_enc: Some(b"sealed"),
             expires_in: Some(3600),
@@ -548,6 +559,10 @@ mod tests {
         token.client_id = None;
         token.access_token_enc = None;
         token.expires_in = None;
+        // Only the backend's code exchange yields such a grant.
+        token.backend_exchange = true;
+        assert!(insert(&conn, &token).is_err());
+        token.backend_exchange = false;
         insert(&conn, &token).unwrap();
 
         assert!(!delete(&conn, &eva, "A1").unwrap());
@@ -627,6 +642,7 @@ mod tests {
                 "A1",
                 &Reauth {
                     client_id: Some("client"),
+                    backend_exchange: true,
                     secret_enc: b"fresh",
                     access_token_enc: Some(b"access"),
                     expires_in: Some(3600),
@@ -636,6 +652,13 @@ mod tests {
             .unwrap()
         );
         assert_eq!(get(&conn, &max, "A1").unwrap().unwrap().state, "ok");
+        // Signing in again records who obtained the new grant.
+        assert!(
+            credentials(&conn, "A1", None)
+                .unwrap()
+                .unwrap()
+                .backend_exchange
+        );
         assert!(
             !reauth(
                 &conn,
@@ -643,6 +666,7 @@ mod tests {
                 "A1",
                 &Reauth {
                     client_id: Some("client"),
+                    backend_exchange: false,
                     secret_enc: b"x",
                     access_token_enc: None,
                     expires_in: None,

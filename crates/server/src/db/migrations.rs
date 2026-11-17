@@ -11,11 +11,18 @@ pub struct Migration {
 }
 
 /// All migrations, ascending and without gaps from 1.
-pub const MIGRATIONS: &[Migration] = &[Migration {
-    version: 1,
-    name: "init",
-    sql: include_str!("migrations/0001_init.sql"),
-}];
+pub const MIGRATIONS: &[Migration] = &[
+    Migration {
+        version: 1,
+        name: "init",
+        sql: include_str!("migrations/0001_init.sql"),
+    },
+    Migration {
+        version: 2,
+        name: "backend_exchange",
+        sql: include_str!("migrations/0002_backend_exchange.sql"),
+    },
+];
 
 /// Applies all pending migrations and returns the schema version.
 pub fn run(conn: &mut Connection) -> anyhow::Result<i64> {
@@ -188,6 +195,43 @@ mod tests {
         assert!(format!("{err:#}").contains(&expected), "{err:#}");
         assert_eq!(current_version(&conn).unwrap(), latest());
         assert!(!table_names(&conn).contains(&"half".to_owned()));
+    }
+
+    /// Existing mail accounts count as tokens from the browser: the broker
+    /// refreshes them without the client secret.
+    #[test]
+    fn existing_mail_accounts_get_no_backend_exchange() {
+        let mut conn = Connection::open_in_memory().unwrap();
+        run_with(&mut conn, &MIGRATIONS[..1]).unwrap();
+        conn.execute_batch(
+            "INSERT INTO users (id, username, email, display_name, role, password_hash) \
+             VALUES ('U1', 'max', 'max@example.com', 'Max', 'user', '$argon2id$test'); \
+             INSERT INTO mail_accounts (id, user_id, base_url, email, account_id, username, \
+             auth_kind, client_id, secret_enc, session_json, color) VALUES \
+             ('A1', 'U1', 'https://mail.example.com', 'max@example.com', 'a', 'max', \
+              'oauth', 'client', x'00', '{}', 0), \
+             ('A2', 'U1', 'https://mail.example.com', 'max@example.com', 'b', 'max', \
+              'token', NULL, x'00', '{}', 1);",
+        )
+        .unwrap();
+        run(&mut conn).unwrap();
+        let flags: Vec<(String, i64)> = conn
+            .prepare("SELECT id, backend_exchange FROM mail_accounts ORDER BY id")
+            .unwrap()
+            .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+            .unwrap()
+            .collect::<Result<_, _>>()
+            .unwrap();
+        assert_eq!(flags, [("A1".to_owned(), 0), ("A2".to_owned(), 0)]);
+        // Only the code exchange of an `oauth` account sets it.
+        let set = |id: &str| {
+            conn.execute(
+                "UPDATE mail_accounts SET backend_exchange = 1 WHERE id = ?1",
+                [id],
+            )
+        };
+        set("A1").unwrap();
+        assert!(set("A2").is_err());
     }
 
     #[test]

@@ -3,7 +3,8 @@
 //! servers with policy and SSRF block, linking via the origin, default
 //! account and encrypted tokens; token broker with refresh, rotation,
 //! "sign-in required", re-sign-in, code exchange for confidential clients and
-//! early refresh; color, "check connection", revocation on re-sign-in,
+//! early refresh; color, "check connection", revocation on re-sign-in and
+//! of discarded grants, the client secret only for the backend's own grants,
 //! "delete account" and "delete local data".
 
 mod fake_stalwart;
@@ -1969,6 +1970,182 @@ async fn reauth_revokes_the_previous_grant() {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     assert!(public.revocations().is_empty());
     assert!(public.grant_exists(REFRESH));
+}
+
+/// A grant from the code exchange that the backend does not keep is revoked
+/// – with the secret, the grant belongs to the confidential client – while
+/// the account that is kept keeps its grant and the response stays 409 or
+/// 502. Tokens from the browser stay with the browser.
+#[tokio::test]
+async fn discarded_grants_from_the_code_exchange_are_revoked() {
+    let fake = Server::start(Options {
+        client_secret: Some(CLIENT_SECRET),
+        ..Options::default()
+    })
+    .await;
+    let s = setup().await;
+    let server = register_confidential(&s, &fake.url).await;
+    let created = add(&s, &s.user, code(&server, CODE)).await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_owned();
+    let kept = stored_secret(&s.state, &id).await;
+
+    // Connected already.
+    let dup = add(&s, &s.user, code(&server, &fake.new_code())).await;
+    assert_eq!(dup.status, StatusCode::CONFLICT, "{}", dup.body);
+    assert_eq!(dup.json()["error"], "dup");
+    let revoked = revocations(&fake, 1).await;
+    let discarded = revoked[0].form["token"].clone();
+    assert_ne!(discarded, kept);
+    assert_eq!(revoked[0].form["token_type_hint"], "refresh_token");
+    assert_eq!(revoked[0].authorization.as_deref(), Some(basic().as_str()));
+    assert!(!fake.grant_exists(&discarded));
+    assert!(fake.refresh_valid(&kept));
+
+    // Signed in again as another account.
+    let body = json!({ "code": OTHER_CODE, "code_verifier": VERIFIER });
+    let other = reauth(&s, &s.user, &id, body).await;
+    assert_eq!(other.status, StatusCode::CONFLICT, "{}", other.body);
+    assert_eq!(other.json()["error"], "other_account");
+    let revoked = revocations(&fake, 2).await;
+    let discarded = revoked[1].form["token"].clone();
+    assert_ne!(discarded, kept);
+    assert!(!fake.grant_exists(&discarded));
+    assert!(fake.refresh_valid(&kept));
+    assert_eq!(account_state(&s, &id).await, "ok");
+
+    // Tokens from the browser: 409 `dup`, but the backend revokes nothing.
+    let browser = add(&s, &s.user, oauth(&server, MAIL_USER, MAIL_TOKEN)).await;
+    assert_eq!(browser.json()["error"], "dup");
+    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    assert_eq!(fake.revocations().len(), 2);
+    assert!(fake.grant_exists(REFRESH));
+
+    // The session of the exchanged tokens is unusable (502): revoked, too.
+    let broken = Server::start(Options {
+        client_secret: Some(CLIENT_SECRET),
+        foreign_download_url: true,
+        ..Options::default()
+    })
+    .await;
+    let broken_server = register_confidential(&s, &broken.url).await;
+    let failed = add(&s, &s.user, code(&broken_server, CODE)).await;
+    assert_eq!(failed.status, StatusCode::BAD_GATEWAY, "{}", failed.body);
+    assert_eq!(failed.json()["reason"], "session_url_mismatch");
+    let revoked = revocations(&broken, 1).await;
+    assert!(!broken.grant_exists(&revoked[0].form["token"]));
+}
+
+/// "Sign in again" runs under the user's lock; if the account is removed
+/// during the code exchange, the new grant is revoked as well as the
+/// previous one, and the response is 404.
+#[tokio::test]
+async fn reauth_revokes_its_grant_if_the_account_was_removed() {
+    let fake = Server::start(Options {
+        client_secret: Some(CLIENT_SECRET),
+        token_delay: std::time::Duration::from_millis(500),
+        ..Options::default()
+    })
+    .await;
+    let s = setup().await;
+    let server = register_confidential(&s, &fake.url).await;
+    let created = add(&s, &s.user, code(&server, CODE)).await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let id = created.json()["id"].as_str().unwrap().to_owned();
+    let previous = stored_secret(&s.state, &id).await;
+
+    let body = json!({ "code": fake.new_code(), "code_verifier": VERIFIER });
+    let removal = async {
+        // As soon as the token endpoint has the code.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
+        while fake.token_requests().len() < 2 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "reauth did not reach the token endpoint: {} token requests",
+                fake.token_requests().len()
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+        remove(&s, &s.user, &id).await
+    };
+    let (again, removed) = tokio::join!(reauth(&s, &s.user, &id, body), removal);
+    assert_eq!(removed, StatusCode::NO_CONTENT);
+    assert_eq!(again.status, StatusCode::NOT_FOUND, "{}", again.body);
+    let revoked = revocations(&fake, 2).await;
+    let tokens: Vec<&str> = revoked.iter().map(|r| r.form["token"].as_str()).collect();
+    assert!(tokens.contains(&previous.as_str()), "{tokens:?}");
+    for token in tokens {
+        assert!(!fake.grant_exists(token), "{token}");
+    }
+}
+
+/// The broker refreshes with the client secret only grants the backend
+/// obtained by exchanging a code. Tokens from the browser it refreshes as a
+/// public client, even with the registry's client: Stalwart then rejects
+/// the confidential client, and nobody gets access tokens through the
+/// secret. "Sign in again" records the kind of the new grant.
+#[tokio::test]
+async fn browser_tokens_are_refreshed_without_the_client_secret() {
+    let fake = Server::start(Options {
+        client_secret: Some(CLIENT_SECRET),
+        ..Options::default()
+    })
+    .await;
+    let s = setup().await;
+    let server = register_confidential(&s, &fake.url).await;
+    let is_basic =
+        |request: &TokenRequest| request.authorization.as_deref() == Some(basic().as_str());
+
+    // From the code exchange: with the secret.
+    let created = add(&s, &s.user, code(&server, CODE)).await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let exchanged = created.json()["id"].as_str().unwrap().to_owned();
+    expire(&s.state, &exchanged, -1).await;
+    access_token(&get_token(&s, &s.user, &exchanged, false).await);
+    let requests = fake.token_requests();
+    assert_eq!(requests.len(), 2);
+    assert_eq!(requests[1].form["grant_type"], "refresh_token");
+    assert!(is_basic(&requests[1]));
+
+    // From the browser, with the registry's client: without the secret.
+    let eva = login(&s.state, "eva", Role::User).await;
+    let created = add(&s, &eva, oauth(&server, MAIL_USER, MAIL_TOKEN)).await;
+    assert_eq!(created.status, StatusCode::CREATED, "{}", created.body);
+    let browser = created.json()["id"].as_str().unwrap().to_owned();
+    expire(&s.state, &browser, -1).await;
+    let refused = get_token(&s, &eva, &browser, false).await;
+    assert_eq!(refused.status, StatusCode::CONFLICT, "{}", refused.body);
+    assert_eq!(refused.json()["error"], "needs_reauth");
+    let requests = fake.token_requests();
+    assert_eq!(requests.len(), 3);
+    assert_eq!(requests[2].form["grant_type"], "refresh_token");
+    assert_eq!(requests[2].form["refresh_token"], REFRESH);
+    assert_eq!(requests[2].form["client_id"], CLIENT_ID);
+    assert!(!requests[2].form.contains_key("client_secret"));
+    assert_eq!(requests[2].authorization, None);
+    assert!(fake.refresh_valid(REFRESH));
+
+    // Signed in again with a code: with the secret from now on.
+    let body = json!({ "code": fake.new_code(), "code_verifier": VERIFIER });
+    let again = reauth(&s, &eva, &browser, body).await;
+    assert_eq!(again.status, StatusCode::OK, "{}", again.body);
+    expire(&s.state, &browser, -1).await;
+    access_token(&get_token(&s, &eva, &browser, false).await);
+    let requests = fake.token_requests();
+    assert_eq!(requests.len(), 5);
+    assert!(is_basic(&requests[4]));
+
+    // The other way round: tokens from the browser replace the exchanged grant.
+    let tokens =
+        json!({ "access_token": MAIL_TOKEN, "refresh_token": REFRESH, "expires_in": 3600 });
+    let again = reauth(&s, &s.user, &exchanged, tokens).await;
+    assert_eq!(again.status, StatusCode::OK, "{}", again.body);
+    expire(&s.state, &exchanged, -1).await;
+    get_token(&s, &s.user, &exchanged, false).await;
+    let requests = fake.token_requests();
+    assert_eq!(requests.len(), 6);
+    assert_eq!(requests[5].form["refresh_token"], REFRESH);
+    assert_eq!(requests[5].authorization, None);
 }
 
 async fn delete_me(s: &Setup, session: &str, confirm: &str) -> Reply {

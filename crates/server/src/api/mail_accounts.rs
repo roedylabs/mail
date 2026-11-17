@@ -11,10 +11,14 @@
 //!   `allow_custom_servers`, only public addresses). The first account
 //!   becomes the default account (`defaultAccount`).
 //!   For confidential clients (secret in the registry) the browser sends
-//!   code and PKCE verifier, and the backend exchanges them.
-//! - `POST mail-accounts/:id/reauth`: "sign in again" with the same checks;
-//!   the session must name the same account. Afterwards the token broker
-//!   revokes the previous grant.
+//!   code and PKCE verifier, and the backend exchanges them; only such
+//!   accounts are refreshed with the secret (`backend_exchange`). A grant
+//!   from the exchange that is not kept (`dup`, failed check) is revoked.
+//! - `POST mail-accounts/:id/reauth`: "sign in again" with the same checks,
+//!   under the user's lock like creating; the session must name the same
+//!   account. Afterwards the token broker revokes the previous grant – or the
+//!   new one from a code exchange if it is not kept (`other_account`, account
+//!   removed meanwhile).
 //! - `PATCH mail-accounts/:id`: color (`color`, index into `MA_COLORS` of `@roedy/tokens`).
 //! - `POST mail-accounts/:id/check`: "check connection" – session and
 //!   storage (`Quota/get`) with an access token from the broker, stored in
@@ -56,7 +60,7 @@ use super::{
 };
 use crate::{
     app::AppState,
-    auth::{CurrentUser, email},
+    auth::{CurrentUser, email, session::AuthUser},
     broker::{
         account, oauth,
         outbound::{self, Blocked},
@@ -552,6 +556,40 @@ struct Verified {
     access: Option<(String, Option<u32>)>,
     received: Instant,
     account: account::Account,
+    /// The backend exchanged the code (confidential client): only such a
+    /// grant is refreshed with the client secret, and nobody but the backend
+    /// holds its refresh token.
+    exchanged: bool,
+}
+
+impl Verified {
+    /// The grant if the backend obtained it by exchanging a code; when it is
+    /// not kept, the caller revokes it ([`token::revoke_discarded`]). Tokens
+    /// from the browser stay the browser's: it may send the same ones again,
+    /// for example after a lost response, and would then revoke the grant of
+    /// the account that has them already.
+    fn exchanged(&self, target: &Target, client_id: Option<&str>) -> Option<token::Discarded> {
+        self.exchanged
+            .then(|| discarded(target, client_id, &self.secret))
+            .flatten()
+    }
+}
+
+/// A grant from the code exchange (only at registry servers) for
+/// [`token::revoke_discarded`].
+fn discarded(
+    target: &Target,
+    client_id: Option<&str>,
+    refresh_token: &str,
+) -> Option<token::Discarded> {
+    match (target, client_id) {
+        (Target::Registry(server), Some(client_id)) => Some(token::Discarded {
+            server: server.clone(),
+            client_id: client_id.to_owned(),
+            refresh_token: refresh_token.to_owned(),
+        }),
+        _ => None,
+    }
 }
 
 /// Queries the mail server: exchange the code (confidential clients), then
@@ -596,13 +634,13 @@ async fn verify(
     let rejected_server = state
         .limiter
         .reserve(&REJECTED_SERVER_LIMIT, Key::Server(origin.clone()))?;
-    let (secret, access, received) = match credentials {
+    let (secret, access, received, exchanged) = match credentials {
         Credentials::Oauth {
             access,
             refresh,
             expires_in,
-        } => (refresh, Some((access, expires_in)), received),
-        Credentials::Token(token) => (token, None, received),
+        } => (refresh, Some((access, expires_in)), received, false),
+        Credentials::Token(token) => (token, None, received, false),
         Credentials::Code { code, verifier } => {
             let (Target::Registry(server), Some(client_id)) = (target, client_id) else {
                 return Err(anyhow::anyhow!("code exchange without a registry client").into());
@@ -632,6 +670,7 @@ async fn verify(
                 refresh,
                 Some((tokens.access_token, tokens.expires_in)),
                 Instant::now(),
+                true,
             )
         }
     };
@@ -647,21 +686,32 @@ async fn verify(
     } else {
         drop((rejected, rejected_hour, rejected_server));
     }
-    let account = result.map_err(|error| {
-        tracing::info!(user = %user_id, url = %origin, reason = error.reason(), "mail account sign-in not verified");
-        let status = if error.is_rejected() {
-            StatusCode::UNPROCESSABLE_ENTITY
-        } else {
-            StatusCode::BAD_GATEWAY
-        };
-        check_failed(status, error.reason())
-    })?;
+    let account = match result {
+        Ok(account) => account,
+        Err(error) => {
+            tracing::info!(user = %user_id, url = %origin, reason = error.reason(), "mail account sign-in not verified");
+            // The grant just exchanged is of no use without the account.
+            if let Some(discarded) = exchanged
+                .then(|| discarded(target, client_id, &secret))
+                .flatten()
+            {
+                token::revoke_discarded(state, user_id, discarded);
+            }
+            let status = if error.is_rejected() {
+                StatusCode::UNPROCESSABLE_ENTITY
+            } else {
+                StatusCode::BAD_GATEWAY
+            };
+            return Err(check_failed(status, error.reason()));
+        }
+    };
     Ok(Verified {
         origin,
         secret,
         access,
         received,
         account,
+        exchanged,
     })
 }
 
@@ -807,18 +857,7 @@ async fn create(
         errors.merge(other);
         std::mem::take(&mut errors).into_error()
     })?;
-    // Until after saving: removing the user waits that long and then revokes
-    // this grant too; if the removal was faster, no grant is created that
-    // nobody would revoke.
-    let _owner = state.token_locks.lock(&owner_key(&user.id)).await;
-    let (owner, session_id) = (user.id.clone(), user.session_id.clone());
-    if !db::call(&state.db, move |conn| {
-        Ok(sessions::is_valid(conn, &owner, &session_id)?)
-    })
-    .await?
-    {
-        return Err(ApiError::Unauthorized);
-    }
+    let _owner = lock_owner(&state, &user).await?;
     let (verified, client_id) = login
         .check(&state, &user.id, &target, &hint, errors)
         .await?;
@@ -827,6 +866,8 @@ async fn create(
     // The ID is fixed before encrypting (it is the AAD).
     let id = db::new_id()?;
     let sealed = seal(&state, &id, &verified)?;
+    let exchanged = verified.exchanged(&target, client_id.as_deref());
+    let backend_exchange = verified.exchanged;
     let Verified {
         origin, account, ..
     } = verified;
@@ -835,14 +876,16 @@ async fn create(
         let tx = conn.transaction()?;
         let server_id = match recheck(&tx, &target, oauth)? {
             Ok(server_id) => server_id,
-            Err(errors) => return Ok(Err(errors.into_error())),
+            Err(errors) => return Ok(Err(NotSaved::Invalid(errors.into_error()))),
         };
         if let Some(existing) = mail_accounts::find(&tx, &user_id, &origin, &account.account_id)? {
             // The page shows the address of the signed-in account and
             // "open account".
-            return Ok(Err(ApiError::rejected(StatusCode::CONFLICT, "dup").with(
-                "account",
-                json!({ "id": existing.id, "email": existing.email }),
+            return Ok(Err(NotSaved::Discarded(
+                ApiError::rejected(StatusCode::CONFLICT, "dup").with(
+                    "account",
+                    json!({ "id": existing.id, "email": existing.email }),
+                ),
             )));
         }
         let before = mail_accounts::list(&tx, &user_id)?;
@@ -857,6 +900,7 @@ async fn create(
                 username: &account.username,
                 auth_kind: kind,
                 client_id: client_id.as_deref(),
+                backend_exchange,
                 secret_enc: &sealed.secret_enc,
                 access_token_enc: sealed.access_token_enc.as_deref(),
                 expires_in: sealed.expires_in,
@@ -872,9 +916,58 @@ async fn create(
         Ok(Ok(view(account, server_id, true)))
     })
     .await?;
-    let view = saved?;
+    let view = saved.map_err(|not_saved| not_saved.into_error(&state, &user.id, exchanged))?;
     tracing::info!(user = %user.id, account = %view.id, url = %view.url, kind = view.auth_kind, "mail account connected");
     Ok((StatusCode::CREATED, Json(view)))
+}
+
+/// Why a verified sign-in was not saved.
+enum NotSaved {
+    /// The registry or the policy changed meanwhile ([`recheck`]).
+    Invalid(ApiError),
+    /// The sign-in is of no use: the account is connected already (`dup`)
+    /// or was removed while signing in again.
+    Discarded(ApiError),
+}
+
+impl NotSaved {
+    /// The response; a grant from the code exchange that is discarded is
+    /// revoked first ([`token::revoke_discarded`]).
+    fn into_error(
+        self,
+        state: &AppState,
+        user_id: &str,
+        exchanged: Option<token::Discarded>,
+    ) -> ApiError {
+        match self {
+            Self::Invalid(error) => error,
+            Self::Discarded(error) => {
+                if let Some(exchanged) = exchanged {
+                    token::revoke_discarded(state, user_id, exchanged);
+                }
+                error
+            }
+        }
+    }
+}
+
+/// Takes the user's lock ([`owner_key`]) for creating an account or signing
+/// in again, held until after saving: removing the user waits that long and
+/// then revokes this grant too; if the removal was faster, the session is no
+/// longer valid and no grant is created that nobody would revoke. Whoever
+/// holds it takes no account lock, so the order of [`lock_owners`] (users,
+/// then accounts) holds.
+async fn lock_owner(state: &AppState, user: &AuthUser) -> Result<KeyedLock, ApiError> {
+    let lock = state.token_locks.lock(&owner_key(&user.id)).await;
+    let (owner, session_id) = (user.id.clone(), user.session_id.clone());
+    if !db::call(&state.db, move |conn| {
+        Ok(sessions::is_valid(conn, &owner, &session_id)?)
+    })
+    .await?
+    {
+        return Err(ApiError::Unauthorized);
+    }
+    Ok(lock)
 }
 
 /// "Sign in again": new tokens for an existing account,
@@ -923,17 +1016,20 @@ async fn reauth(
         body.client_id,
         received,
     );
+    let _owner = lock_owner(&state, &user).await?;
     let (verified, client_id) = login
         .check(&state, &user.id, &target, &stored.email, errors)
         .await?;
     let oauth = stored.auth_kind == AuthKind::Oauth;
+    let exchanged = verified.exchanged(&target, client_id.as_deref());
     if verified.account.account_id != stored.account_id
         || verified.account.username != stored.username
     {
         tracing::info!(user = %user.id, account = %id, "sign-in again with a different account rejected");
         // The page reports "you signed in as ‹address›".
-        return Err(ApiError::rejected(StatusCode::CONFLICT, "other_account")
-            .with("account", json!({ "email": verified.account.email })));
+        let error = ApiError::rejected(StatusCode::CONFLICT, "other_account")
+            .with("account", json!({ "email": verified.account.email }));
+        return Err(NotSaved::Discarded(error).into_error(&state, &user.id, exchanged));
     }
 
     let sealed = seal(&state, &id, &verified)?;
@@ -942,11 +1038,12 @@ async fn reauth(
     // of replacing is revoked; with it Stalwart revokes the grant across all
     // generations, including one the refresh still receives.
     let (user_id, row) = (user.id.clone(), id.clone());
+    let backend_exchange = verified.exchanged;
     let saved = db::call(&state.db, move |conn| {
         let tx = conn.transaction()?;
         let server_id = match recheck(&tx, &target, oauth)? {
             Ok(server_id) => server_id,
-            Err(errors) => return Ok(Err(errors.into_error())),
+            Err(errors) => return Ok(Err(NotSaved::Invalid(errors.into_error()))),
         };
         let previous = mail_accounts::credentials(&tx, &row, Some(&user_id))?
             .map(|creds| grant(&tx, creds))
@@ -958,6 +1055,7 @@ async fn reauth(
             &row,
             &Reauth {
                 client_id: client_id.as_deref(),
+                backend_exchange,
                 secret_enc: &sealed.secret_enc,
                 access_token_enc: sealed.access_token_enc.as_deref(),
                 expires_in: sealed.expires_in,
@@ -970,13 +1068,14 @@ async fn reauth(
             .transpose()?
             .flatten()
         else {
-            return Ok(Err(ApiError::NotFound));
+            return Ok(Err(NotSaved::Discarded(ApiError::NotFound)));
         };
         tx.commit()?;
         Ok(Ok((view(account, server_id, true), previous)))
     })
     .await?;
-    let (view, previous) = saved?;
+    let (view, previous) =
+        saved.map_err(|not_saved| not_saved.into_error(&state, &user.id, exchanged))?;
     tracing::info!(user = %user.id, account = %view.id, "mail account signed in again");
     // Otherwise the previous grant stays valid until it expires – unless the
     // browser sent the same refresh token again.
@@ -1277,8 +1376,8 @@ pub(super) fn grants(conn: &Connection, user_id: &str) -> anyhow::Result<Vec<Gra
 }
 
 /// Key of a user's lock in `token_locks` (IDs are ULIDs, without `:`):
-/// `create` holds it from the code exchange until saving, [`lock_owners`]
-/// takes it before the accounts' locks.
+/// `create` and `reauth` hold it from the code exchange until saving
+/// ([`lock_owner`]), [`lock_owners`] takes it before the accounts' locks.
 fn owner_key(user_id: &str) -> String {
     format!("user:{user_id}")
 }

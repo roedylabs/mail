@@ -358,7 +358,7 @@ Errors of individual areas of the app are covered in the guides: [mail servers a
 | First load on mobile is slow | Proxy does not compress | `encode` (Caddy) or `gzip` (nginx) |
 | Still the old web app after an update | Proxy caches `/` or `/service-worker.js` | Pass the backend's cache headers through |
 | "Add account" reports "CORS not enabled", diagnostics report errors | Stalwart not prepared | [`stalwart.md`](setup/stalwart.md) |
-| Mail accounts show "Sign-in required" | Refresh token expired (account not used for a long time), OAuth client registered again, backup restored or Stalwart migrated | "Sign in again"; [token lifetimes](setup/stalwart.md#token-lifetimes) |
+| Mail accounts show "Sign-in required" | Refresh token expired (account not used for a long time), OAuth client registered again, client secret added to a public client ([manual client](setup/stalwart.md#manual)), backup restored or Stalwart migrated | "Sign in again"; [token lifetimes](setup/stalwart.md#token-lifetimes) |
 | Log `… cannot be decrypted – do ROEDY_SECRET_KEY or secret.key match this database?` (push: `… not decrypted`), mail accounts, sender account and push do not work, `/readyz` is fine nonetheless | different instance key than when saving | Use the correct [key](#instance-key) and restart |
 | Authenticator app codes are rejected | Host clock is wrong | Set up NTP |
 | Port 8080 in use | Stalwart or another service on the same host | Change the host port in `compose.yml` ([Stalwart on the same host](#reverse-proxy)) |

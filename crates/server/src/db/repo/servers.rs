@@ -130,12 +130,21 @@ pub fn ids_by_base_url(conn: &Connection) -> rusqlite::Result<HashMap<String, St
         .collect()
 }
 
-/// Encrypted client secret of the server (code exchange and refresh in the
-/// backend).
-pub fn client_secret(conn: &Connection, id: &str) -> rusqlite::Result<Option<Vec<u8>>> {
+/// Encrypted client secret of the server (code exchange, refresh and
+/// revocation in the backend), only while the server still has the address
+/// and client the caller read with it: an administrator may have changed
+/// both since, and a secret must never go to an address or client it was
+/// not entered for. One query, so the check cannot race with [`update`].
+pub fn client_secret(
+    conn: &Connection,
+    id: &str,
+    base_url: &str,
+    client_id: &str,
+) -> rusqlite::Result<Option<Vec<u8>>> {
     conn.query_row(
-        "SELECT oauth_client_secret_enc FROM servers WHERE id = ?1",
-        [id],
+        "SELECT oauth_client_secret_enc FROM servers \
+         WHERE id = ?1 AND base_url = ?2 AND oauth_client_id = ?3",
+        (id, base_url, client_id),
         |row| row.get(0),
     )
     .optional()
@@ -473,6 +482,28 @@ mod tests {
             find_registration(&conn, "https://mail.s1.test", "d", now)
                 .unwrap()
                 .is_some()
+        );
+    }
+
+    #[test]
+    fn the_client_secret_only_for_the_address_and_client_it_was_read_with() {
+        let conn = conn();
+        let fields = Fields {
+            label: "Mail",
+            base_url: "https://mail.s1.test",
+            domains: &[],
+            client_id: Some("roedy"),
+        };
+        insert(&conn, "s1", &fields, Some(&[7, 8, 9])).unwrap();
+        let secret = |base_url: &str, client_id: &str| {
+            client_secret(&conn, "s1", base_url, client_id).unwrap()
+        };
+        assert_eq!(secret("https://mail.s1.test", "roedy"), Some(vec![7, 8, 9]));
+        assert_eq!(secret("https://mail.s2.test", "roedy"), None);
+        assert_eq!(secret("https://mail.s1.test", "other"), None);
+        assert_eq!(
+            client_secret(&conn, "s2", "https://mail.s1.test", "roedy").unwrap(),
+            None
         );
     }
 }

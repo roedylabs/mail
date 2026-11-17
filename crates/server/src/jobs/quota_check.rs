@@ -221,6 +221,7 @@ mod tests {
                 username: "max@example.com",
                 auth_kind: AuthKind::Token,
                 client_id: None,
+                backend_exchange: false,
                 secret_enc: b"sealed",
                 access_token_enc: None,
                 expires_in: None,
