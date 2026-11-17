@@ -15,6 +15,7 @@ vi.mock('#lib/state/compose.svelte.ts', () => ({
 
 const { openHit } = await import('#lib/search-view.svelte.ts');
 const { search } = await import('#lib/state/search.svelte.ts');
+const { listView } = await import('#lib/state/list-view.svelte.ts');
 
 const hit = (overrides: Partial<MailHit> = {}): MailHit => ({
   account: 'a1',
@@ -41,6 +42,42 @@ describe('Opening a found email', () => {
     openHit(hit(), { label: 'Inbox', role: 'inbox', target: { role: 'inbox' } });
     expect(nav.goto).toHaveBeenCalledWith('/mailbox/a1/inbox/t1');
     expect(openDraft).not.toHaveBeenCalled();
+  });
+
+  it('starts the folder of the hit with the segment “All” (`select`)', () => {
+    listView.segment = 'unread';
+    openHit(hit(), { label: 'Inbox', role: 'inbox', target: { role: 'inbox' } });
+    expect(listView.segmentAt('/mailbox/a1/inbox/t1')).toBe('all');
+    listView.reached('/mailbox/a1/inbox/t1');
+    expect(listView.segment).toBe('all');
+  });
+
+  it('a draft starts “Drafts” with the segment “All” on the way back', async () => {
+    openDraft.mockResolvedValue(true);
+    listView.segment = 'flagged';
+    openHit(hit({ mailboxIds: { 'mb-drafts': true } }), {
+      label: 'Drafts',
+      role: 'drafts',
+      target: { role: 'drafts' },
+    });
+    await vi.waitFor(() => expect(listView.segmentAt('/mailbox/a1/drafts')).toBe('all'));
+    listView.reached('/mailbox/a1/drafts');
+    expect(listView.segment).toBe('all');
+  });
+
+  it('a draft that does not open leaves no choice of “Drafts” behind', async () => {
+    openDraft.mockResolvedValue(false);
+    listView.segment = 'flagged';
+    openHit(hit({ mailboxIds: { 'mb-drafts': true } }), {
+      label: 'Drafts',
+      role: 'drafts',
+      target: { role: 'drafts' },
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    // Later back in "Drafts" (e.g. history back): the segment stays.
+    listView.reached('/mailbox/a1/drafts');
+    expect(listView.segment).toBe('flagged');
+    listView.segment = 'all';
   });
 
   it('opens a draft in compose, back to "Drafts"', async () => {

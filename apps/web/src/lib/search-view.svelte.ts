@@ -9,6 +9,7 @@
  */
 import { goto } from '$app/navigation';
 import { resolve } from '$app/paths';
+import { page } from '$app/state';
 import { untrack } from 'svelte';
 import { api } from '#lib/api.ts';
 import { timeZoneOf } from '#lib/errors.ts';
@@ -30,6 +31,7 @@ import {
 } from '#lib/search.ts';
 import { accounts } from '#lib/state/accounts.svelte.ts';
 import { contacts } from '#lib/state/contacts.svelte.ts';
+import { listView } from '#lib/state/list-view.svelte.ts';
 import { mailboxes } from '#lib/state/mailboxes.svelte.ts';
 import { network } from '#lib/state/network.svelte.ts';
 import { notifications } from '#lib/state/notifications.svelte.ts';
@@ -50,11 +52,16 @@ export function openHit(hit: MailHit, box: HitBox): void {
   if (drafts && hit.mailboxIds[drafts]) {
     const list = mailboxParams(hit.account, { role: 'drafts' });
     const ret = { href: resolve('/mailbox/[account]/[...path]', list), label: roleLabel('drafts') };
-    void openDraft(hit.account, hit.id, ret);
+    // Only once compose opens: otherwise no choice waits for "Drafts".
+    void openDraft(hit.account, hit.id, ret).then((opened) => {
+      if (opened) listView.choose(ret.href, page.url.pathname);
+    });
     return;
   }
   const { account, path } = mailboxParams(hit.account, box.target);
-  void goto(resolve('/mailbox/[account]/[...path]', { account, path: `${path}/${encodeURIComponent(hit.threadId)}` }));
+  const to = resolve('/mailbox/[account]/[...path]', { account, path: `${path}/${encodeURIComponent(hit.threadId)}` });
+  listView.choose(to, page.url.pathname);
+  void goto(to);
 }
 
 export class SearchView {

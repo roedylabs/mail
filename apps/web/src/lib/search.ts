@@ -555,8 +555,10 @@ export function suggestGroups(groups: readonly SearchGroup[]): SearchGroup[] {
 
 /** What hits execute; set by the layout (`search.actions`) because it serves the shell. */
 export interface SearchActions {
-  /** Navigate (mailbox, settings, administration). */
+  /** Navigate (settings, administration, notification targets). */
   go: (path: string) => void;
+  /** Open a mailbox, folder or tag (`select`): its list starts with the segment "All". */
+  mailbox: (path: string) => void;
   /** Open a page and scroll to the section `[data-sec]`, briefly marked. */
   section: (path: string, sec: string) => void;
   compose: () => void;

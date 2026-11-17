@@ -137,6 +137,7 @@
   import { notifications, POLL_MS } from '#lib/state/notifications.svelte.ts';
   import { tags, type TagFix, type TagProblem } from '#lib/state/tags.svelte.ts';
   import { threads } from '#lib/state/threads.svelte.ts';
+  import { listView } from '#lib/state/list-view.svelte.ts';
   import { tagFixError, tagFixToast, tagFixValues } from '#lib/tag-fix.ts';
   import { devLog } from '#lib/state/devlog.svelte.ts';
   import { browserTimeZone, displayZone, prefs } from '#lib/state/prefs.svelte.ts';
@@ -550,11 +551,12 @@
     return goto(to);
   }
 
-  /** Mailbox, folder or tag of an account */
+  /** Mailbox, folder or tag of an account; its list starts with the segment "All" (`select`, `swPick`). */
   function openMailbox(account: string, target: MailboxTarget, keepMenu = false) {
     const to = resolve('/mailbox/[account]/[...path]', mailboxParams(account, target));
     // Choosing a mailbox, folder or tag closes the drawer, the same one again too.
     ui.drawer = false;
+    listView.choose(to, path);
     // The same mailbox again (row, 1–6) adds no further history entry.
     if (to !== path) go(to, keepMenu);
     else if (!keepMenu) ui.closeMenu();
@@ -739,6 +741,10 @@
   // Search hits operate the shell (`#lib/search-items.ts`).
   search.actions = {
     go: (to) => go(to),
+    mailbox: (to) => {
+      listView.choose(to, path);
+      go(to);
+    },
     section: (to, sec) => void goSection(to, sec),
     compose: () => openCompose(),
     toggleTheme: () => {
@@ -1473,15 +1479,14 @@
   let mSwOpen = $state(false);
 
   /**
-   * Account switch: the same mailbox in the chosen account or in "All accounts";
-   * on mobile back to the "Mailboxes" sheet. The already selected view only
-   * closes the popup so that the open folder or thread stays.
+   * Account switch: the same mailbox in the chosen account or in "All accounts"
+   * (`select`, `swPick`), the already selected one too: an open thread closes,
+   * a folder or tag gives way to the inbox and the list starts with "All";
+   * on mobile back to the "Mailboxes" sheet.
    */
   function pickScope(key: string) {
     if (ui.isMobile) mSwOpen = false;
-    if (key === scope.key) {
-      if (!ui.isMobile) ui.closeMenu();
-    } else openMailbox(key, { role: curRole }, ui.isMobile);
+    openMailbox(key, { role: curRole }, ui.isMobile);
   }
 
   const switcherProps = $derived(
