@@ -16,7 +16,7 @@
   row's quick actions; "Move to folder" opens the move dialog without back.
 -->
 <script module lang="ts">
-  import { DEFAULT_SORT, type ListSort, type Segment } from '#lib/mail-list.ts';
+  import { DEFAULT_SORT, draftOf, type ListSort, type Segment } from '#lib/mail-list.ts';
 
   /**
    * Segment (`pfFilter`) and sorting of the "Compact" form (`pfSort`, `pfDir`):
@@ -291,20 +291,32 @@
 
   /**
    * Address of a thread: in "All accounts" with its account (`<account>/<thread>`
-   * as one part). In "Drafts" a row opens compose with its
-   * draft (`pfOpen`).
+   * as one part). A draft opens compose with it (`pfOpen`).
    */
-  function open(row: Pick<ListRow, 'account' | 'threadId'> & { id?: string }) {
+  function open(row: Pick<ListRow, 'account' | 'threadId' | 'id'>) {
     if (!location) return;
-    if (row.id && 'role' in location && location.role === 'drafts') {
+    if (opensCompose(row)) {
       void openDraft(row.account, row.id);
       return;
     }
     openThread(location, row.account, row.threadId);
   }
 
-  async function openDraft(account: string, id: string, sendAt?: number, from = page.url.pathname + page.url.search) {
-    const ret = { href: from, label: view?.title ?? m.mailbox_inbox() };
+  /** Row, J/K or arrow button opens compose: every row in "Drafts", elsewhere if the row's email is a draft. */
+  function opensCompose(row: Pick<ListRow, 'account' | 'threadId' | 'id'>): boolean {
+    if (location && 'role' in location && location.role === 'drafts') return true;
+    const t = shownThreads.find((t) => t.account === row.account && t.threadId === row.threadId);
+    return !!t && draftOf(t, rolesOf(row.account).drafts);
+  }
+
+  /** Compose with a draft, back to `from`: from an open conversation "Back to message" (`r.pfMsg`), otherwise the view. */
+  async function openDraft(account: string, id: string, sendAt?: number, from?: string) {
+    const here = page.url.pathname + page.url.search;
+    const href = from ?? here;
+    const ret = {
+      href,
+      label: opened && href === here ? m.compose_back_message() : (view?.title ?? m.mailbox_inbox()),
+    };
     if (await compose.openDraft(account, id, ret, sendAt))
       void goto(resolve('/compose/[draft]', { draft: encodeURIComponent(draftRef({ account, id })) }));
   }
@@ -1345,9 +1357,9 @@
       target = current.threads[at.index + 1];
     }
     if (!target) return;
-    // Menus outside the reading view stay open (`pfOpen`); its own popovers close with the conversation.
-    if (location) ui.keepMenuAt = threadHref(location, target.account, target.threadId);
-    open({ account: target.account, threadId: target.threadId });
+    // Menus outside the reading view stay open (`pfOpen`); its own popovers close with the conversation, all with compose.
+    if (location && !opensCompose(target)) ui.keepMenuAt = threadHref(location, target.account, target.threadId);
+    open(target);
   }
 
   // J/K, ←/→ and Escape of the reading view on desktop, also while a conversation loads or fails.

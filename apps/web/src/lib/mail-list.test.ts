@@ -3,6 +3,7 @@ import {
   bucketOf,
   clock,
   dayLabel,
+  draftOf,
   flatItems,
   fullTime,
   initials,
@@ -615,5 +616,24 @@ describe('listNotice', () => {
     expect(listNotice(values, 10, { ...input, accounts: [ok], offline: true, truncated: true }).footOn).toBe(true);
     expect(listNotice(values, 10, { ...input, accounts: [ok], truncated: true }).footOn).toBe(false);
     expect(listNotice(values, 10, { ...input, accounts: [ok], offline: true }).footOn).toBe(false);
+  });
+});
+
+describe('draftOf', () => {
+  const member = (id: string, mailboxIds: string[]) => ({ id, mailboxIds, keywords: {}, from: 'me@example.com' });
+
+  it('is true if the email of the row lies in the account\'s drafts', () => {
+    const t = thread({ id: 'e2', members: [member('e1', ['inbox']), member('e2', ['drafts', 'tag1'])] });
+    expect(draftOf(t, 'drafts')).toBe(true);
+  });
+
+  it('follows the email of the row, not other emails of the conversation', () => {
+    const t = thread({ id: 'e1', members: [member('e1', ['inbox', 'tag1']), member('e2', ['drafts'])] });
+    expect(draftOf(t, 'drafts')).toBe(false);
+  });
+
+  it('is false without a drafts mailbox or without the email among the members', () => {
+    expect(draftOf(thread({ members: [member('e1', ['drafts'])] }), null)).toBe(false);
+    expect(draftOf(thread({ members: [] }), 'drafts')).toBe(false);
   });
 });

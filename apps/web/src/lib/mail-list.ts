@@ -286,6 +286,14 @@ export const byTagRank = (a: RowTag, b: RowTag): number => (a.rank ?? 0) - (b.ra
 /** Conversation across accounts (selection and focus); stays when a new message represents it. */
 export const threadRef = (t: { account: string; threadId: string }): string => `${t.account}/${t.threadId}`;
 
+/**
+ * The email of the row lies in "Drafts" (`drafts`, the account's mailbox):
+ * opening the row opens compose with it, in every view (`pfOpen`).
+ */
+export function draftOf(t: Pick<ListThread, 'id' | 'members'>, drafts: string | null): boolean {
+  return !!drafts && !!t.members.find((e) => e.id === t.id)?.mailboxIds.includes(drafts);
+}
+
 /** Row of the list. */
 export interface ListRow {
   key: string;
