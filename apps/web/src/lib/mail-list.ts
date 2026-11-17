@@ -131,11 +131,24 @@ export function dayLabel(t: number, c: Pick<TimeContext, 'now' | 'tz'>): string 
 
 /** Time in the row: time of day, yesterday, weekday, date. */
 export function shortTime(t: number, c: TimeContext): string {
+  return rowTime(t, c, ' ');
+}
+
+/**
+ * Time in a search result: like [`shortTime`], but 2 to 6 days ahead with a
+ * comma between weekday and time ("Thu, 08:00").
+ */
+export function searchTime(t: number, c: TimeContext): string {
+  return rowTime(t, c, ', ');
+}
+
+/** `sep` stands between weekday and time 2 to 6 days ahead. */
+function rowTime(t: number, c: TimeContext, sep: string): string {
   const k = dayNumber(t, c.tz) - dayNumber(c.now, c.tz);
   if (k === 0) return clock(t, c);
   if (k === -1) return m.list_yesterday();
   if (k === 1) return m.list_tomorrow_at({ time: clock(t, c) });
-  if (k > 1 && k < 7) return `${weekday(t, c.tz, 'short')} ${clock(t, c)}`;
+  if (k > 1 && k < 7) return `${weekday(t, c.tz, 'short')}${sep}${clock(t, c)}`;
   if (k > -7 && k < 0) return weekday(t, c.tz, 'long');
   const sameYear = dtf(c.tz, { year: 'numeric' }).format(t) === dtf(c.tz, { year: 'numeric' }).format(c.now);
   return sameYear ? dtf(c.tz, { day: 'numeric', month: 'short' }).format(t) : formatShortDate(t, c.dateFmt, c.tz);

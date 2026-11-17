@@ -18,6 +18,7 @@ import {
   baseValues,
   listNotice,
   senderText,
+  searchTime,
   shortTime,
   threadRef,
   type ListInput,
@@ -117,6 +118,25 @@ describe('time in the time zone of the settings', () => {
     // 23:30 UTC on the 28th is already the 29th in Berlin.
     expect(shortTime(at('2026-10-28T23:30:00Z'), T)).toBe('Tomorrow, 00:30');
     expect(shortTime(at('2026-10-28T23:30:00Z'), { ...T, tz: 'UTC' })).toBe('23:30');
+  });
+
+  it('search results put a comma between weekday and time 2 to 6 days ahead, the list does not', () => {
+    expect(searchTime(at('2026-10-30T09:00:00Z'), T)).toBe('Fri, 10:00');
+    expect(shortTime(at('2026-10-30T09:00:00Z'), T)).toBe('Fri 10:00');
+    expect(searchTime(at('2026-11-03T09:00:00Z'), T)).toBe('Tue, 10:00');
+    expect(searchTime(at('2026-11-03T09:00:00Z'), { ...T, timeFmt: '12h' })).toMatch(/^Tue, 10:00\s?AM$/);
+    // The other cases as in the list.
+    for (const iso of [
+      '2026-10-28T09:00:00Z',
+      '2026-10-27T09:00:00Z',
+      '2026-10-29T09:00:00Z',
+      '2026-10-25T09:00:00Z',
+      '2026-11-04T09:00:00Z',
+      '2026-03-02T09:00:00Z',
+      '2025-12-24T09:00:00Z',
+    ])
+      expect(searchTime(at(iso), T)).toBe(shortTime(at(iso), T));
+    expect(searchTime(at('2026-10-29T09:00:00Z'), T)).toBe('Tomorrow, 10:00');
   });
 
   it('names yesterday, weekdays and older dates', () => {

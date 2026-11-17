@@ -149,6 +149,37 @@ describe('mailItems', () => {
     expect(d?.path).toBe('Anna Berger');
   });
 
+  it('without a sender or recipient a tile with the icon instead of initials', () => {
+    const sent: HitBox = { label: 'Sent', role: 'sent', target: { role: 'sent' } };
+    const drafts: HitBox = { label: 'Drafts', role: 'drafts', target: { role: 'drafts' } };
+    const [draft] = mailItems([hit('e1', { to: [] })], termsOf(''), ctx(drafts));
+    expect(draft).toMatchObject({ path: 'Draft · Drafts', icon: 'ti-file-pencil' });
+    expect(draft?.av).toBeUndefined();
+    const [unknown] = mailItems([hit('e2', { from: null })], termsOf(''), ctx());
+    expect(unknown).toMatchObject({ path: 'Unknown · Inbox', icon: 'ti-mail' });
+    expect(unknown?.av).toBeUndefined();
+    const [noRcpt] = mailItems([hit('e3', { to: null })], termsOf(''), ctx(sent));
+    expect(noRcpt).toMatchObject({ path: 'No recipient · Sent', icon: 'ti-mail' });
+    expect(noRcpt?.av).toBeUndefined();
+    // Without letters for initials, too.
+    const [digits] = mailItems([hit('e4', { from: [{ name: '1&1', email: '' }] })], termsOf(''), ctx());
+    expect(digits?.av).toBeUndefined();
+    const row = resultsValues(input({ items: [{ ...unknown!, score: 1 }] })).groups[0]?.rows[0];
+    expect(row).toMatchObject({ hasAv: false, round: false, plain: true, tileBg: 'var(--surface)', icon: 'ti-mail' });
+  });
+
+  it('times 2 to 6 days ahead with a comma between weekday and time', () => {
+    const at = (iso: string) => mailItems([hit('e1', { receivedAt: iso })], termsOf(''), ctx())[0]?.side;
+    expect(at('2026-11-02T09:00:00Z')).toBe('10:00');
+    expect(at('2026-11-01T09:00:00Z')).toBe('Yesterday');
+    expect(at('2026-11-03T07:00:00Z')).toBe('Tomorrow, 08:00');
+    expect(at('2026-11-05T07:00:00Z')).toBe('Thu, 08:00');
+    expect(at('2026-11-08T07:00:00Z')).toBe('Sun, 08:00');
+    expect(at('2026-10-29T07:00:00Z')).toBe('Thursday');
+    expect(at('2026-11-09T07:00:00Z')).toBe('9 Nov');
+    expect(at('2025-12-24T07:00:00Z')).toBe('24.12.25');
+  });
+
   it('hits only in the text count 15, in the sender at least 55', () => {
     const [body] = mailItems([hit('e1')], termsOf('reminder'), ctx());
     expect(body?.score).toBe(15);
@@ -272,6 +303,20 @@ describe('resultsValues', () => {
     expect(resultsValues(input({ mailF: true, chips: chipsOf({ from: 'x@example.org' }) })).emptyText).toBe(
       'Try fewer filters or a different search term.',
     );
+    // Only a category: no filter on the results page, but in the suggestions.
+    const cat = resultsValues(input({ cats: ['mail'], chips: chipsOf({ cats: ['mail'] }) }));
+    expect(cat).toMatchObject({
+      emptyText: 'Check the spelling or try a different search term.',
+      suggestEmptyText: 'Try fewer filters or a different search term.',
+      hasChips: false,
+    });
+    const both = resultsValues(input({ cats: ['mail'], chips: chipsOf({ cats: ['mail'], st: ['u'] }) }));
+    expect(both).toMatchObject({
+      emptyText: 'Try fewer filters or a different search term.',
+      suggestEmptyText: 'Try fewer filters or a different search term.',
+      hasChips: true,
+    });
+    expect(resultsValues(input()).suggestEmptyText).toBe('Check the spelling or try a different search term.');
     const v = resultsValues(input({ allowed: searchCats(false), items: [item('admin', 'a1')] }));
     expect(v.empty).toBe(true);
   });
