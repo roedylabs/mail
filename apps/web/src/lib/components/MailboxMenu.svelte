@@ -278,8 +278,6 @@
     height: 352px;
     overflow: hidden;
     margin: 0 -12px;
-    /* Scrolling stays with the browser, horizontal movement goes to the tab swipe. */
-    touch-action: pan-y;
   }
 
   .track {
@@ -295,6 +293,8 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
+    /* The scroll container: scrolling stays with the browser, horizontal movement goes to the tab swipe. */
+    touch-action: pan-y;
     overscroll-behavior: contain;
     padding: 0 12px 6px;
     display: flex;

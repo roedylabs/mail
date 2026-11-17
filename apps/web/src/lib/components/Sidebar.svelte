@@ -447,8 +447,6 @@
     position: relative;
     overflow: hidden;
     margin: 0 -6px;
-    /* Scrolling stays with the browser, horizontal movement goes to the tab swipe. */
-    touch-action: pan-y;
   }
 
   .track {
@@ -464,6 +462,8 @@
     height: 100%;
     overflow-y: auto;
     overflow-x: hidden;
+    /* The scroll container: scrolling stays with the browser, horizontal movement goes to the tab swipe. */
+    touch-action: pan-y;
     scrollbar-width: none;
     padding: 0 6px 4px;
     display: flex;

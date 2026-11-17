@@ -101,7 +101,7 @@ export function tabSegment(box: SegmentBox, index: number, count: number, d: Tab
 /**
  * On release after `dx` with the velocity `vx` in px/ms: does the tab switch
  * (further than 28 % of the width, or flung faster than 0.35 px/ms in the
- * direction of the drag), and how long does the settle take: the rest of the
+ * direction of the drag; without an offset in the direction of the fling), and how long does the settle take: the rest of the
  * way at the release velocity (at least 0.6 px/ms), 170 to 380 ms.
  */
 export function tabRelease(
@@ -111,7 +111,8 @@ export function tabRelease(
   count: number,
   width: number,
 ): { go: boolean; next: number; ms: number } {
-  const dir = dx < 0 ? 1 : -1;
+  // Released right after the decision (no offset yet): the direction of the fling.
+  const dir = (dx !== 0 ? dx < 0 : vx < 0) ? 1 : -1;
   const next = index + dir;
   const ok = next >= 0 && next < count;
   const go = ok && (Math.abs(dx) > width * 0.28 || (Math.abs(vx) > 0.35 && Math.sign(-vx) === dir));

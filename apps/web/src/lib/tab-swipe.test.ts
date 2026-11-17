@@ -67,6 +67,10 @@ describe('tab swipe maths', () => {
     expect(tabRelease(-40, -0.35, 1, 3, 300).go).toBe(false);
     // Flung against the drag: back.
     expect(tabRelease(-40, 0.8, 1, 3, 300).go).toBe(false);
+    // Released right after the decision (no offset): the fling gives the direction.
+    expect(tabRelease(0, -0.8, 1, 3, 300)).toMatchObject({ go: true, next: 2 });
+    expect(tabRelease(0, 0.8, 1, 3, 300)).toMatchObject({ go: true, next: 0 });
+    expect(tabRelease(0, 0, 1, 3, 300).go).toBe(false);
     // No tab beyond the ends.
     expect(tabRelease(200, 2, 0, 3, 300).go).toBe(false);
     expect(tabRelease(-200, -2, 2, 3, 300).go).toBe(false);
@@ -162,6 +166,17 @@ describe('swipeTabs', () => {
       expect(parseFloat(prop(root, '--gdx'))).toBeCloseTo(36);
     });
     expect(select).not.toHaveBeenCalled();
+  });
+
+  it('switches on a fast fling released right after the decision (one movement)', () => {
+    vi.useFakeTimers();
+    const { row, select } = tabs({ index: 1 });
+    pointer('pointerdown', 150, 100, row);
+    vi.advanceTimersByTime(20);
+    pointer('pointermove', 120, 100);
+    pointer('pointerup', 120, 100);
+    window.dispatchEvent(new MouseEvent('click'));
+    expect(select).toHaveBeenCalledWith(2);
   });
 
   it('settles at once without animations', () => {
