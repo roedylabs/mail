@@ -92,6 +92,8 @@ export class Notifications {
   env: NotificationsEnv = browserEnv;
   /** Entries of the bell; `null` until the first response. */
   list = $state<AppNotification[] | null>(null);
+  /** A fetch is running (the open list is marked `aria-busy` until its response). */
+  loading = $state(false);
 
   /** IDs already shown: only entries that are newly added play the sound. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping, not displayed
@@ -110,9 +112,12 @@ export class Notifications {
     if (this.#loading) return this.#loading;
     const loading = this.#fetch().finally(() => {
       // After `reset()` a new fetch may already be running; only release the own one.
-      if (this.#loading === loading) this.#loading = null;
+      if (this.#loading !== loading) return;
+      this.#loading = null;
+      this.loading = false;
     });
     this.#loading = loading;
+    this.loading = true;
     return loading;
   }
 
@@ -240,6 +245,7 @@ export class Notifications {
     this.#seen.clear();
     this.#removing.clear();
     this.#loading = null;
+    this.loading = false;
   }
 }
 

@@ -30,6 +30,7 @@
     acctSw,
     allT2,
     addFShow,
+    addTShow,
     onTab,
     addF,
     addT,
@@ -139,10 +140,12 @@
       </div>
       <div role="tabpanel" class="panel no-scrollbar" aria-hidden={d.rtPt.hidden} style={tabPanelStyle(2, d.rtPt)}>
         {@render tags?.()}
-        <button class="add" onclick={addT}>
-          <span class="add-tile"><Icon name="ti-plus" /></span>
-          <span>{m.sidebar_tag_new()}</span>
-        </button>
+        {#if addTShow}
+          <button class="add" onclick={addT}>
+            <span class="add-tile"><Icon name="ti-plus" /></span>
+            <span>{m.sidebar_tag_new()}</span>
+          </button>
+        {/if}
       </div>
     </div>
   </div>

@@ -2,8 +2,8 @@
   Notifications menu behind the bell: head with counter, "Mark all as read" and
   settings, below it the entries by "Today" and "Earlier", or "All quiet" or
   "Turned off in the app". On desktop as a popover below the bell, on mobile as
-  the content of the sheet. Before the first response none of the three states
-  is true: then only the head.
+  the content of the sheet. Before the first response placeholder rows with
+  `aria-busy`; on a reload the shown entries stay, marked `aria-busy`.
 -->
 <script lang="ts">
   import { scrollbar } from '#lib/actions/scrollbar.ts';
@@ -16,6 +16,8 @@
   let {
     isMobile,
     notifGroups,
+    notifBusy,
+    notifBusyAttr,
     notifHas,
     notifEmpty,
     notifOff,
@@ -26,6 +28,8 @@
     notifEnable,
     openNotifSettings,
   }: NotifMenuValues = $props();
+
+  const SK_ROWS = ['58%', '42%', '50%'].map((w, i) => ({ w, d: `${i * 150}ms` }));
 
   // Tooltips (`data-tip`) on desktop only.
   const tip = (text: string) => (isMobile ? undefined : text);
@@ -102,6 +106,25 @@
   </div>
 {/snippet}
 
+<!-- Placeholder rows until the first response: group label and 3 rows like the entries. -->
+{#snippet skeleton()}
+  <div class="sk" role="status" aria-busy="true" aria-label={m.notif_pop_loading()}>
+    <div class="sk-label" aria-hidden="true"><span></span></div>
+    {#each SK_ROWS as k (k.w)}
+      <div class="sk-row" aria-hidden="true">
+        <span class="sk-tile" style:animation-delay={k.d}></span>
+        <span class="sk-body">
+          <span class="sk-line">
+            <span class="sk-title" style:width={k.w} style:animation-delay={k.d}></span>
+            <span class="sk-time" style:animation-delay={k.d}></span>
+          </span>
+          <span class="sk-text" style:animation-delay={k.d}></span>
+        </span>
+      </div>
+    {/each}
+  </div>
+{/snippet}
+
 {#snippet groups()}
   {#each notifGroups as g (g.label)}
     <div>
@@ -134,14 +157,16 @@
 {#if isMobile}
   <div class="mobile" bind:this={root} tabindex="-1">
     {@render head()}
-    {#if notifHas}{@render groups()}{/if}
+    {#if notifBusy}{@render skeleton()}{/if}
+    {#if notifHas}<div aria-busy={notifBusyAttr}>{@render groups()}</div>{/if}
     {@render states()}
   </div>
 {:else}
   <div class="pop" data-pop="1" role="dialog" aria-label={m.notif_pop_title()} bind:this={root} tabindex="-1">
     {@render head()}
+    {#if notifBusy}{@render skeleton()}{/if}
     {#if notifHas}
-      <div class="scroll no-scrollbar" {@attach scrollbar}>{@render groups()}</div>
+      <div class="scroll no-scrollbar" aria-busy={notifBusyAttr} {@attach scrollbar}>{@render groups()}</div>
     {/if}
     {@render states()}
   </div>
@@ -258,6 +283,93 @@
     min-height: 0;
     overflow-y: auto;
     padding: 0 8px 10px;
+  }
+
+  /* Placeholder rows */
+  .sk {
+    flex: 1;
+    min-height: 0;
+    overflow: hidden;
+    padding: 0 8px 10px;
+  }
+
+  .mobile .sk {
+    padding: 0;
+  }
+
+  .sk-label {
+    padding: 13px 12px 7px;
+  }
+
+  .mobile .sk-label {
+    padding: 15px 10px 7px;
+  }
+
+  .sk-label span {
+    display: block;
+    width: 48px;
+    height: 10px;
+    border-radius: 9999px;
+    background: var(--surface2);
+    animation: var(--shim, none);
+  }
+
+  .sk-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 10px 6px 10px 10px;
+  }
+
+  .mobile .sk-row {
+    padding: 10px 4px 10px 10px;
+  }
+
+  .sk-tile {
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 14px;
+    background: var(--surface2);
+    animation: var(--shim, none);
+  }
+
+  .sk-body {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-top: 4px;
+  }
+
+  .sk-line {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .sk-title,
+  .sk-time,
+  .sk-text {
+    border-radius: 9999px;
+    background: var(--surface2);
+    animation: var(--shim, none);
+  }
+
+  .sk-title {
+    height: 13px;
+  }
+
+  .sk-time {
+    margin-left: auto;
+    width: 30px;
+    height: 10px;
+  }
+
+  .sk-text {
+    width: 84%;
+    height: 11px;
   }
 
   .label {

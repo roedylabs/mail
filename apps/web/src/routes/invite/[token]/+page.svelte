@@ -32,6 +32,7 @@
   import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
   import { errorTones } from '#lib/theme.ts';
+  import { ERRS } from '#lib/errors.ts';
 
   const token = $derived(page.params.token ?? '');
 
@@ -85,6 +86,15 @@
   });
 
   // ---- Page values ----
+
+  /** Error card for 500 and offline (texts of the error page). */
+  const failPage = $derived(ERRS[flow.offline ? 'offline' : '500']);
+  /** Rows of the card skeleton: widths of both bars and delay. */
+  const SK_ROWS = [
+    { a: '34%', b: '62%', d: '300ms' },
+    { a: '22%', b: '40%', d: '350ms' },
+    { a: '44%', b: '30%', d: '400ms' },
+  ];
 
   const values: InvitePageValues = {
     toLogin: () => void goto(resolve('/(auth)/login')),
@@ -251,8 +261,6 @@
 
 {#if flow.status === 'missing'}
   <ErrorView code="404" />
-{:else if flow.status === 'failed'}
-  <ErrorView code={flow.offline ? 'offline' : '500'} retry={() => flow.load()} />
 {:else}
   <div
     bind:this={root}
@@ -586,6 +594,58 @@
                 <div class="progress"><span></span></div>
               </div>
             {/if}
+          </div>
+        {:else if flow.status === 'failed'}
+          <!-- 500 or offline: error card with "Try again"; while it checks, the card stays with "Checking …". -->
+          <div class="card" bind:this={card} style:padding={F.cardPad}>
+            <div class="tile-view" role="alert">
+              <span class="big-tile muted"><Icon name={failPage.icon} /></span>
+              <h1 class="tile-title">{failPage.title()}</h1>
+              <p class="tile-text">{failPage.text()}</p>
+              <button
+                type="button"
+                class="primary wide retry"
+                aria-disabled={flow.retrying}
+                onclick={() => {
+                  if (!flow.retrying) void flow.load();
+                }}
+              >
+                <span class="bi" class:turning={flow.retrying}
+                  ><Icon name={flow.retrying ? 'ti-loader-2' : 'ti-refresh'} /></span
+                >
+                <span>{flow.retrying ? m.invite_checking() : m.error_retry()}</span>
+              </button>
+            </div>
+          </div>
+        {:else}
+          <!-- Until the response of GET invites/:token only the skeleton of the card. -->
+          <div class="card" bind:this={card} style:padding={F.cardPad}>
+            <div class="sk" role="status" aria-busy="true" aria-label={m.invite_checking()}>
+              <div class="steps" aria-hidden="true" style:margin={F.stepM}>
+                <span class="sk-chip"></span>
+                <span class="bars"
+                  ><span class="bar current"></span><span class="bar"></span><span class="bar"></span><span class="bar"
+                  ></span></span
+                >
+              </div>
+              <span class="sk-h1" aria-hidden="true"></span>
+              <span class="sk-intro" aria-hidden="true"><span class="sk-p1"></span><span class="sk-p2"></span></span>
+              <div class="sk-box" aria-hidden="true">
+                {#each SK_ROWS as r (r.d)}
+                  <div class="sk-row">
+                    <span class="sk-icon"></span>
+                    <div class="sk-lines">
+                      <span style:width={r.a} style:animation-delay={r.d}></span><span
+                        style:width={r.b}
+                        style:animation-delay={r.d}
+                      ></span>
+                    </div>
+                  </div>
+                {/each}
+              </div>
+              <span class="sk-btn" aria-hidden="true"></span>
+              <span class="sk-note" aria-hidden="true"></span>
+            </div>
           </div>
         {/if}
       </main>
@@ -1352,6 +1412,134 @@
     font-weight: 800;
     color: var(--deep);
     transition: background-color 220ms;
+  }
+
+  /* Skeleton of the card until the response of GET invites/:token */
+  .sk {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Without specificity: the delays of the single bars below keep their value. */
+  :where(.sk-chip, .sk-h1, .sk-intro span, .sk-lines span, .sk-btn, .sk-note) {
+    display: block;
+    background: var(--surface2);
+    animation: var(--shim, none);
+  }
+
+  .sk-chip {
+    width: 210px;
+    max-width: 62%;
+    height: 38px;
+    border-radius: 9999px;
+  }
+
+  .sk-h1 {
+    width: 80%;
+    height: var(--f-h1);
+    border-radius: 12px;
+    animation-delay: 100ms;
+  }
+
+  .sk-intro {
+    display: var(--f-intro);
+    margin: var(--f-pm);
+  }
+
+  .sk-intro span {
+    height: 14px;
+    border-radius: 7px;
+  }
+
+  .sk-p1 {
+    margin-top: 6px;
+    width: 94%;
+    animation-delay: 200ms;
+  }
+
+  .sk-p2 {
+    margin-top: 9px;
+    width: 60%;
+    animation-delay: 250ms;
+  }
+
+  .sk-box {
+    margin-top: var(--f-gap-m);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 6px;
+    border-radius: 24px;
+    background: var(--surface2);
+  }
+
+  .sk-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-height: 52px;
+    padding: 0 12px 0 6px;
+  }
+
+  .sk-icon {
+    width: 36px;
+    height: 36px;
+    flex-shrink: 0;
+    border-radius: 12px;
+    background: var(--surface);
+  }
+
+  .sk-lines {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 7px;
+  }
+
+  .sk-lines span {
+    background: var(--sunken);
+    border-radius: 5px;
+  }
+
+  .sk-lines span:first-child {
+    height: 10px;
+  }
+
+  .sk-lines span:last-child {
+    height: 12px;
+    border-radius: 6px;
+  }
+
+  .sk-btn {
+    margin-top: var(--f-gap-l);
+    height: var(--f-ctl);
+    border-radius: 9999px;
+    animation-delay: 450ms;
+  }
+
+  .sk-note {
+    align-self: center;
+    margin-top: 26px;
+    width: 180px;
+    max-width: 70%;
+    height: 12px;
+    border-radius: 6px;
+    animation-delay: 500ms;
+  }
+
+  /* "Try again" of the error card: while it checks no lift and the default cursor. */
+  .primary.retry[aria-disabled='true'] {
+    cursor: default;
+    transform: none;
+    /* fixed value (button edge) */
+    box-shadow:
+      inset 0 -3px 0 rgba(0, 0, 0, 0.08),
+      var(--sh1);
+  }
+
+  .bi.turning {
+    animation: inSpin 800ms linear infinite;
   }
 
   /* Tile views: expired, request sent, welcome */

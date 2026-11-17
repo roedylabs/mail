@@ -24,6 +24,7 @@ function values(patch: Partial<MailboxMenuValues> = {}): MailboxMenuValues {
     },
     allT2: [],
     addFShow: true,
+    addTShow: true,
     onTab: () => {},
     toggleMSw: () => {},
     closeSheet: () => {},
@@ -95,6 +96,11 @@ describe('mailboxes (mobile)', () => {
   it('shows "New folder" only with addFShow', () => {
     const { queryByRole } = render(MailboxMenu, values({ addFShow: false, sbTab: 'folders' }));
     expect(queryByRole('button', { name: 'New folder' })).toBeNull();
+  });
+
+  it('shows "New tag" only with addTShow', () => {
+    const { queryByRole } = render(MailboxMenu, values({ addTShow: false, sbTab: 'tags' }));
+    expect(queryByRole('button', { name: 'New tag' })).toBeNull();
   });
 
   it('opens "Switch account" via the account switch', async () => {

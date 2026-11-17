@@ -47,6 +47,7 @@
     acctSwOpen,
     allT2,
     addFShow,
+    addTShow,
     collapsed,
     drawer = false,
     closeDrawer,
@@ -209,10 +210,12 @@
         </div>
         <div role="tabpanel" class="panel" aria-hidden={d.rtPt.hidden} style={tabPanelStyle(2, d.rtPt)}>
           {@render tags?.()}
-          <button class="add" onclick={addT} use:tooltip={{ text: d.addTTip, side: 'right' }}>
-            <span class="add-tile"><Icon name="ti-plus" /></span>
-            <span class="label">{m.sidebar_tag_new()}</span>
-          </button>
+          {#if addTShow}
+            <button class="add" onclick={addT} use:tooltip={{ text: d.addTTip, side: 'right' }}>
+              <span class="add-tile"><Icon name="ti-plus" /></span>
+              <span class="label">{m.sidebar_tag_new()}</span>
+            </button>
+          {/if}
         </div>
       </div>
     </div>

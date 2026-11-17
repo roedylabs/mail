@@ -99,14 +99,16 @@ describe('loading', () => {
     await flow.load();
     expect(flow.status).toBe('failed');
     expect(flow.offline).toBe(false);
-    // Retry: the error page stays until the response is there.
+    // Retry: the error card stays until the response is there.
     let answer: (value: { body: InviteInfo }) => void = () => {};
     mockApi({ [show]: [() => new Promise((resolve) => (answer = resolve)), { status: 500, body: {} }] });
     const retry = flow.load();
     expect(flow.status).toBe('failed');
+    expect(flow.retrying).toBe(true);
     answer({ body: INFO });
     await retry;
     expect(flow.status).toBe('ready');
+    expect(flow.retrying).toBe(false);
     await flow.load();
     expect(flow.status).toBe('failed');
     vi.stubGlobal(

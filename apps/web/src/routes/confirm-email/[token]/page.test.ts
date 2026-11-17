@@ -48,6 +48,19 @@ afterEach(() => {
 });
 
 describe('Confirm email address page', () => {
+  it('shows only the skeleton of the card until the check answers', async () => {
+    let answer: (value: { body: unknown }) => void = () => {};
+    mockApi({ 'POST auth/email/check': [() => new Promise((resolve) => (answer = resolve))] });
+    const view = render(Page);
+    const busy = view.getByRole('status', { name: 'Checking …' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy.closest('.card')).not.toBeNull();
+    expect(view.queryByRole('heading', { level: 1 })).toBeNull();
+    answer({ body: { state: 'valid', email: 'new@example.com', own_session: false } });
+    expect(await view.findByRole('heading', { name: 'Confirm new email address' })).toBeInTheDocument();
+    expect(view.queryByRole('status', { name: 'Checking …' })).toBeNull();
+  });
+
   it('confirms only via the button and leads guests to the login', async () => {
     const { calls } = mockApi({
       'POST auth/email/check': [{ body: { state: 'valid', email: 'new@example.com', own_session: false } }],

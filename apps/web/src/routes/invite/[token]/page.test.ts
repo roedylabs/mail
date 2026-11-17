@@ -287,6 +287,37 @@ describe('Invitation page', () => {
     expect(view.getByText('Error 404')).toBeInTheDocument();
   });
 
+  it('shows only the skeleton of the card until the invitation is loaded', () => {
+    mockApi({ 'GET invites/tok': [() => new Promise(() => {})] });
+    const view = renderPage();
+    expect(view.getByRole('status', { name: 'Checking …' })).toHaveAttribute('aria-busy', 'true');
+    expect(view.queryByRole('heading', { level: 1 })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Accept invitation' })).toBeNull();
+    expect(view.getByText(/© \d{4} Roedy Mail/)).toBeInTheDocument();
+  });
+
+  it('shows the error card in the page frame and keeps it with “Checking …” while trying again', async () => {
+    let answer: (value: { body: InviteInfo }) => void = () => {};
+    mockApi({
+      'GET invites/tok': [
+        () => Promise.reject(new TypeError('Failed to fetch')),
+        () => new Promise((resolve) => (answer = resolve)),
+      ],
+    });
+    const view = renderPage();
+    const card = await view.findByRole('alert');
+    expect(within(card).getByRole('heading', { level: 1 })).toHaveTextContent('No connection');
+    expect(card).toHaveTextContent('Check your internet connection and try again.');
+    expect(view.queryByText('Copy details')).toBeNull();
+    expect(view.getByText(/© \d{4} Roedy Mail/)).toBeInTheDocument();
+    await click('Try again');
+    const busy = within(card).getByRole('button', { name: 'Checking …' });
+    expect(busy).toHaveAttribute('aria-disabled', 'true');
+    await fireEvent.click(busy);
+    answer({ body: INFO });
+    expect(await view.findByRole('heading', { name: 'Welcome to Roedy Mail' })).toBeInTheDocument();
+  });
+
   it('reloads after an error with “Try again”', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mockApi({ 'GET invites/tok': [{ status: 500, body: { error: 'internal' } }, { body: INFO }] });
