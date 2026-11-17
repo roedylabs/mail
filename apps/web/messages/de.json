@@ -266,6 +266,8 @@
   "search_kicker": "Suchergebnisse",
   "search_title": "„{q}“",
   "search_title_filtered": "Gefilterte Suche",
+  "search_back_search": "Zurück zur Suche",
+  "search_back_results": "Zurück zu den Suchergebnissen",
   "search_count_idle": "Geben Sie einen Suchbegriff ein oder wählen Sie Filter.",
   "search_count_none": "Keine Treffer",
   "search_count_one": "1 Treffer",

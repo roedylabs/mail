@@ -293,6 +293,26 @@ interface MailResult {
   local: boolean;
 }
 
+/** Where a hit was opened from (`navRet.label`): mobile search or the results page. */
+export type ReturnKind = 'search' | 'results';
+
+/** The search when a hit was opened (`navSnap`): text, filters, area and way back of the results. */
+export interface SearchSnapshot {
+  q: string;
+  sf: SearchFilter;
+  scope: 'here' | 'all';
+  back: string | null;
+  /** Reference of the time range, so that the same query (and its hits) applies again. */
+  anchor: number;
+}
+
+/** Return path to the search (`navRet`): valid only at `target`, the address the hit opened. */
+export interface SearchReturn {
+  kind: ReturnKind;
+  target: string;
+  snap: SearchSnapshot;
+}
+
 const byReceived = (a: MailHit, b: MailHit) => (a.receivedAt < b.receivedAt ? 1 : a.receivedAt > b.receivedAt ? -1 : 0);
 
 export class Search {
@@ -304,6 +324,8 @@ export class Search {
   recent = $state<string[]>([]);
   /** Way back for "Close search results". */
   back: string | null = null;
+  /** Return path to the search after opening a hit (`navRet`); see `expectReturn()`. */
+  ret = $state.raw<SearchReturn | null>(null);
   /** The server's hits for the most recently answered query. */
   mail = $state<MailResult | null>(null);
   /** Loads more pages (`more()`). */
@@ -356,6 +378,9 @@ export class Search {
   #parked: MailResult | null = null;
   /** The last query already failed: no further toast while typing. */
   #failed = false;
+  /** Hit just opened: the navigation it starts becomes the return path's target. */
+  #pending: { kind: ReturnKind; snap: SearchSnapshot } | null = null;
+  #pendingTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     api: SearchApi = jmapSearchApi((account) => accounts.client(account)),
@@ -701,6 +726,67 @@ export class Search {
     this.panelOver = false;
   }
 
+  /** The search as it is now, for the return path. */
+  snapshot(): SearchSnapshot {
+    return { q: this.q, sf: this.sf, scope: this.scope, back: this.back, anchor: this.#anchor };
+  }
+
+  /**
+   * A hit is about to run (before `done()`): the navigation it starts
+   * synchronously becomes the return path (`navigating()`). A hit that
+   * does not navigate (contact, action) leaves none: the expectation
+   * ends with the current task, the navigation starts within its microtasks.
+   */
+  expectReturn(kind: ReturnKind, snap: SearchSnapshot = this.snapshot()): void {
+    this.#pending = { kind, snap };
+    clearTimeout(this.#pendingTimer);
+    this.#pendingTimer = setTimeout(() => (this.#pending = null), 0);
+  }
+
+  /**
+   * A navigation to `path` starts. After a hit it becomes the return
+   * path, if the target can have one (`navTarget`: an open message or
+   * a view other than a mailbox list, start or search); otherwise it ends
+   * a return path whose target it leaves (J/K, another page).
+   */
+  navigating(path: string, returnable: boolean): void {
+    const pending = this.#pending;
+    this.#pending = null;
+    clearTimeout(this.#pendingTimer);
+    if (pending) this.ret = returnable ? { kind: pending.kind, target: path, snap: pending.snap } : null;
+    else this.arrived(path);
+  }
+
+  /** A navigation ended at `path`: the return path applies only at its target. */
+  arrived(path: string): void {
+    if (this.ret && this.ret.target !== path) this.ret = null;
+  }
+
+  /** Return path that applies at `path` (`navHere()`). */
+  returnAt(path: string): SearchReturn | null {
+    return this.ret?.target === path ? this.ret : null;
+  }
+
+  /**
+   * Back to the search (`navBack()`): restores text, filters, area and way
+   * back of the results; the hits come again with the same query. `false`
+   * if no return path applies at `path` (it is discarded).
+   */
+  takeReturn(path: string): boolean {
+    const r = this.returnAt(path);
+    this.ret = null;
+    if (!r) return false;
+    const { snap } = r;
+    this.q = snap.q;
+    this.sf = snap.sf;
+    this.scope = snap.scope;
+    this.back = snap.back;
+    this.#anchor = snap.anchor;
+    this.panelOver = false;
+    this.#now = true;
+    return true;
+  }
+
   remember(q: string): void {
     const t = q.trim();
     if (!t) return;
@@ -719,6 +805,9 @@ export class Search {
     this.#now = false;
     this.#parked = null;
     this.#failed = false;
+    this.#pending = null;
+    clearTimeout(this.#pendingTimer);
+    this.ret = null;
     this.q = '';
     this.sf = SF0;
     this.recent = [];

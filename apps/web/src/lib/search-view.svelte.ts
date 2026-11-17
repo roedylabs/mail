@@ -31,7 +31,7 @@ import { contacts } from '#lib/state/contacts.svelte.ts';
 import { mailboxes } from '#lib/state/mailboxes.svelte.ts';
 import { network } from '#lib/state/network.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
-import { search } from '#lib/state/search.svelte.ts';
+import { search, type ReturnKind } from '#lib/state/search.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { tags } from '#lib/state/tags.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
@@ -126,6 +126,8 @@ export class SearchView {
 
   /** After `search.done()`, e.g. to close the search suggestions. */
   #done: () => void = () => {};
+  /** Kind of return path a hit remembers; none without (search suggestions). */
+  #returnKind: (() => ReturnKind) | null = null;
 
   /** Results; an executed row remembers the search and clears text and filters. */
   readonly rp: ResultsValues = $derived(
@@ -141,14 +143,22 @@ export class SearchView {
       setCats: (cats) => search.set({ cats }),
       clearFilters: () => search.clearFilters(),
       done: () => {
+        // Before clearing: the hit's navigation takes the search along as the return path.
+        if (this.#returnKind) search.expectReturn(this.#returnKind());
         search.done();
         this.#done();
       },
     }),
   );
 
-  constructor(done?: () => void) {
+  /**
+   * `done` runs after a hit; `returnKind` makes a hit remember the search
+   * as the way back (results page, mobile search), the search suggestions
+   * remember none.
+   */
+  constructor(done?: () => void, returnKind?: () => ReturnKind) {
     if (done) this.#done = done;
+    if (returnKind) this.#returnKind = returnKind;
     // Without the clock: the query follows text, filters and accounts, not every minute.
     $effect(() => search.sync());
     // Fetch hits from the cache from the server: after the network returns and when opening the view.

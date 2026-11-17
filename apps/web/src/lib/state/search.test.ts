@@ -579,6 +579,87 @@ describe('Search', () => {
     expect(s.hits.map((h) => h.id)).toEqual(['k1-2', 'k2-1']);
   });
 
+  describe('return path to the search', () => {
+    const THREAD = '/mailbox/k1/inbox/t1';
+
+    it('a hit remembers text, filters, area and way back; its navigation becomes the target', () => {
+      s.open('inv', '/mailbox/k1/inbox');
+      s.set({ st: ['u'] });
+      s.scope = 'all';
+      s.expectReturn('results');
+      s.done();
+      expect([s.q, s.sf]).toEqual(['', SF0]);
+      s.navigating(THREAD, true);
+      expect(s.returnAt(THREAD)?.kind).toBe('results');
+      expect(s.returnAt('/mailbox/k1/inbox')).toBeNull();
+      s.arrived(THREAD);
+      s.scope = 'here';
+      expect(s.takeReturn(THREAD)).toBe(true);
+      expect([s.q, s.sf.st, s.scope, s.back, s.ret]).toEqual(['inv', ['u'], 'all', '/mailbox/k1/inbox', null]);
+    });
+
+    it('returning asks again at once; the parked hits are there immediately', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 1 },
+        { hits: [hit('k1', 'e2')], positions: 1, total: 1 },
+      ]);
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      s.expectReturn('search');
+      s.done();
+      sync(['k1']);
+      expect(s.hits).toEqual([]);
+      s.navigating(THREAD, true);
+      s.takeReturn(THREAD);
+      sync(['k1']);
+      expect(s.hits.map((h) => h.id)).toEqual(['e1']);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(page).toHaveBeenCalledTimes(2);
+      expect(s.hits.map((h) => h.id)).toEqual(['e2']);
+    });
+
+    it('none without a navigation in the same task (contact, action) or to a list', async () => {
+      s.expectReturn('results');
+      await vi.advanceTimersByTimeAsync(0);
+      s.navigating(THREAD, true);
+      expect(s.ret).toBeNull();
+      s.expectReturn('results');
+      s.navigating('/mailbox/k1/inbox', false);
+      expect(s.ret).toBeNull();
+    });
+
+    it('ends as soon as the user leaves the target: J/K, another page, back in the browser', () => {
+      for (const leave of [
+        (x: Search) => x.navigating('/mailbox/k1/inbox/t2', true),
+        (x: Search) => x.arrived('/settings/general'),
+      ]) {
+        s.expectReturn('results');
+        s.navigating(THREAD, true);
+        leave(s);
+        expect(s.ret).toBeNull();
+        expect(s.takeReturn(THREAD)).toBe(false);
+      }
+      // Staying at the target (also navigating to it again) keeps it.
+      s.expectReturn('search');
+      s.navigating(THREAD, true);
+      s.navigating(THREAD, true);
+      s.arrived(THREAD);
+      expect(s.returnAt(THREAD)?.kind).toBe('search');
+    });
+
+    it('applies only at its target and goes with sign-out', () => {
+      s.expectReturn('search');
+      s.navigating('/settings/general', true);
+      expect(s.takeReturn('/settings/appearance')).toBe(false);
+      expect(s.ret).toBeNull();
+      s.expectReturn('search');
+      s.navigating('/settings/general', true);
+      s.reset();
+      expect(s.ret).toBeNull();
+    });
+  });
+
   describe('without connection', () => {
     const mail = (id: string, subject: string) => ({
       id,
