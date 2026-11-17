@@ -1055,7 +1055,6 @@
   "setup_diag_cid": "Client-ID {cid}",
   "setup_diag_registered": "Registriert",
   "setup_srv_bad_title": "Keine Verbindung.",
-  "setup_srv_bad_text": "Unter dieser Adresse antwortet kein JMAP-Server. Prüfen Sie Adresse, Port und Firewall.",
   "setup_srv_locked_button": "Verbindung testen in {clock}",
   "setup_srv_warn_title": "Verbindung hergestellt, mit Hinweisen",
   "setup_srv_warn_sub": "{host} · Stalwart",

@@ -10,6 +10,7 @@
  */
 import { ApiError, api, fieldsOf, retryAfter } from '#lib/api.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
+import { credBad } from '#lib/credentials.ts';
 import { csp } from '#lib/csp.ts';
 import {
   adminRejected,
@@ -306,9 +307,10 @@ export class SetupFlow {
     return { icon: 'ti-alert-triangle', title: m.setup_sys_other_title(), text: m.setup_sys_other() };
   });
 
-  /** "No connection." with the text of the reason. */
+  /** "No connection." with the text of the reason; without one the general text of the diagnosis. */
   srvBadText = $derived(
-    this.report ? diagText('reach', 'err', 'err', this.report.reasons, this.diagContext()) : m.setup_srv_bad_text(),
+    (this.report ? diagText('reach', 'err', 'err', this.report.reasons, this.diagContext()) : '') ||
+      m.server_diag_jmap_err(),
   );
 
   /** Diagnosis rows with notices, like in the administration. */
@@ -529,7 +531,14 @@ export class SetupFlow {
     const bad = doms.find((d) => !isDomain(d));
     if (doms.length > MAX_DOMAINS) err.srvDoms = m.server_doms_max({ n: MAX_DOMAINS });
     else if (bad) err.srvDoms = m.setup_dom_invalid({ domain: bad });
-    if (this.oaMode === 'manual' && !this.oaCid.trim()) err.oaCid = m.setup_cid_required();
+    if (this.oaMode === 'manual') {
+      // Like the backend, so a bad client ID or secret shows at its field and no test runs.
+      const cid = this.oaCid.trim();
+      if (!cid) err.oaCid = m.setup_cid_required();
+      else if (credBad(cid)) err.oaCid = m.server_cid_bad();
+      // The secret goes to the backend untrimmed when finishing.
+      if (this.oaSec && credBad(this.oaSec)) err.oaSec = m.server_secret_bad();
+    }
     if (this.oaMode === 'auto' && this.oaSt !== 'ok') err.oa = m.setup_oa_first();
     if (this.failWith(err, ['srv'])) return;
     // Client of the registration, the public address changed since then.

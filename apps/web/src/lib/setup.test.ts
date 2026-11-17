@@ -214,6 +214,31 @@ describe('Step 4: mail server', () => {
     expect(calls).toHaveLength(0);
   });
 
+  it('checks the manual client ID and secret like the backend before testing', async () => {
+    const { flow, h } = at(4);
+    const { calls } = mockApi({ 'POST setup/servers/test': [{ body: OK }] });
+    flow.srv = 'https://mail.example.com';
+    flow.setOaMode('manual');
+    flow.oaCid = 'roedy\u0001abc';
+    flow.oaSec = 'x'.repeat(1025);
+    await flow.submitServer();
+    expect(flow.err).toEqual({
+      oaCid: 'The client ID contains invalid characters or is too long.',
+      oaSec: 'The secret contains invalid characters or is too long.',
+    });
+    expect(h.fail).toHaveBeenLastCalledWith(undefined);
+    // The secret is checked as it is sent: a trailing line break counts.
+    flow.edit('oaCid', ' roedy-abc ');
+    flow.edit('oaSec', 'secret\n');
+    await flow.submitServer();
+    expect(flow.err).toEqual({ oaSec: 'The secret contains invalid characters or is too long.' });
+    expect(calls).toHaveLength(0);
+    flow.edit('oaSec', 'secret');
+    await flow.submitServer();
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toMatchObject({ client_id: 'roedy-abc', has_secret: true });
+  });
+
   it('registers the client automatically with the token in the header', async () => {
     const { flow, h } = at(4);
     const { calls } = mockApi({
@@ -563,7 +588,9 @@ describe('Step 4: mail server', () => {
     flow.oaCid = 'roedy-x1';
     flow.srv = 'https://mail.example.com';
     // Before the first test the general text.
-    expect(flow.srvBadText).toBe('No JMAP server responds at this URL. Check the URL, port, and firewall.');
+    expect(flow.srvBadText).toBe(
+      'No JMAP server responds at this URL. Check the base URL, port, and firewall. The path /.well-known/jmap must be reachable from outside.',
+    );
     await flow.submitServer();
     expect(flow.srvSt).toBe('err');
     expect(flow.srvBadText).toBe('The server responds but doesn’t offer JMAP for email.');
