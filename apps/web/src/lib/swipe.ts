@@ -774,6 +774,7 @@ export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> 
             }
             // The new view: from the left and smaller, the layer underneath fades out (`gPending`).
             const slideIn = () => {
+              animating = false;
               reset();
               if (!alive) return;
               if (o.animations && typeof el.animate === 'function') {
@@ -791,7 +792,10 @@ export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> 
               }
             };
             later(t, () => {
-              if (alive) void o.back().then(tick).finally(slideIn);
+              if (!alive) return;
+              // No new gesture until the new view is shown (navigation is asynchronous).
+              animating = true;
+              void o.back().then(tick).finally(slideIn);
             });
             return;
           }

@@ -631,6 +631,29 @@ describe('swipeBack', () => {
     expect(under.style.opacity).toBe('0');
   });
 
+  it('starts no new gesture until the new view is shown', async () => {
+    vi.useFakeTimers();
+    const { el, back } = page();
+    let shown = () => {};
+    back.mockImplementationOnce(() => new Promise<void>((done) => (shown = done)));
+    drag(el, 120);
+    vi.advanceTimersByTime(0);
+    expect(back).toHaveBeenCalledTimes(1);
+    pointer('pointerdown', 100, 300, el);
+    pointer('pointermove', 110, 300);
+    pointer('pointermove', 150, 300);
+    // The page stays flown out, the second swipe does not paint.
+    expect(el.style.opacity).toBe('0');
+    expect(el.style.scale).toBe('0.86');
+    pointer('pointerup', 150, 300);
+    window.dispatchEvent(new MouseEvent('click'));
+    shown();
+    await vi.waitFor(() => expect(el.style.opacity).toBe(''));
+    drag(el, 120);
+    vi.advanceTimersByTime(0);
+    expect(back).toHaveBeenCalledTimes(2);
+  });
+
   it('goes back on a fling before the threshold', () => {
     vi.useFakeTimers();
     const { el, back } = page();
