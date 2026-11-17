@@ -15,6 +15,7 @@ import { ago } from '#lib/ago.ts';
 import { ApiError, api, fieldsOf, isApiError, retryAfter } from '#lib/api.ts';
 import { copyText } from '#lib/clipboard.svelte.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
+import { credBad } from '#lib/credentials.ts';
 import { csp } from '#lib/csp.ts';
 import {
   adminRejected,
@@ -81,11 +82,6 @@ interface FormErrors {
   adm?: string | undefined;
   /** Client ID or secret with control characters or over 1024 bytes. */
   cred?: string | undefined;
-}
-
-/** Client ID and secret like the backend: no control characters, at most 1024 bytes. */
-function credBad(value: string): boolean {
-  return /\p{Cc}/u.test(value) || new TextEncoder().encode(value).length > 1024;
 }
 
 /** Registration of the OAuth client in the dialog. */

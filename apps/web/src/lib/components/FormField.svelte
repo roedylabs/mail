@@ -2,7 +2,8 @@
   Input field of the guest pages (setup, sign-in and invitation): label, icon
   on the left, error and hint below. The icon turns `--deep` on focus and
   `--errfg` on an error. Height and visibility of the hints come from the page
-  (`--f-ctl`, `--f-hint`).
+  (`--f-ctl`, `--f-hint`). `readonly` locks the field: background `--surface2`,
+  cursor `default`, icon `--mfg` and border `--bd` (the focus ring stays).
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
@@ -49,6 +50,7 @@
     input = $bindable(),
     trailing,
     children,
+    readonly = false,
     ...rest
   }: Props = $props();
 
@@ -61,12 +63,13 @@
     {label}
     {#if optional}<span class="opt">{optional}</span>{/if}
   </label>
-  <div class="ctl" class:bad={!!error} class:trail={!!trailing}>
+  <div class="ctl" class:bad={!!error} class:trail={!!trailing} class:locked={!!readonly}>
     <span class="icon"><Icon name={icon} /></span>
     <input
       {id}
       bind:this={input}
       {...rest}
+      {readonly}
       {value}
       oninput={(e) => oninput(e.currentTarget.value)}
       aria-invalid={error ? 'true' : 'false'}
@@ -124,6 +127,10 @@
     color: var(--errfg);
   }
 
+  .ctl.locked .icon {
+    color: var(--mfg);
+  }
+
   input {
     width: 100%;
     height: var(--f-ctl, 56px);
@@ -148,6 +155,12 @@
 
   .bad input {
     border-color: var(--err);
+  }
+
+  .locked input {
+    border-color: var(--bd);
+    background: var(--surface2);
+    cursor: default;
   }
 
   input:focus {

@@ -761,7 +761,7 @@
                   placeholder={m.setup_pub_placeholder()}
                   value={flow.pub}
                   oninput={(v: string) => flow.edit('pub', v)}
-                  error={flow.err.pub}
+                  error={flow.pubLocked ? null : flow.err.pub}
                   hint={flow.pubLocked ? m.setup_pub_locked() : m.setup_pub_hint()}
                   hintAlways={flow.pubLocked}
                 />

@@ -155,6 +155,12 @@ describe('Setup page', () => {
     const view = render(Page);
     await toServer();
 
+    // Preset by ROEDY_PUBLIC_URL: locked field with the lock icon.
+    const pub = view.getByLabelText('Public URL of Roedy Mail');
+    expect(pub).toHaveAttribute('readonly');
+    expect(pub.parentElement).toHaveClass('locked');
+    expect(pub.parentElement?.querySelector('.tabler-icon-lock')).not.toBeNull();
+
     // App password instead of password, with a hint below the field.
     const pw = view.getByLabelText('Administrator’s app password');
     expect(view.getByText('App password', { selector: 'label' })).toBeInTheDocument();
@@ -292,6 +298,7 @@ describe('Setup page', () => {
     // 4: mail server, manual client, test with warning, then OK
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Connect mail server');
     expect(view.getByLabelText('Public URL of Roedy Mail')).toHaveValue(location.origin);
+    expect(view.getByLabelText('Public URL of Roedy Mail').parentElement).not.toHaveClass('locked');
     await type('Public URL of Roedy Mail', 'https://webmail.example.com');
     expect(view.getByText('https://webmail.example.com/oauth/callback')).toBeInTheDocument();
     await type('Stalwart server URL', 'mail.example.com');
