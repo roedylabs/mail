@@ -333,6 +333,8 @@
 
   /** `mailto:` link in a message: compose with its account, back "Back to message". */
   function writeTo(href: string) {
+    // Not from the previous conversation shown while paging: `opened` may already be another account.
+    if (!rd) return;
     const init = parseMailto(href);
     if (!init) return;
     const ret = { href: page.url.pathname + page.url.search, label: m.compose_back_message() };
