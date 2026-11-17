@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { m } from '#lib/paraglide/messages.js';
 import type { Candidate, MailHit, SearchActions } from '#lib/search.ts';
 import type { SearchScope } from '#lib/search-filter.ts';
+import type { AppNotification } from '#lib/state/notifications.svelte.ts';
 import type { MailPage } from '#lib/state/search.svelte.ts';
 import { accounts, type MailAccount } from '#lib/state/accounts.svelte.ts';
 import { contacts } from '#lib/state/contacts.svelte.ts';
@@ -16,12 +17,16 @@ vi.mock('$app/navigation', () => ({ goto: vi.fn(() => Promise.resolve()) }));
 
 // Local scopes come from `search-items` (own tests).
 const local = vi.hoisted(() => ({ candidates: [] as Candidate[] }));
-// Notifications of the bell: none, without a fetch.
-vi.mock('#lib/state/notifications.svelte.ts', () => ({ notifications: { list: [], load: vi.fn() } }));
+// Notifications of the bell to control, without a fetch; `notifItems` is the real one.
+const bell = vi.hoisted(() => ({
+  list: [] as AppNotification[] | null,
+  load: vi.fn(() => Promise.resolve()),
+}));
+vi.mock('#lib/state/notifications.svelte.ts', () => ({ notifications: bell }));
 
-vi.mock('#lib/search-items.ts', () => ({
+vi.mock('#lib/search-items.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('#lib/search-items.ts')>()),
   searchCandidates: () => local.candidates,
-  notifItems: () => [],
   hitBox: () => ({ label: 'Inbox', role: 'inbox', target: { role: 'inbox' } }),
 }));
 
@@ -100,6 +105,21 @@ function hit(id: string, subject: string): MailHit {
   };
 }
 
+function notif(id: string, title: string, over: Partial<AppNotification> = {}): AppNotification {
+  return {
+    id,
+    topic: 'account',
+    kind: 'account.quota',
+    icon: 'ti-database',
+    title,
+    text: 'a1@example.com uses 92 % of its storage',
+    target: null,
+    created_at: new Date().toISOString(),
+    read_at: null,
+    ...over,
+  };
+}
+
 const answer = (hits: MailHit[], total = hits.length) =>
   server.page.mockResolvedValue({ hits, positions: hits.length, total });
 
@@ -121,6 +141,8 @@ beforeEach(() => {
   vi.spyOn(contacts, 'ensure').mockResolvedValue();
   search.actions = {} as SearchActions;
   local.candidates = [];
+  bell.list = [];
+  bell.load.mockClear();
   answer([]);
   input = document.createElement('input');
   document.body.append(input);
@@ -364,6 +386,57 @@ describe('search suggestions', () => {
     expect(within(row).getByText('Ctrl K')).toHaveClass('key');
     expect(row.querySelector('.sub')).toBeNull();
     expect(row).not.toHaveTextContent('Keyboard shortcuts');
+  });
+
+  it('loads the notifications when the bell has no list yet', async () => {
+    bell.list = null;
+    search.q = 'storage';
+    show();
+    await tick();
+    expect(bell.load).toHaveBeenCalledOnce();
+  });
+
+  it('lists the notifications of the bell via type: and closes after a hit', async () => {
+    const go = vi.fn();
+    search.actions = { go } as unknown as SearchActions;
+    bell.list = [
+      notif('n1', 'Storage almost full'),
+      notif('n2', 'New sign-in', {
+        icon: 'ti-login',
+        text: 'Firefox on Linux',
+        target: { view: 'settings', page: 'security', path: '/account/security' },
+        // A minute older: below the newer entry with the same score.
+        created_at: new Date(Date.now() - 60_000).toISOString(),
+        read_at: new Date().toISOString(),
+      }),
+    ];
+    search.q = 'type:notifications';
+    const view = show();
+    const group = await view.findByRole('group', { name: 'Notifications' });
+    const rows = within(group).getAllByRole('option');
+    expect(rows).toHaveLength(2);
+    const [full, signIn] = rows as [HTMLElement, HTMLElement];
+    expect(full).toHaveTextContent('Storage almost full');
+    expect(full).toHaveTextContent('a1@example.com uses 92 % of its storage');
+    expect(full.querySelector('.side')?.textContent).not.toBe('');
+    expect(full.querySelector<HTMLElement>('.label')?.style.fontWeight).toBe('800');
+    expect(signIn.querySelector<HTMLElement>('.label')?.style.fontWeight).toBe('700');
+
+    await fireEvent.click(signIn);
+    expect(go).toHaveBeenCalledWith('/account/security');
+    expect(search.q).toBe('');
+  });
+
+  it('a notification without a target only closes the search', async () => {
+    const go = vi.fn();
+    search.actions = { go } as unknown as SearchActions;
+    bell.list = [notif('n1', 'Storage almost full')];
+    search.q = 'storage';
+    const view = show();
+    const group = await view.findByRole('group', { name: 'Notifications' });
+    await fireEvent.click(within(group).getByRole('option'));
+    expect(go).not.toHaveBeenCalled();
+    expect(search.q).toBe('');
   });
 
   it('shows the empty state without hits with and without search text', async () => {
