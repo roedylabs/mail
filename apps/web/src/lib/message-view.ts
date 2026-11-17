@@ -335,9 +335,11 @@ export interface ReadValues {
   canTag: boolean;
   tg: ReadMenuButton;
   tgOpts: ReadTagOption[];
+  /** "Move": not in drafts and Scheduled (in folder and tag views per the shown email's mailbox). */
   canMove: boolean;
   mv: ReadMenuButton;
   mvOpts: ReadMoveOption[];
+  /** "Report spam": not in sent, drafts, Scheduled and trash (in folder and tag views per the shown email's mailbox). */
   canSpam: boolean;
   spamIcon: 'ti-shield-check' | 'ti-alert-octagon';
   spamTip: string;
@@ -710,6 +712,12 @@ export function readValues(input: ReadInput): ReadValues {
   const rmIn = (box: string | null) => !!box && rm.mailboxIds.includes(box);
   const sched = scheduled || rmIn(roles.scheduled);
   const canReply = !(drafts || sched || isTrash || rmIn(roles.drafts));
+  // "Move" and "Report spam" by the view's role; in folder and tag views, which do not
+  // name the mailbox, per the mailbox of the shown email (like `outboxOf` in the list).
+  const perBox = !('role' in kind);
+  const boxIn = (box: string | null) => perBox && rmIn(box);
+  const noMove = drafts || scheduled || boxIn(roles.drafts) || boxIn(roles.scheduled);
+  const noSpam = isOutbox(kind) || isTrash || noMove || boxIn(roles.sent) || boxIn(roles.trash);
   // "Reply all" if there is someone besides the sender and the own account; for own
   // emails the reply goes to the recipients, so "all" only from two (`replyContext`).
   const shown = msgs.find((x) => x.key === rm.id);
@@ -768,10 +776,10 @@ export function readValues(input: ReadInput): ReadValues {
     canTag: !isTrash,
     tg: menuButton(input.menu === 'tag'),
     tgOpts: tagOptions(input.tagTree, tagged),
-    canMove: !drafts && !scheduled,
+    canMove: !noMove,
     mv: menuButton(input.menu === 'move'),
     mvOpts: moveOptions(input.move, { base: 12, step: 16 }),
-    canSpam: !isOutbox(kind) && !isTrash,
+    canSpam: !noSpam,
     spamIcon: inSpam ? 'ti-shield-check' : 'ti-alert-octagon',
     spamTip: inSpam ? m.read_not_spam() : m.read_spam(),
     thIcon: mDark ? 'ti-sun' : 'ti-moon',

@@ -307,6 +307,44 @@ describe('readValues', () => {
       spamTip: 'Not spam',
     });
     expect(readValues(input({ kind: { role: 'sent' } })).canSpam).toBe(false);
+    expect(readValues(input({ kind: { role: 'scheduled' } }))).toMatchObject({ canMove: false, canSpam: false });
+    expect(readValues(input({ kind: { role: 'sent' } })).canMove).toBe(true);
+    expect(readValues(input({ kind: { role: 'trash' } })).canMove).toBe(true);
+    expect(readValues(input({ kind: { role: 'spam' } }))).toMatchObject({ canMove: true, canSpam: true });
+    expect(readValues(input({ kind: { folder: true } }))).toMatchObject({ canMove: true, canSpam: true });
+    // In a tag view "Move" and "Report spam" per the mailbox of the shown email.
+    const inTag = (box: string) =>
+      readValues(input({ kind: { tag: true }, emails: [email('e1', { mailboxIds: [box, 'tag1'] })] }));
+    expect(inTag('sent')).toMatchObject({ canMove: true, canSpam: false });
+    expect(inTag('drafts')).toMatchObject({ canMove: false, canSpam: false });
+    expect(inTag('sched')).toMatchObject({ canMove: false, canSpam: false });
+    expect(inTag('trash')).toMatchObject({ canMove: true, canSpam: false });
+    expect(inTag('in')).toMatchObject({ canMove: true, canSpam: true });
+    // Mailbox views go by their role only, even if the email is also in another role mailbox.
+    for (const box of ['sent', 'drafts', 'sched']) {
+      const inInbox = readValues(input({ emails: [email('e1', { mailboxIds: ['in', box] })] }));
+      expect(inInbox).toMatchObject({ canMove: true, canSpam: true });
+    }
+    // The representing email counts, not others of the conversation.
+    expect(
+      readValues(
+        input({
+          kind: { tag: true },
+          repId: 'e2',
+          emails: [email('e1', { mailboxIds: ['sent', 'tag1'] }), email('e2', { mailboxIds: ['in', 'tag1'] })],
+        }),
+      ),
+    ).toMatchObject({ canMove: true, canSpam: true });
+    // A representing email in the trash stays shown and gets no "Report spam".
+    expect(
+      readValues(
+        input({
+          kind: { tag: true },
+          repId: 'e1',
+          emails: [email('e1', { mailboxIds: ['trash', 'tag1'] }), email('e2', { mailboxIds: ['in', 'tag1'] })],
+        }),
+      ),
+    ).toMatchObject({ id: 'e1', canMove: true, canSpam: false });
     expect(readValues(input())).toMatchObject({
       sched: false,
       canUnread: true,
