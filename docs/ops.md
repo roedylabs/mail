@@ -131,7 +131,7 @@ server {
 
 ## Configuration
 
-All settings come from environment variables, with Compose from the `.env` file next to `compose.yml`. Empty values count as unset, unknown `ROEDY_*` variables are ignored, invalid values prevent the start with a line `error: …` that names the variable (such as `error: Invalid configuration – ROEDY_LISTEN: …`). Everything else is configured by administrators in the app ([`administration.md`](setup/administration.md)).
+All settings come from environment variables, with Compose from the `.env` file next to `compose.yml`. Values are read as text without surrounding whitespace, so a key or path made only of digits works as well. Empty values count as unset, unknown `ROEDY_*` variables are ignored, invalid values prevent the start with a line `error: …` that names the variable (such as `error: Invalid configuration – ROEDY_LISTEN: …`). Everything else is configured by administrators in the app ([`administration.md`](setup/administration.md)).
 
 | Variable | Default | Meaning |
 |---|---|---|
