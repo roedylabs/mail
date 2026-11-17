@@ -8,6 +8,9 @@
   - **Download** is a link with `download`: the browser does the download,
     the session is in the cookie. On mobile the row has no download button,
     "Restore" is an icon there.
+  - **Restore** only in maintenance mode: until then it is locked (on the
+    desktop with a tooltip), and a notice above the list offers to turn
+    maintenance mode on.
   - The tile, button, switch and schedule styles are classes derived from
     `on` and the busy state of the respective button.
 -->
@@ -196,6 +199,24 @@
       {/if}
 
       <div class="box next">
+        {#if v.bkMaint}
+          <div class="bk-maint">
+            <div class="bk-maint-main">
+              <span class="tile"><Icon name="ti-tool" /></span>
+              <span class="item-text">
+                <span class="item-title">{m.maintenance_bk_maint_title()}</span>
+                <span class="item-sub bk-maint-desc">{m.maintenance_bk_maint_desc()}</span>
+              </span>
+              {#if !isMobile}
+                <button type="button" class="restore" onclick={v.bkMaintOn}>{m.maintenance_bk_maint_on()}</button>
+              {/if}
+            </div>
+            {#if isMobile}
+              <button type="button" class="bk-maint-on" onclick={v.bkMaintOn}>{m.maintenance_bk_maint_on()}</button>
+            {/if}
+          </div>
+          <div class="sep"></div>
+        {/if}
         {#each v.bkRows as b (b.id)}
           <div>
             {#if b.sep}<div class="sep"></div>{/if}
@@ -206,8 +227,13 @@
                 <span class="item-sub">{b.sub}</span>
               </span>
               {#if isMobile}
-                <button type="button" class="icon-btn" aria-label={m.maintenance_bk_restore()} onclick={b.onRestore}
-                  ><Icon name="ti-history" /></button
+                <button
+                  type="button"
+                  class="icon-btn"
+                  class:locked={b.rs.dis}
+                  aria-label={m.maintenance_bk_restore()}
+                  aria-disabled={b.rs.dis}
+                  onclick={b.onRestore}><Icon name="ti-history" /></button
                 >
               {:else}
                 <!-- eslint-disable svelte/no-navigation-without-resolve -- API path, not a route of the app -->
@@ -220,7 +246,14 @@
                   onclick={b.onDownload}><Icon name="ti-download" /></a
                 >
                 <!-- eslint-enable svelte/no-navigation-without-resolve -->
-                <button type="button" class="restore" onclick={b.onRestore}>{m.maintenance_bk_restore()}</button>
+                <button
+                  type="button"
+                  class="restore"
+                  class:locked={b.rs.dis}
+                  aria-disabled={b.rs.dis}
+                  use:tooltip={b.rs.tip}
+                  onclick={b.onRestore}>{m.maintenance_bk_restore()}</button
+                >
               {/if}
               <button
                 type="button"
@@ -830,11 +863,70 @@
     font-size: 13.5px;
     font-weight: 700;
     white-space: nowrap;
-    transition: transform var(--dur, 220ms) cubic-bezier(0.3, 1.5, 0.5, 1);
+    transition:
+      transform var(--dur, 220ms) cubic-bezier(0.3, 1.5, 0.5, 1),
+      opacity var(--dur, 220ms);
   }
 
   .restore:hover {
     transform: translateY(-2px);
+  }
+
+  /* "Restore" outside maintenance mode: dimmed, without hover; on mobile not even tappable */
+  .restore.locked {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .restore.locked:hover {
+    transform: none;
+  }
+
+  .mobile .icon-btn.locked {
+    opacity: 0.5;
+    pointer-events: none;
+  }
+
+  /* Notice above the list: restore only in maintenance mode */
+  .bk-maint-main {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 10px;
+  }
+
+  .bk-maint-desc {
+    text-wrap: pretty;
+  }
+
+  .mobile .bk-maint {
+    padding: 8px 10px 12px;
+  }
+
+  .mobile .bk-maint-main {
+    gap: 12px;
+    padding: 0;
+  }
+
+  .mobile .bk-maint-desc {
+    line-height: 1.5;
+    text-wrap: wrap;
+  }
+
+  .bk-maint-on {
+    width: 100%;
+    margin-top: 12px;
+    height: 46px;
+    border-radius: 9999px;
+    background: var(--surface);
+    box-shadow: var(--sh1);
+    font-size: 15px;
+    font-weight: 700;
+    white-space: nowrap;
+  }
+
+  .bk-maint-on:active {
+    transform: scale(0.98);
   }
 
   .empty {

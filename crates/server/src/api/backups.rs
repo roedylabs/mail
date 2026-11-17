@@ -4,7 +4,8 @@
 //! - `POST admin/backups`: "Back up now".
 //! - `PUT admin/backups/schedule`: changes the given fields.
 //! - `GET admin/backups/:id/download`: the file.
-//! - `POST admin/backups/:id/restore`: resets all data. The page asks for
+//! - `POST admin/backups/:id/restore`: resets all data, only in maintenance
+//!   mode (otherwise 409 `maintenance_required`). The page asks for
 //!   confirmation (`Sicherung wiederherstellen?`).
 //! - `DELETE admin/backups/:id`.
 //!
@@ -260,6 +261,11 @@ fn refused(error: anyhow::Error) -> ApiError {
 /// Resets all data. Runs to the end, even if the request is aborted before.
 /// The own session stays if the user exists in the backup's state; otherwise
 /// the next request leads to the sign-in.
+///
+/// Only in maintenance mode, so that nobody changes data while it is being
+/// reset; otherwise 409 `maintenance_required` (the page shows the switch as
+/// off). Like every refused restore, this changes nothing and writes no audit
+/// entry.
 async fn restore(
     State(state): State<AppState>,
     AdminUser(user): AdminUser,
@@ -268,6 +274,12 @@ async fn restore(
 ) -> Result<Json<View>, ApiError> {
     let guard = state.backups.try_begin().ok_or_else(running)?;
     let backup = find(&state, id).await?;
+    if !state.maintenance.is_on() {
+        return Err(ApiError::rejected(
+            StatusCode::CONFLICT,
+            "maintenance_required",
+        ));
+    }
     let entry = audit_entry(Category::System, "backups.restore", &user, ip)
         .details(json!({ "at": backup.at.to_string() }));
     let worker = state.clone();

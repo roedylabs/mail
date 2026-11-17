@@ -31,6 +31,7 @@ const HOUR = 3600_000;
 const LEAD = 'Maintenance mode, backups, and storage.';
 const DEFAULT = m.login_maint_default();
 const MODE: MaintenanceMode = { on: false, message: null };
+const ON: MaintenanceMode = { on: true, message: null };
 const STORAGE: StorageView = { database: 148 * MB, assets: 0, asset_name: null, compacted_at: null };
 
 function backup(patch: Partial<Backup> = {}): Backup {
@@ -234,7 +235,8 @@ describe('Administration › Maintenance page', () => {
   });
 
   it('shows the backups with link, restore and delete', async () => {
-    const view = await loaded();
+    const view = await loaded({ 'GET admin/maintenance': [{ body: ON }] });
+    expect(section('Backups').querySelector('.bk-maint')).toBeNull();
     const rows = () => [...section('Backups').querySelectorAll<HTMLElement>('.bk-row')];
     const [first, second] = rows() as [HTMLElement, HTMLElement];
     expect(rows()).toHaveLength(2);
@@ -267,6 +269,44 @@ describe('Administration › Maintenance page', () => {
     expect(rows()).toHaveLength(1);
     expect(ui.toast?.text).toBe('Backup deleted');
     expect(written(view.calls, 'DELETE')).toEqual([]);
+  });
+
+  it('locks "Restore" outside maintenance mode and offers to turn it on above the list', async () => {
+    const view = await loaded({ 'PUT admin/maintenance': [{ body: ON }] });
+    const list = section('Backups');
+    const notice = list.querySelector('.bk-maint') as HTMLElement;
+    expect(notice.nextElementSibling).toHaveClass('sep');
+    expect(notice.parentElement?.firstElementChild).toBe(notice);
+    expect(notice.querySelector('svg')).toHaveClass('tabler-icon-tool');
+    expect(notice).toHaveTextContent('Restore only in maintenance mode');
+    expect(notice).toHaveTextContent('That way nobody changes data while it’s being reset.');
+
+    for (const restore of within(list).getAllByRole('button', { name: 'Restore' })) {
+      expect(restore).toHaveAttribute('aria-disabled', 'true');
+      expect(restore).toHaveClass('restore', 'locked');
+      expect(tooltips.targets.get(restore)?.text).toBe('Only possible in maintenance mode');
+    }
+    await fireEvent.click(within(list).getAllByRole('button', { name: 'Restore' })[0] as HTMLElement);
+    expect(ui.confirm).toBeNull();
+
+    const on = within(notice).getByRole('button', { name: 'Turn on maintenance mode' });
+    expect(on).toHaveClass('restore');
+    await fireEvent.click(on);
+    expect(ui.confirm?.title).toBe('Turn on maintenance mode?');
+    ui.confirm?.run();
+    await vi.waitFor(() => expect(list.querySelector('.bk-maint')).toBeNull());
+    expect(written(view.calls, 'PUT')).toEqual([{ on: true }]);
+    const restore = within(list).getAllByRole('button', { name: 'Restore' })[0] as HTMLElement;
+    expect(restore).toHaveAttribute('aria-disabled', 'false');
+    expect(restore).not.toHaveClass('locked');
+    expect(tooltips.targets.get(restore)?.text).toBeUndefined();
+    await fireEvent.click(restore);
+    expect(ui.confirm?.title).toBe('Restore backup?');
+  });
+
+  it('shows no notice without backups', async () => {
+    await loaded({ 'GET admin/backups': [{ body: backups({ backups: [] }) }] });
+    expect(section('Backups').querySelector('.bk-maint')).toBeNull();
   });
 
   it('shows the empty text without backups and names no date without a schedule', async () => {
@@ -408,6 +448,15 @@ describe('Administration › Maintenance page', () => {
     const restore = row.getByRole('button', { name: 'Restore' });
     expect(restore).toHaveClass('icon-btn');
     expect(restore.querySelector('svg')).toHaveClass('tabler-icon-history');
+    // Outside maintenance mode: locked, without a tooltip, the notice with the full-width button.
+    expect(restore).toHaveAttribute('aria-disabled', 'true');
+    expect(restore).toHaveClass('locked');
+    expect(tooltips.targets.get(restore)?.text).toBeUndefined();
+    const notice = list.querySelector('.bk-maint') as HTMLElement;
+    expect(notice).toHaveTextContent('Restore only in maintenance mode');
+    const on = within(notice).getByRole('button', { name: 'Turn on maintenance mode' });
+    expect(on).toHaveClass('bk-maint-on');
+    expect(on.parentElement).toBe(notice);
     expect(tooltips.targets.get(row.getByRole('button', { name: 'Delete' }))?.text).toBeUndefined();
     expect(within(list).queryByText('Interval between backups')).toBeNull();
     expect(within(list).getByText('Older backups are deleted')).toBeInTheDocument();

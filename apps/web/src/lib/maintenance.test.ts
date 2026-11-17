@@ -34,6 +34,8 @@ function view(over: Partial<BackupsView> = {}): BackupsView {
   return { backups: [NEW, OLD], auto: true, every: 'daily', keep: 30, next_at: '2026-11-07T09:00:00Z', ...over };
 }
 const MODE: MaintenanceMode = { on: false, message: null };
+/** Maintenance mode on: only then does "Restore" work. */
+const ON: MaintenanceMode = { on: true, message: null };
 const STORAGE: StorageView = {
   database: 148 * MB,
   assets: 0,
@@ -58,6 +60,11 @@ async function loaded(extra: Parameters<typeof mockApi>[0] = {}) {
   const p = new MaintenancePage();
   await p.load();
   return { api, p, v: () => maintenanceValues(p, INPUT, CTX) };
+}
+
+/** Loaded in maintenance mode, so that "Restore" is free. */
+function restorable(extra: Parameters<typeof mockApi>[0] = {}) {
+  return loaded({ 'GET admin/maintenance': [{ body: ON }], ...extra });
 }
 
 function written(api: ReturnType<typeof mockApi>, method = 'PUT') {
@@ -424,7 +431,7 @@ describe('backups', () => {
   });
 
   it('always asks before restoring, with the word', async () => {
-    const { api, v } = await loaded();
+    const { api, v } = await restorable();
     prefs.values.gConfirm = false;
     v().bkRows[1]?.onRestore();
     expect(ui.confirm).toMatchObject({
@@ -440,7 +447,7 @@ describe('backups', () => {
   });
 
   it('reports when the restore fails because of a run', async () => {
-    const { v } = await loaded({
+    const { v } = await restorable({
       'POST admin/backups/b1/restore': [{ status: 409, body: { error: 'backup_running' } }],
       'GET admin/backups': [{ body: view() }, { body: view() }],
     });
@@ -454,7 +461,7 @@ describe('backups', () => {
   });
 
   it('reports when the restore hits the running button', async () => {
-    const { api, v } = await loaded({ 'POST admin/backups': [() => new Promise(() => {})] });
+    const { api, v } = await restorable({ 'POST admin/backups': [() => new Promise(() => {})] });
     v().bkNow();
     await vi.advanceTimersByTimeAsync(0);
     v().bkRows[1]?.onRestore();
@@ -465,7 +472,7 @@ describe('backups', () => {
   });
 
   it('reports a second restore during a running one with the generic text', async () => {
-    const { api, v } = await loaded({ 'POST admin/backups/b1/restore': [() => new Promise(() => {})] });
+    const { api, v } = await restorable({ 'POST admin/backups/b1/restore': [() => new Promise(() => {})] });
     v().bkRows[1]?.onRestore();
     ui.confirm?.run();
     await vi.advanceTimersByTimeAsync(0);
@@ -478,7 +485,7 @@ describe('backups', () => {
   });
 
   it('reports a restore while a foreign backup is running (backup_running) with the running text', async () => {
-    const { v } = await loaded({
+    const { v } = await restorable({
       'POST admin/backups': [{ status: 409, body: { error: 'backup_running' } }],
       'GET admin/backups': [{ body: view() }, { body: view() }],
     });
@@ -492,7 +499,7 @@ describe('backups', () => {
   });
 
   it('removes a row whose file is missing on restore', async () => {
-    const { v } = await loaded({
+    const { v } = await restorable({
       'POST admin/backups/b1/restore': [{ status: 404, body: { error: 'not_found' } }],
       'GET admin/backups': [{ body: view() }, { body: view({ backups: [NEW] }) }],
     });
@@ -504,7 +511,7 @@ describe('backups', () => {
   });
 
   it('does not reload the page after the restore if the role is missing', async () => {
-    const { api, v } = await loaded({ 'POST admin/backups/b1/restore': [{ body: view() }] });
+    const { api, v } = await restorable({ 'POST admin/backups/b1/restore': [{ body: view() }] });
     vi.spyOn(session, 'load').mockResolvedValue();
     vi.spyOn(session, 'authed', 'get').mockReturnValue(true);
     vi.spyOn(session, 'isAdmin', 'get').mockReturnValue(false);
@@ -533,9 +540,9 @@ describe('backups', () => {
 
   it('reloads everything after the restore', async () => {
     const restored = view({ backups: [OLD] });
-    const { v } = await loaded({
+    const { v } = await restorable({
       'POST admin/backups/b1/restore': [{ body: restored }],
-      'GET admin/maintenance': [{ body: MODE }, { body: { on: true, message: 'Alt' } }],
+      'GET admin/maintenance': [{ body: ON }, { body: { on: true, message: 'Alt' } }],
       'GET admin/backups': [{ body: view() }, { body: restored }],
       'GET admin/storage': [{ body: STORAGE }, { body: { ...STORAGE, database: 90 * MB } }],
     });
@@ -559,7 +566,7 @@ describe('backups', () => {
   });
 
   it('loads nothing more after the restore if the session ended', async () => {
-    const { api, v } = await loaded({ 'POST admin/backups/b1/restore': [{ body: view() }] });
+    const { api, v } = await restorable({ 'POST admin/backups/b1/restore': [{ body: view() }] });
     vi.spyOn(session, 'load').mockResolvedValue();
     vi.spyOn(session, 'authed', 'get').mockReturnValue(false);
     const pref = vi.spyOn(prefs, 'load').mockResolvedValue();
@@ -582,7 +589,7 @@ describe('backups', () => {
     ],
     [500, 'internal', 'That didn’t work. Please try again.'],
   ])('reports %i %s on restore with its own text', async (status, code, text) => {
-    const { api, v } = await loaded({ 'POST admin/backups/b1/restore': [{ status, body: { error: code } }] });
+    const { api, v } = await restorable({ 'POST admin/backups/b1/restore': [{ status, body: { error: code } }] });
     const before = api.calls.length;
     v().bkRows[1]?.onRestore();
     ui.confirm?.run();
@@ -593,8 +600,62 @@ describe('backups', () => {
     expect(api.calls).toHaveLength(before + 1);
   });
 
+  it('locks "Restore" outside maintenance mode and offers to turn it on above the list', async () => {
+    const { api, p, v } = await loaded({ 'PUT admin/maintenance': [{ body: ON }] });
+    expect(v().bkRows.map((r) => r.rs)).toEqual([
+      { dis: true, tip: 'Only possible in maintenance mode' },
+      { dis: true, tip: 'Only possible in maintenance mode' },
+    ]);
+    expect(v().bkMaint).toBe(true);
+    v().bkRows[1]?.onRestore();
+    expect(ui.confirm).toBeNull();
+    // The notice opens the switch's confirmation.
+    v().bkMaintOn();
+    expect(ui.confirm).toMatchObject({ title: m.maintenance_on_title(), ok: m.maintenance_on_ok() });
+    ui.confirm?.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(p.on).toBe(true);
+    expect(written(api)).toMatchObject([{ path: 'admin/maintenance', body: { on: true } }]);
+    expect(v().bkMaint).toBe(false);
+    expect(v().bkRows.map((r) => r.rs)).toEqual([
+      { dis: false, tip: undefined },
+      { dis: false, tip: undefined },
+    ]);
+    v().bkRows[1]?.onRestore();
+    expect(ui.confirm?.title).toBe(m.maintenance_bk_restore_title());
+    expect(written(api, 'POST')).toHaveLength(0);
+  });
+
+  it('shows no notice without backups', async () => {
+    const { v } = await loaded({ 'GET admin/backups': [{ body: view({ backups: [] }) }] });
+    expect(v().bkMaint).toBe(false);
+  });
+
+  it('shows the switch as off again on maintenance_required', async () => {
+    const { api, p, v } = await restorable({
+      'POST admin/backups/b1/restore': [{ status: 409, body: { error: 'maintenance_required' } }],
+    });
+    session.config = { maintenance: { on: true, message: null } } as PublicConfig;
+    const before = api.calls.length;
+    v().bkRows[1]?.onRestore();
+    ui.confirm?.run();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(ui.toast).toMatchObject({
+      text: 'Maintenance mode is no longer on. Turn it back on to restore the backup.',
+      error: true,
+    });
+    expect(p.on).toBe(false);
+    expect(v().maintStatus).toBe(m.maintenance_status_off());
+    expect(session.config?.maintenance.on).toBe(false);
+    expect(v().bkMaint).toBe(true);
+    expect(v().bkRows[1]?.rs.dis).toBe(true);
+    expect(v().bkB.busy).toBe(false);
+    // No reload after a failed restore.
+    expect(api.calls).toHaveLength(before + 1);
+  });
+
   it('reports a restore without a connection with the offline text', async () => {
-    const { v } = await loaded();
+    const { v } = await restorable();
     vi.stubGlobal(
       'fetch',
       vi.fn(() => Promise.reject(new TypeError('offline'))),
@@ -606,7 +667,7 @@ describe('backups', () => {
   });
 
   it('sends waiting changes before the restore', async () => {
-    const { api, v } = await loaded({
+    const { api, v } = await restorable({
       'PUT admin/backups/schedule': [{ body: view({ keep: 7 }) }],
       'POST admin/backups/b1/restore': [{ status: 500, body: { error: 'internal' } }],
     });

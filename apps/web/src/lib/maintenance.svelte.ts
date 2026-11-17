@@ -18,9 +18,15 @@
  * the offline text; `backup_running` shows the running button there without
  * a toast and checks again after `BK_RUNNING_WAIT`. Restore and delete report
  * a text per reason (`backup_running`, `backup_invalid`, `backup_newer`,
- * `backup_older`, `backup_other_key`), otherwise the generic one. After a restore everything
- * is different: configuration, account, settings and mail accounts reload,
- * and without a session the layout shows the sign-in.
+ * `backup_older`, `backup_other_key`, `maintenance_required`), otherwise the
+ * generic one. After a restore everything is different: configuration,
+ * account, settings and mail accounts reload, and without a session the
+ * layout shows the sign-in.
+ *
+ * Restoring only works in maintenance mode: until then "Restore" is locked
+ * and a notice above the list offers to turn it on. If the server answers
+ * `maintenance_required` (turned off elsewhere in the meantime), the switch
+ * follows the server.
  */
 import { SvelteSet } from 'svelte/reactivity';
 import { api, API_BASE, ApiError, isApiError, retryAfter } from '#lib/api.ts';
@@ -138,6 +144,7 @@ const BK_ERRORS: readonly [number, string, () => string][] = [
   [409, 'backup_newer', m.maintenance_bk_newer],
   [422, 'backup_older', m.maintenance_bk_older],
   [409, 'backup_other_key', m.maintenance_bk_other_key],
+  [409, 'maintenance_required', m.maintenance_bk_maint_required],
 ];
 
 /** Text of the error toast for restore and delete. */
@@ -398,6 +405,8 @@ export class MaintenancePage {
       }
       checkAccess(error);
       ui.toasts.error(failed(error));
+      // Turned off elsewhere in the meantime: the page shows the server's state.
+      if (isApiError(error, 409, 'maintenance_required')) this.#adoptMode({ on: false, message: null });
       // The file is gone, e.g. due to retention: the row should not stay.
       if (isApiError(error, 404)) await this.#refreshBackups();
     }
@@ -436,8 +445,9 @@ export class MaintenancePage {
     );
   }
 
-  /** "Restore": always with confirmation and word, even if confirmations are turned off. */
+  /** "Restore": always with confirmation and word, even if confirmations are turned off; only in maintenance mode. */
   restore(id: string, title: string): void {
+    if (!this.on) return;
     ui.ask({
       force: true,
       title: m.maintenance_bk_restore_title(),
@@ -544,6 +554,8 @@ export interface BkRow {
   /** Download link. */
   href: string;
   onDownload: () => void;
+  /** "Restore" locked (outside maintenance mode) with the tooltip on the desktop. */
+  rs: { dis: boolean; tip: string | undefined };
   onRestore: () => void;
   onRemove: () => void;
 }
@@ -582,6 +594,10 @@ export interface MaintenanceValues {
   bkNow: () => void;
   bkRows: BkRow[];
   bkEmpty: boolean;
+  /** Notice above the list: maintenance mode off and at least one backup. */
+  bkMaint: boolean;
+  /** "Turn on maintenance mode" of the notice: the switch's confirmation. */
+  bkMaintOn: () => void;
   tgBkAuto: MtSwitch;
   bkEveryOpts: SegOption<BkEvery>[];
   bkKeepOpts: BkKeepOption[];
@@ -618,6 +634,7 @@ export function maintenanceValues(
   const storage = p.storage;
   const last = list.reduce((a, b) => Math.max(a, Date.parse(b.at)), 0);
   const logo = (storage?.assets ?? 0) > 0;
+  const rsDis = !p.on;
 
   return {
     skSet: p.status === 'loading' && p.loading.slow,
@@ -655,11 +672,16 @@ export function maintenanceValues(
         icon: b.auto ? 'ti-clock' : 'ti-hand-click',
         href: `${API_BASE}/${BACKUPS}/${b.id}/download`,
         onDownload: () => ui.toasts.show(m.maintenance_bk_download()),
+        rs: { dis: rsDis, tip: rsDis ? m.maintenance_bk_maint_tip() : undefined },
         onRestore: () => p.restore(b.id, title),
         onRemove: () => p.remove(b.id),
       };
     }),
     bkEmpty: list.length === 0,
+    bkMaint: !p.on && list.length > 0,
+    bkMaintOn: () => {
+      if (!p.on) p.toggle();
+    },
     tgBkAuto: { on: s.auto, onClick: () => p.setSchedule({ auto: !s.auto }) },
     bkEveryOpts: segOptions(
       BK_EVERY_OPTS,
