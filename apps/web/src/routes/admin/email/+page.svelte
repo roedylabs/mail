@@ -11,6 +11,7 @@
   switch styles are classes derived from `v.mSt.key`, `busy`, `on` and `open`.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -118,7 +119,14 @@
       <span class="chev"><Icon name="ti-chevron-down" /></span>
     </button>
     {#if s.open}
-      <div role="listbox" id={ids.list} aria-label={s.title} class="pick-pop no-scrollbar" use:pickPop>
+      <div
+        role="listbox"
+        id={ids.list}
+        aria-label={s.title}
+        class="pick-pop no-scrollbar"
+        use:pickPop
+        {@attach scrollbar}
+      >
         {#each s.opts as o, i (i)}
           <button
             type="button"

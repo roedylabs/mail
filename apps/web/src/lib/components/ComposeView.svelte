@@ -17,6 +17,7 @@
   (`cm.drag`, `cm.onDrag*`, `cm.onDrop` with a drag counter).
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { tick } from 'svelte';
   import { autofocus } from '#lib/actions/autofocus.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -441,7 +442,7 @@
         >
       </div>
     </div>
-    <div class="scroll no-scrollbar">
+    <div class="scroll no-scrollbar" {@attach scrollbar}>
       <div class="wrap">
         <h1>{cm.title}</h1>
         <div class="card">

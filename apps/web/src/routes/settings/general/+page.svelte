@@ -11,6 +11,7 @@
   `on`, `hi`, `busy`, `locked` and `dim`.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
@@ -155,7 +156,14 @@
       <span class="chev"><Icon name="ti-chevron-down" /></span>
     </button>
     {#if s.open}
-      <div role="listbox" id={ids.list} aria-label={s.title} class="pick-pop no-scrollbar" use:pickPop>
+      <div
+        role="listbox"
+        id={ids.list}
+        aria-label={s.title}
+        class="pick-pop no-scrollbar"
+        use:pickPop
+        {@attach scrollbar}
+      >
         {#each s.opts as o, i (o.label)}
           <button
             type="button"

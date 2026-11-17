@@ -8,6 +8,7 @@
   invitation, with graphic from 1000 px width.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -84,7 +85,7 @@
   </button>
 {/snippet}
 
-<div bind:clientWidth={width} use:parallax={showArt} class="confirm-page">
+<div bind:clientWidth={width} use:parallax={showArt} class="confirm-page no-scrollbar" {@attach scrollbar}>
   {#if showArt}<InviteArt mail={artIcon} />{/if}
 
   <div class="column">

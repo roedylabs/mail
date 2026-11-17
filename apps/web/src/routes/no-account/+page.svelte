@@ -5,6 +5,7 @@
   own without tab bar.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import EmptyArt from '#lib/components/EmptyArt.svelte';
@@ -29,6 +30,7 @@
 <svelte:element
   this={tag()}
   class="no-account no-scrollbar"
+  {@attach scrollbar}
   class:mobile={ui.isMobile}
   style:margin-bottom={ui.isMobile ? values.mTabPadB : undefined}
 >

@@ -8,6 +8,7 @@
   (`position: relative`, row).
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { untrack } from 'svelte';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -123,7 +124,7 @@
       >
     </div>
 
-    <div class="body no-scrollbar">
+    <div class="body no-scrollbar" {@attach scrollbar}>
       <section class="sec first">
         {@render head(m.search_dim_st(), g.sections.st)}
         <div role="group" aria-label={m.search_dim_st()} class="states">

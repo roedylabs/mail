@@ -6,6 +6,7 @@
   is true: then only the head.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { tick } from 'svelte';
   import type { NotifItem, NotifMenuValues } from '#lib/notifications-menu.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -140,7 +141,7 @@
   <div class="pop" data-pop="1" role="dialog" aria-label={m.notif_pop_title()} bind:this={root} tabindex="-1">
     {@render head()}
     {#if notifHas}
-      <div class="scroll no-scrollbar">{@render groups()}</div>
+      <div class="scroll no-scrollbar" {@attach scrollbar}>{@render groups()}</div>
     {/if}
     {@render states()}
   </div>

@@ -32,6 +32,7 @@
   files go to compose with `replyActions.files`.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { tick, untrack } from 'svelte';
   import { autofocus } from '#lib/actions/autofocus.ts';
@@ -757,7 +758,13 @@
       </div>
     </div>
 
-    <div class="scroll no-scrollbar" style={tvStyle} style:margin={rd.tv.m} style:border-radius={rd.tv.r}>
+    <div
+      class="scroll no-scrollbar"
+      {@attach scrollbar}
+      style={tvStyle}
+      style:margin={rd.tv.m}
+      style:border-radius={rd.tv.r}
+    >
       <article class="art">
         <h1 class="subj">{rd.subj}</h1>
         <div class="chips">{@render chips(true)}</div>

@@ -8,6 +8,7 @@
   (`fit`), from 1000 px width with artwork in the background.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { onDestroy, tick, untrack } from 'svelte';
   import { resolve } from '$app/paths';
   import { parallax } from '#lib/actions/parallax.ts';
@@ -258,7 +259,8 @@
   bind:clientWidth={width}
   bind:clientHeight={height}
   use:parallax={showArt}
-  class="login"
+  class="login no-scrollbar"
+  {@attach scrollbar}
   style={errorTones(values.themeDark)}
   style:padding={F.rootPad}
   style:--f-ctl={F.ctl}

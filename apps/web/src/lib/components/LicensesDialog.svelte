@@ -8,6 +8,7 @@
   handles returning to the row on close.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { onMount } from 'svelte';
   import { focustrap } from '#lib/actions/focustrap.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
@@ -159,7 +160,7 @@
     >
       {@render head()}
       {#if lic.ready}<div class="tools">{@render tools()}</div>{/if}
-      <div class="scroll no-scrollbar" aria-busy={lic.busyAttr}>{@render body()}</div>
+      <div class="scroll no-scrollbar" {@attach scrollbar} aria-busy={lic.busyAttr}>{@render body()}</div>
     </div>
   </div>
 {:else}

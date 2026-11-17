@@ -7,6 +7,7 @@
   (`Fit`) and shows the graphic from 1000 px width.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { onDestroy, tick, untrack } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
@@ -258,7 +259,8 @@
     bind:clientWidth={width}
     bind:clientHeight={height}
     use:parallax={showArt}
-    class="invite"
+    class="invite no-scrollbar"
+    {@attach scrollbar}
     style={errorTones(ui.dark)}
     style:padding={F.rootPad}
     style:--f-ctl={F.ctl}

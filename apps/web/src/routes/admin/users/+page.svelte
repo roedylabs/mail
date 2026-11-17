@@ -6,6 +6,7 @@
   leads to Administration › Email.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { onMount, untrack } from 'svelte';
   import { goto } from '$app/navigation';
@@ -312,6 +313,7 @@
               aria-label={v.selBulkRole.title}
               class="pick-pop no-scrollbar"
               use:pickPop
+              {@attach scrollbar}
             >
               <div class="pick-title">{v.selBulkRole.title}</div>
               {#each v.selBulkRole.opts as o, i (o.label)}

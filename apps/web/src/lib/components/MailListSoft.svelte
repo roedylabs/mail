@@ -19,6 +19,7 @@
   row below it (`pf.footOn`).
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { untrack } from 'svelte';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -471,7 +472,7 @@
         </div>
       </div>
     </div>
-    <div class="scroll no-scrollbar" {@attach v.scroller}>
+    <div class="scroll no-scrollbar" {@attach v.scroller} {@attach scrollbar}>
       <div class="content">
         {#if pf.selOn}<div class="sel">{@render selBar()}</div>{/if}
         {#if pf.note.on}{@render note()}{/if}

@@ -7,6 +7,7 @@
   1000 px width.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { onDestroy, tick, untrack } from 'svelte';
   import { parallax } from '#lib/actions/parallax.ts';
@@ -230,7 +231,8 @@
   bind:clientWidth={width}
   bind:clientHeight={height}
   use:parallax={showArt}
-  class="setup"
+  class="setup no-scrollbar"
+  {@attach scrollbar}
   style={errorTones(dark)}
   style:padding={F.rootPad}
   style:--f-ctl={F.ctl}

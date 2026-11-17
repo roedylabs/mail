@@ -5,6 +5,7 @@
   the sign-in itself in `#lib/auth/mail-login.svelte.ts`.
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { onMount } from 'svelte';
   import { goto } from '$app/navigation';
@@ -97,7 +98,14 @@
         ></button
       >
       {#if sel.open}
-        <div role="listbox" id={srvIds.list} aria-label={sel.title} class="pick-pop no-scrollbar" use:pickPop>
+        <div
+          role="listbox"
+          id={srvIds.list}
+          aria-label={sel.title}
+          class="pick-pop no-scrollbar"
+          use:pickPop
+          {@attach scrollbar}
+        >
           {#each sel.opts as o, i (i)}
             <button
               type="button"

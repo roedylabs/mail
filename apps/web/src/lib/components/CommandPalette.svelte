@@ -4,6 +4,7 @@
   click on the backdrop close it (layout).
 -->
 <script lang="ts">
+  import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { focustrap } from '#lib/actions/focustrap.ts';
   import type { CommandPaletteValues } from '#lib/shell.ts';
   import Icon from '#lib/components/Icon.svelte';
@@ -40,7 +41,7 @@
       />
       <span class="esc">{m.shortcuts_key_esc()}</span>
     </div>
-    <div class="rows no-scrollbar">
+    <div class="rows no-scrollbar" {@attach scrollbar}>
       {#each palRows as r, i (i)}
         <div>
           {#if r.hasHdr}<div class="group">{r.g}</div>{/if}
