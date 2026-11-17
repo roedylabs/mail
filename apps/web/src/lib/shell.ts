@@ -19,8 +19,12 @@ import type { ToastSwipe } from '#lib/swipe.ts';
 
 export interface FilterButton {
   aria: string;
+  /** `aria-expanded`: on the search page its filter panel, elsewhere the suggestions in filter mode. */
   exp: boolean;
-  /** Search suggestions open in filter mode (`fOpen`): background `--accsoft`. */
+  /**
+   * Search suggestions open in filter mode (`fOpen`): background `--accsoft`, icon `--deep`.
+   * Never on the search page, whose panel leaves the button `--mfg` without filters.
+   */
   fill: boolean;
   hasN: boolean;
   n: string;

@@ -158,7 +158,22 @@ describe('header', () => {
       values({ resOpen: true, resExp: true, sfBtn: { aria: 'Filter', exp: true, fill: true, hasN: false, n: '0' } }),
     );
     expect(btn).toHaveClass('fill');
+    expect(btn).toHaveClass('on');
     expect(btn).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  it('keeps the filter button --mfg while only the search page panel is open, --deep with filters', async () => {
+    const { getByRole, rerender } = render(
+      Header,
+      values({ sfBtn: { aria: 'Filter', exp: true, fill: false, hasN: false, n: '0' } }),
+    );
+    const btn = getByRole('button', { name: 'Filter' });
+    expect(btn).toHaveAttribute('aria-expanded', 'true');
+    expect(btn).not.toHaveClass('on');
+    expect(btn).not.toHaveClass('fill');
+    await rerender(values({ sfBtn: { aria: 'Filters, 1 active', exp: true, fill: false, hasN: true, n: '1' } }));
+    expect(getByRole('button', { name: 'Filters, 1 active' })).toHaveClass('on');
+    expect(getByRole('button', { name: 'Filters, 1 active' })).not.toHaveClass('fill');
   });
 
   it('shows the search suggestions only with resOpen, with the list behind aria-controls', async () => {

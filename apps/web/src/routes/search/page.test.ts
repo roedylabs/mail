@@ -118,6 +118,17 @@ afterEach(() => {
 });
 
 describe('Search', () => {
+  it('does not move the focus on desktop', () => {
+    vi.useFakeTimers();
+    try {
+      render(Page);
+      vi.advanceTimersByTime(30);
+      expect(document.activeElement).toBe(document.body);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('shows the hint and no areas when idle', () => {
     const view = render(Page);
     expect(view.getByText('Search results')).toBeInTheDocument();
@@ -543,14 +554,31 @@ describe('Search', () => {
       expect(within(group('Folder')).getByRole('button', { name: 'Old', expanded: true })).toBeInTheDocument();
       expect(within(group('Tags')).getByRole('button', { name: 'Customer A', expanded: true })).toBeInTheDocument();
 
+      // "Reset" only resets the filters: both sections stay expanded.
       await fireEvent.click(within(panel()).getByRole('button', { name: 'Reset' }));
       expect(search.sf.folder).toBeNull();
       expect(search.sf.tags).toEqual([]);
       expect(within(group('Folder')).getByRole('button', { name: 'Custom folders' })).toHaveAttribute(
         'aria-expanded',
+        'true',
+      );
+      expect(within(panel()).getByRole('button', { name: 'Old' })).toHaveAttribute('aria-pressed', 'false');
+      expect(within(group('Tags')).getByRole('button', { name: 'Subtags' })).toHaveAttribute('aria-expanded', 'true');
+      expect(within(panel()).getByRole('button', { name: 'Customer A' })).toHaveAttribute('aria-pressed', 'false');
+    });
+
+    it('"Reset" leaves collapsed sections collapsed', async () => {
+      vi.spyOn(search, 'env', 'get').mockReturnValue(env);
+      search.set({ st: ['u'] });
+      const view = render(Page);
+      await fireEvent.click(within(panel()).getByRole('button', { name: 'Reset' }));
+      expect(search.sf.st).toEqual([]);
+      expect(within(group('Folder')).getByRole('button', { name: 'Custom folders' })).toHaveAttribute(
+        'aria-expanded',
         'false',
       );
       expect(within(group('Tags')).getByRole('button', { name: 'Subtags' })).toHaveAttribute('aria-expanded', 'false');
+      expect(view.queryByRole('button', { name: 'Old' })).toBeNull();
     });
   });
 
@@ -685,6 +713,34 @@ describe('Search', () => {
       await fireEvent.click(within(quick).getByRole('button', { name: 'Reset' }));
       expect(search.sf).toEqual(SF0);
       expect(view.queryByRole('group', { name: 'Quick filters' })).toBeNull();
+    });
+
+    it('focuses the search field 30 ms after opening', () => {
+      vi.useFakeTimers();
+      try {
+        const view = render(Page);
+        const field = view.getByRole('textbox', { name: 'Search' });
+        vi.advanceTimersByTime(29);
+        expect(field).not.toHaveFocus();
+        vi.advanceTimersByTime(1);
+        expect(field).toHaveFocus();
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('does not focus after leaving within 30 ms', () => {
+      vi.useFakeTimers();
+      try {
+        const view = render(Page);
+        const field = view.getByRole('textbox', { name: 'Search' });
+        const focus = vi.spyOn(field, 'focus');
+        view.unmount();
+        vi.advanceTimersByTime(30);
+        expect(focus).not.toHaveBeenCalled();
+      } finally {
+        vi.useRealTimers();
+      }
     });
 
     it('keeps the search field with the skeleton', async () => {

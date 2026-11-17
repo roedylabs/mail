@@ -130,7 +130,7 @@
       {/if}
       <button
         class="filter"
-        class:on={props.sfBtn.exp || props.sfBtn.hasN}
+        class:on={props.sfBtn.fill || props.sfBtn.hasN}
         class:fill={props.sfBtn.fill}
         data-pop="1"
         onclick={props.toggleSf}
@@ -444,7 +444,7 @@
       color var(--dur, 220ms);
   }
 
-  /* Filter set or panel open (`sfBtn.color`). */
+  /* Filter set or suggestions open in filter mode (`sfBtn.color`); not the search page's own panel. */
   .filter.on {
     color: var(--deep);
   }

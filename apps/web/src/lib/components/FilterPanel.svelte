@@ -42,7 +42,8 @@
   /**
    * Custom folders and subtags expanded: when opening the search, if
    * something is selected there; hiding and showing the panel leaves them as
-   * they are, "Reset" collapses them.
+   * they are, and so does "Reset" (only the mobile filter sheet collapses
+   * everything).
    */
   let customOpen = $state(untrack(() => g.customButton.on));
   let subOpen = $state(untrack(() => g.subButton.on));
@@ -56,8 +57,6 @@
   function reset() {
     if (!count) return;
     search.set((x) => ({ ...SF0, cats: x.cats }));
-    customOpen = false;
-    subOpen = false;
   }
 
   const cta = $derived(
