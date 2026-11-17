@@ -622,7 +622,7 @@ describe('listNotice', () => {
 describe('draftOf', () => {
   const member = (id: string, mailboxIds: string[]) => ({ id, mailboxIds, keywords: {}, from: 'me@example.com' });
 
-  it('is true if the email of the row lies in the account\'s drafts', () => {
+  it("is true if the email of the row lies in the account's drafts", () => {
     const t = thread({ id: 'e2', members: [member('e1', ['inbox']), member('e2', ['drafts', 'tag1'])] });
     expect(draftOf(t, 'drafts')).toBe(true);
   });

@@ -43,8 +43,9 @@ export function openHit(hit: MailHit, box: HitBox): void {
   const { account, path } = mailboxParams(hit.account, box.target);
   if (box.role === 'drafts') {
     const ret = { href: resolve('/mailbox/[account]/[...path]', { account, path }), label: box.label };
+    const draft = encodeURIComponent(draftRef({ account: hit.account, id: hit.id }));
     void compose.openDraft(hit.account, hit.id, ret).then((ok) => {
-      if (ok) void goto(resolve('/compose/[draft]', { draft: encodeURIComponent(draftRef({ account: hit.account, id: hit.id })) }));
+      if (ok) void goto(resolve('/compose/[draft]', { draft }));
     });
     return;
   }
