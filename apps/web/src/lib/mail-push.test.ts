@@ -946,6 +946,22 @@ describe('mailPush', () => {
       await vi.waitFor(() => expect(browser.store.copy).toBeNull());
     });
 
+    it('deletes the copy again after the last push account if deleting it failed', async () => {
+      const module = mailPushWith(browser, 1000);
+      await enabled(module);
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toEqual(copy));
+      await module.disable('m1');
+      browser.store.clearFails = true;
+      module.share(copy);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(browser.store.copy).toEqual(copy);
+      browser.store.clearFails = false;
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
+    });
+
     it('keeps the copy of the same app user', async () => {
       browser.store.copy = copy;
       const module = mailPushWith(browser, 1000);

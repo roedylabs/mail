@@ -230,6 +230,8 @@ export class MailPush {
   #shared: string | null = null;
   /** App user whose copy (or none) is in the store, as far as this tab knows: written or checked here. */
   #owner: string | null = null;
+  /** Deleting this tab's copy after the last push account failed: the next `share` tries again. */
+  #unclear = false;
   /** Last `pause`; never rejects. */
   #pausing: Promise<void> = Promise.resolve();
 
@@ -337,18 +339,21 @@ export class MailPush {
    */
   share(copy: MailPushCopy): void {
     if (!Object.values(this.status).some((status) => status === 'on' || status === 'pending')) {
-      if (this.#shared === null) {
+      if (this.#shared === null && !this.#unclear) {
         void this.#dropForeign(copy.user);
         return;
       }
       this.#shared = null;
       this.#owner = copy.user;
-      // Not deleted: whatever is stored is unknown again, so the next call checks it.
+      this.#unclear = false;
+      // Not deleted: the next call deletes again, and whatever is stored is unknown again.
       void this.env.store
         .clear()
         .catch(() => false)
         .then((done) => {
-          if (!done) this.#owner = null;
+          if (done) return;
+          this.#owner = null;
+          this.#unclear = true;
         });
       return;
     }
@@ -356,6 +361,7 @@ export class MailPush {
     if (text === this.#shared) return;
     this.#shared = text;
     this.#owner = copy.user;
+    this.#unclear = false;
     // Without a copy no quiet hours apply and the app is named like its host.
     this.env.store.write(copy).catch(() => {
       this.#shared = null;
@@ -382,6 +388,7 @@ export class MailPush {
     await this.env.store.clear().catch(() => {});
     this.#shared = null;
     this.#owner = null;
+    this.#unclear = false;
     this.status = {};
   }
 
@@ -395,6 +402,7 @@ export class MailPush {
     this.#running.clear();
     this.#shared = null;
     this.#owner = null;
+    this.#unclear = false;
     this.status = {};
   }
 
