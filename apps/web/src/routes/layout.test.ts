@@ -21,6 +21,7 @@ import { ui } from '#lib/state/ui.svelte.ts';
 import { page } from '#lib/test/page.svelte.ts';
 import Layout from './+layout.svelte';
 import { LANG_KEY } from '#lib/locale.ts';
+import { resetPanelMemory } from '#lib/panel-memory.ts';
 
 const nav = vi.hoisted(() => ({
   goto: vi.fn(() => Promise.resolve()),
@@ -134,6 +135,7 @@ afterEach(() => {
   csp.stale = false;
   session.fromCopy = false;
   nav.updated.current = false;
+  resetPanelMemory();
   localStorage.clear();
   // Remove theme attributes and logo plate from <html>.
   const root = document.documentElement;
@@ -1283,6 +1285,46 @@ describe('Shell layout', () => {
     await fireEvent.click(getByRole('button', { name: 'Settings' }));
     expect(goto).toHaveBeenLastCalledWith('/settings/appearance');
     expect(ui.panelList).toBe('/settings/appearance');
+    // Leaving the area forgets the list: "Appearance" opened later with a target shows the page.
+    page.url = new URL('http://localhost/settings/appearance');
+    await tick();
+    expect(ui.panelList).toBe('/settings/appearance');
+    page.url = new URL('http://localhost/start');
+    await tick();
+    expect(ui.panelList).toBeNull();
+  });
+
+  it('reopens the last settings and administration page without a page of their own', async () => {
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('admin') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: { accounts: [ACCOUNT] } }],
+      'GET tags': [{ body: { tags: [] } }],
+    });
+    const { findByText, getByRole, goto } = renderAt('/settings/shortcuts');
+    await findByText('Page content');
+    // The page that is open next (navigation is a mock).
+    const open = async (path: string) => {
+      page.url = new URL(`http://localhost${path}`);
+      history.replaceState(null, '', path);
+      await tick();
+    };
+    await open('/admin/audit-log');
+    await open('/start');
+    await fireEvent.keyDown(window, { key: ',' });
+    expect(goto).toHaveBeenLastCalledWith('/settings/shortcuts');
+    await fireEvent.click(getByRole('button', { name: 'Administration' }));
+    expect(goto).toHaveBeenLastCalledWith('/admin/audit-log');
+    await fireEvent.click(getByRole('button', { name: 'Settings' }));
+    expect(goto).toHaveBeenLastCalledWith('/settings/shortcuts');
+    // The subpages of an email account leave "Security" as the page of the settings.
+    await open('/account/security');
+    await open('/account/mail-accounts/a1/overview');
+    await open('/start');
+    await fireEvent.keyDown(window, { key: 'k', ctrlKey: true });
+    await fireEvent.click(within(getByRole('dialog', { name: 'Command palette' })).getByText('Open settings'));
+    expect(goto).toHaveBeenLastCalledWith('/account/security');
   });
 
   it('goes back like “Back” when swiping right on the mobile panel', async () => {
