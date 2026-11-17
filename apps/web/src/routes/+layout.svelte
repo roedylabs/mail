@@ -56,7 +56,7 @@
   import { currentEnv } from '#lib/environment.ts';
   import { flashSection } from '#lib/sections.ts';
   import { errorCodeOf, failText, timeZoneOf, type ErrorCode } from '#lib/errors.ts';
-  import { editable, keyCommand, shortcutsFor, type KeyCommand } from '#lib/keys.ts';
+  import { keyCommand, shortcutsFor, textField, type KeyCommand } from '#lib/keys.ts';
   import { logout } from '#lib/logout.ts';
   import {
     accountSwitch,
@@ -484,13 +484,10 @@
     if (prefs.remote) rememberLang(lang);
   });
 
-  /** Target of a navigation that leaves the open sheet in place (`go()` with `keepMenu`). */
-  let keepMenuAt: string | null = null;
-
-  // Close open menus on a page change – except after the account selection in the "Mailboxes" sheet (`swPick()`).
+  // Close open menus on a page change – except for `ui.keepMenuAt` (account selection in the "Mailboxes" sheet, paging).
   $effect(() => {
-    const keep = path === keepMenuAt;
-    keepMenuAt = null;
+    const keep = path === ui.keepMenuAt;
+    ui.keepMenuAt = null;
     if (!keep) ui.closeMenu();
   });
 
@@ -505,7 +502,7 @@
    * "Mailboxes" sheet, `swPick()`).
    */
   function go(to: string, keepMenu = false) {
-    if (keepMenu) keepMenuAt = to;
+    if (keepMenu) ui.keepMenuAt = to;
     else ui.closeMenu();
     // The target is the open address (active navigation entry): replace the entry instead of duplicating it,
     // like SvelteKit for links to the current page. It compares with the browser's address,
@@ -750,8 +747,10 @@
       dialog: ui.palette || ui.help || tagFixShown || nameOpen,
       // Above a page dialog, ⌘K for instance would open the palette invisibly below it.
       confirm: ui.confirm !== null || pageDialog !== null,
-      reader: ui.reader !== null && !ui.menu,
-      reply: !!ui.reader?.reply && !ui.menu,
+      compose: !!compose.current && path.startsWith('/compose/'),
+      // Paging and replying also with an open menu; another conversation closes the reading view's popovers.
+      reader: ui.reader !== null,
+      reply: !!ui.reader?.reply,
       list: ui.listKeys !== null && ui.reader === null && !ui.menu,
     });
     if (!command) return;
@@ -798,8 +797,8 @@
       if (compose.current.menu) compose.closeMenu();
       else void compose.close({ leave: (ret) => go(ret.href), reopen: () => {} });
     }
-    // Reading view on desktop: back to the list (`pfClose`), not from an input field.
-    else if (ui.reader && !ui.isMobile && !editable(event.target)) ui.reader.close();
+    // Reading view on desktop: back to the list (`pfClose`), not from an input field or text area.
+    else if (ui.reader && !ui.isMobile && !textField(event.target)) ui.reader.close();
     else if (event.target instanceof HTMLElement) event.target.blur();
   }
 

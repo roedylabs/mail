@@ -120,6 +120,12 @@ export class Ui {
   swipeOn = $derived(this.isMobile || this.coarse.current);
 
   menu = $state<MenuKey | null>(null);
+  /**
+   * Address whose page change keeps the open menu; the layout closes it on every other one and then
+   * clears this. Set by the account selection in the "Mailboxes" sheet (`swPick()`) and by paging in the
+   * reading view (`pfOpen`, which only closes the reading view's own popovers). Not reactive.
+   */
+  keepMenuAt: string | null = null;
   /** Values of the open selection list (`pick`) for the mobile sheet; the page sets them. */
   pick = $state.raw<(() => PickerValues) | null>(null);
   /**
@@ -244,6 +250,7 @@ export class Ui {
   /** Discards the session state (sign-out): menus, palette, dialogs, toast, closed banners. */
   reset(): void {
     this.menu = null;
+    this.keepMenuAt = null;
     this.pick = null;
     this.pageDialog = null;
     this.serverAdd = false;
