@@ -17,7 +17,7 @@ import { roleLabel } from '#lib/mailbox-nav.ts';
 import type { TimeContext } from '#lib/mail-list.ts';
 import { openDraft } from '#lib/open-draft.ts';
 import { ALL_ACCOUNTS, mailboxParams } from '#lib/routes.ts';
-import { hitBox, searchCandidates } from '#lib/search-items.ts';
+import { hitBox, notifItems, searchCandidates } from '#lib/search-items.ts';
 import {
   mailItems,
   resultsValues,
@@ -32,6 +32,7 @@ import { accounts } from '#lib/state/accounts.svelte.ts';
 import { contacts } from '#lib/state/contacts.svelte.ts';
 import { mailboxes } from '#lib/state/mailboxes.svelte.ts';
 import { network } from '#lib/state/network.svelte.ts';
+import { notifications } from '#lib/state/notifications.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { search, type ReturnKind } from '#lib/state/search.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
@@ -122,11 +123,18 @@ export class SearchView {
     });
   });
 
+  /** Notifications of the bell; apart from `candidates` because the time on the right follows the clock. */
+  readonly notifs = $derived.by(() => {
+    const actions = search.actions;
+    return actions ? notifItems(notifications.list ?? [], this.time, actions.go) : [];
+  });
+
   /** Filters, category of the view and operators in the search text combined. */
   readonly eff = $derived(search.effective());
 
   readonly items = $derived([
     ...scoreAll(this.candidates, this.eff.terms.terms),
+    ...scoreAll(this.notifs, this.eff.terms.terms),
     ...mailItems(
       search.hits,
       this.eff.terms,
@@ -189,7 +197,11 @@ export class SearchView {
       );
     });
     $effect(() => {
-      untrack(() => void contacts.ensure());
+      untrack(() => {
+        void contacts.ensure();
+        // The bell loads on its own schedule; without a list yet (failed or pending first fetch) the search asks.
+        if (notifications.list === null) void notifications.load();
+      });
       const timer = setInterval(() => (this.now = Date.now()), 60_000);
       return () => clearInterval(timer);
     });

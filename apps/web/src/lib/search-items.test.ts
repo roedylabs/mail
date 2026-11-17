@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { tagColors } from '#lib/mail-list.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { scoreAll, termsOf, type Candidate, type MailHit, type SearchActions } from '#lib/search.ts';
-import { hitBox, searchCandidates, type SearchItemsInput } from '#lib/search-items.ts';
+import type { TimeContext } from '#lib/mail-list.ts';
+import { hitBox, notifItems, searchCandidates, type SearchItemsInput } from '#lib/search-items.ts';
+import type { AppNotification } from '#lib/state/notifications.svelte.ts';
 import type { Contact } from '#lib/state/contacts.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import type { TagNode } from '#lib/state/tags.svelte.ts';
@@ -598,5 +600,91 @@ describe('hitBox', () => {
   it('only in one tag: the tag as target', () => {
     const tagOf = (id: string) => (id === 'red' ? { id: 'tg1', name: 'Red' } : undefined);
     expect(hitBox(hit(['red']), BOXES, tagOf)).toEqual({ label: 'Red', role: null, target: { tag: 'tg1' } });
+  });
+});
+
+describe('notifItems', () => {
+  /** Monday, 2 November 2026, 13:00 in Berlin (CET). */
+  const NOW = Date.parse('2026-11-02T12:00:00Z');
+  const TIME: TimeContext = { now: NOW, tz: 'Europe/Berlin', timeFmt: '24h', weekStart: 'monday', dateFmt: 'de' };
+
+  function notif(id: string, over: Partial<AppNotification> = {}): AppNotification {
+    return {
+      id,
+      topic: 'security',
+      kind: 'login.new_device',
+      icon: 'ti-login',
+      title: 'New sign-in',
+      text: 'Firefox on Linux',
+      target: { view: 'settings', page: 'security', path: '/account/security' },
+      created_at: '2026-11-02T08:30:00Z',
+      read_at: null,
+      ...over,
+    };
+  }
+
+  const LIST: AppNotification[] = [
+    notif('n1'),
+    notif('n2', {
+      topic: 'team',
+      kind: 'user.joined',
+      icon: 'ti-user-plus',
+      title: 'Invitation accepted',
+      text: 'Bo joined the team',
+      target: { view: 'admin', page: 'users', path: '/admin/users', user_id: 'u7' },
+      created_at: '2026-11-01T09:00:00Z',
+      read_at: '2026-11-01T10:00:00Z',
+    }),
+    notif('n3', { icon: 'ti-unknown-icon', title: 'Storage almost full', text: '', target: null }),
+  ];
+
+  it('title, icon, text as the path, time on the right and unread bold', () => {
+    const list = notifItems(LIST, TIME, vi.fn());
+    expect(list.map((c) => [c.cat, c.id, c.label, c.icon, c.path, c.side, c.unread, c.extra])).toEqual([
+      ['notifs', 'n1', 'New sign-in', 'ti-login', 'Firefox on Linux', '09:30', true, 'Firefox on Linux'],
+      [
+        'notifs',
+        'n2',
+        'Invitation accepted',
+        'ti-user-plus',
+        'Bo joined the team',
+        m.list_yesterday(),
+        false,
+        'Bo joined the team',
+      ],
+      ['notifs', 'n3', 'Storage almost full', 'ti-bell', '', '09:30', true, ''],
+    ]);
+    expect(list[0]!.t).toBe(Date.parse('2026-11-02T08:30:00Z'));
+    expect(list.every((c) => !c.av && !c.tile)).toBe(true);
+  });
+
+  it('scored by title before text, every word must match', () => {
+    const list = notifItems(LIST, TIME, vi.fn());
+    const scored = (q: string) =>
+      scoreAll(list, termsOf(q).terms)
+        .sort((a, b) => b.score - a.score)
+        .map((c) => [c.id, c.score]);
+    expect(scored('invitation')).toEqual([['n2', 80]]);
+    expect(scored('sign')).toEqual([['n1', 60]]);
+    expect(scored('firefox')).toEqual([['n1', 15]]);
+    expect(scored('storage full')).toEqual([['n3', 70]]);
+    expect(scored('team bo')).toEqual([['n2', 15]]);
+    expect(scored('firefox team')).toEqual([]);
+  });
+
+  it('a hit leads to the target without expanding a user, without a target nothing happens', () => {
+    const go = vi.fn();
+    const list = notifItems(LIST, TIME, go);
+    list[0]!.run();
+    expect(go).toHaveBeenLastCalledWith('/account/security');
+    list[1]!.run();
+    expect(go).toHaveBeenLastCalledWith('/admin/users');
+    go.mockClear();
+    list[2]!.run();
+    expect(go).not.toHaveBeenCalled();
+  });
+
+  it('not part of the other local categories', () => {
+    expect(ofCat(searchCandidates(input({ isAdmin: true })), 'notifs')).toEqual([]);
   });
 });

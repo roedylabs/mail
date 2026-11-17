@@ -1,18 +1,19 @@
 /**
  * Local categories of the search: contacts, folders, tags, settings,
- * administration and actions as candidates for `scoreAll()` in
- * `#lib/search.ts`, plus the folder of a found email (`HitBox`). The
- * notifications category returns no candidates.
+ * administration, actions and notifications as candidates for `scoreAll()`
+ * in `#lib/search.ts`, plus the folder of a found email (`HitBox`).
  */
 import type { Mailbox } from '@roedy/jmap';
-import type { IconName } from '#lib/icons.ts';
-import { avatarOf, initials, messagesText, tagColors } from '#lib/mail-list.ts';
+import { isIconName, type IconName } from '#lib/icons.ts';
+import { avatarOf, initials, messagesText, shortTime, tagColors, type TimeContext } from '#lib/mail-list.ts';
 import { roleLabel } from '#lib/mailbox-nav.ts';
+import { targetOf } from '#lib/notifications-menu.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { mailboxPath, ROLE_IDS, type RoleId } from '#lib/routes.ts';
 import type { Candidate, HitBox, MailHit, SearchActions } from '#lib/search.ts';
 import { panelGroups, type PanelPage, type PanelSection } from '#lib/settings-nav.ts';
 import type { Contact } from '#lib/state/contacts.svelte.ts';
+import type { AppNotification } from '#lib/state/notifications.svelte.ts';
 import { countsOf, folderTree, ROLES, roleMailbox, type Counts, type FolderNode } from '#lib/state/mailboxes.svelte.ts';
 import type { TagNode } from '#lib/state/tags.svelte.ts';
 import type { ListedUser, Role, UserStatus } from '#lib/users.svelte.ts';
@@ -463,6 +464,39 @@ export function searchCandidates(input: SearchItemsInput): Candidate[] {
     ...(input.isAdmin ? [...pageItems(input, 'admin'), ...sectionItems(input, 'admin'), ...userItems(input)] : []),
     ...actionItems(input),
   ];
+}
+
+/**
+ * Notifications of the bell: title and icon from the event catalogue, the
+ * text as the path, the time on the right, unread ones bold. The backend lists
+ * team and system notifications only for administrators; topics turned off in
+ * the app stay findable. A hit leads to the target without marking it as read
+ * and, unlike the bell, opens the page of the administration without
+ * expanding a user.
+ */
+export function notifItems(
+  list: readonly AppNotification[],
+  time: TimeContext,
+  go: (path: string) => void,
+): Candidate[] {
+  return list.map((n) => {
+    const at = Date.parse(n.created_at);
+    const route = targetOf(n.target);
+    return {
+      id: n.id,
+      cat: 'notifs',
+      label: n.title,
+      icon: isIconName(n.icon) ? n.icon : 'ti-bell',
+      path: n.text,
+      side: shortTime(at, time),
+      unread: n.read_at === null,
+      t: at,
+      extra: n.text,
+      run: () => {
+        if (route) go(route.path);
+      },
+    };
+  });
 }
 
 /** Folder of a found email for path and target: role before custom folder. */
