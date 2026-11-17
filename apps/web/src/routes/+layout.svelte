@@ -433,9 +433,10 @@
 
   // Copy for the service worker: quiet hours and accounts apply there even without a session.
   $effect(() => {
-    if (!prefs.loaded || !accounts.list) return;
+    if (!prefs.loaded || !accounts.list || !session.user) return;
     const { nQuiet: on, nFrom: from, nTo: to } = prefs.values;
     mailPush.share({
+      user: session.user.id,
       quiet: { on, from, to, tz: displayZone(prefs.values, browserTimeZone()) },
       accounts: Object.fromEntries(accounts.list.map((account) => [account.id, account.email])),
       appName: session.appName,

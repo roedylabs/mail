@@ -29,14 +29,27 @@ function text(value: unknown): string {
   return typeof value === 'string' ? value : '';
 }
 
+/** Stand-in origin: `safePath` only checks that a path stays on whichever origin it resolves against. */
+const BASE = 'https://app.invalid';
+
+/** C0 controls and DEL: the URL parser drops tab and newlines, so "/\t/host" would become "//host". */
+// eslint-disable-next-line no-control-regex
+const CONTROL = /[\u0000-\u001f\u007f]/;
+
 /**
- * App path from `data.url`: only same-origin paths ("/…", not "//…" or
- * with a scheme), otherwise `/start` – a message must not lead out of the
- * app.
+ * App path from `data.url`: only same-origin paths ("/…", not "//…", with a
+ * scheme, a backslash or control characters), otherwise `/start` – a message
+ * must not lead out of the app. Beyond the textual rules, the path must also
+ * resolve to the same origin (defence in depth for parser quirks).
  */
 export function safePath(url: unknown): string {
   if (typeof url !== 'string' || !url.startsWith('/') || url.startsWith('//') || url.includes('\\')) return START_PATH;
-  return url;
+  if (CONTROL.test(url)) return START_PATH;
+  try {
+    return new URL(url, BASE).origin === BASE ? url : START_PATH;
+  } catch {
+    return START_PATH;
+  }
 }
 
 /**

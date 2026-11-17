@@ -106,6 +106,17 @@ export async function workerClient(accountId: string): Promise<JmapClient> {
   return new JmapClient({ url: new URL(session.apiUrl).origin, tokens, session });
 }
 
+/**
+ * The copy only applies to accounts it names, and only with an app user (older copies have none): a copy left
+ * behind by another app user of this browser must not lend its addresses, quiet hours or app name.
+ */
+function usableCopy(copy: MailPushCopy | null, accountId: string): MailPushCopy | null {
+  if (!copy || typeof copy !== 'object') return null;
+  const { user, accounts } = copy as Partial<MailPushCopy>;
+  if (typeof user !== 'string' || !user || !accounts || typeof accounts !== 'object') return null;
+  return Object.hasOwn(accounts, accountId) ? copy : null;
+}
+
 function mailContext(id: string, copy: MailPushCopy | null, worker: MailWorker, now: number): MailContext {
   const accounts = copy?.accounts ?? {};
   return {
@@ -228,7 +239,7 @@ export async function handleMailPush(accountId: string, raw: string | null, work
   for (const window of windows) window.postMessage({ type: MAIL_MESSAGE, accountId });
   const store = worker.store ?? mailPushStore;
   const now = worker.now ?? Date.now();
-  const copy = await store.read().catch(() => null);
+  const copy = usableCopy(await store.read().catch(() => null), accountId);
   // Texts in the app language; the base language without a copy or with an unknown language.
   const lang = copy?.lang && isLocale(copy.lang) ? copy.lang : baseLocale;
   overwriteGetLocale(() => lang);

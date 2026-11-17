@@ -373,6 +373,7 @@ describe('Shell layout', () => {
     renderAt('/start');
     await vi.waitFor(() =>
       expect(share).toHaveBeenLastCalledWith({
+        user: '01J',
         quiet: { on: RESET0.nQuiet, from: RESET0.nFrom, to: RESET0.nTo, tz: RESET0.tz },
         accounts: { a1: 'account1@s1.test' },
         appName: 'Roedy Mail',

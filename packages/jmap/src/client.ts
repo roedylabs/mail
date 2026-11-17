@@ -284,7 +284,9 @@ export class JmapClient {
   /**
    * Downloads a blob, e.g. an attachment or the source of a message (`blobId`
    * of the Email). The timeout applies until the response, not to the content
-   * (attachments can be large).
+   * (attachments can be large). Bypasses the HTTP cache (`no-store`): whatever
+   * the server's headers say, attachments must not stay in the browser after
+   * sign-out.
    */
   async download(blob: BlobRef, signal?: AbortSignal): Promise<Blob> {
     const session = await this.session(signal);
@@ -295,7 +297,7 @@ export class JmapClient {
       name: blob.name ?? 'download',
       type: blob.type ?? 'application/octet-stream',
     });
-    const res = await this.#authorized(url, {}, signal, this.#timeout, (r) => Promise.resolve(r));
+    const res = await this.#authorized(url, { cache: 'no-store' }, signal, this.#timeout, (r) => Promise.resolve(r));
     if (!res.ok) throw await responseError(res);
     return readBody(() => res.blob(), signal);
   }

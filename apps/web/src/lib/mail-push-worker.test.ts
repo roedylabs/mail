@@ -11,6 +11,7 @@ const DAY = 86_400_000;
 const ENDPOINT = 'https://push.test/m1';
 
 const COPY: MailPushCopy = {
+  user: 'u1',
   quiet: { on: false, from: '22:00', to: '07:00', tz: 'Europe/Berlin' },
   accounts: { m1: 'user@example.com' },
   appName: 'Roedy Mail',
@@ -68,7 +69,7 @@ function setup(options: Setup = {}) {
     write: () => Promise.resolve(),
     renewedAt: () => Promise.resolve(options.renewedAt ?? NOW),
     markRenewed,
-    clear: () => Promise.resolve(),
+    clear: () => Promise.resolve(true),
   };
   const show = vi.fn((title: string, shownOptions: Shown['options']) => {
     const index = shown.findIndex((item) => item.options.tag === shownOptions.tag);
@@ -186,6 +187,24 @@ describe('without fetching', () => {
     const { worker, shown } = setup({ copy: null, load: () => Promise.reject(new Error('401')) });
     await handleMailPush('m1', push(['e1']), worker);
     expect(shown[0]).toMatchObject({ title: 'New email', options: { body: 'app.test', silent: false } });
+  });
+
+  it('ignores a copy that does not name the account or no app user', async () => {
+    const reject = () => Promise.reject(new Error('401'));
+    const quiet = { on: true, from: '10:00', to: '14:00', tz: 'UTC' };
+    // Left behind by another app user of this browser.
+    const foreign = setup({
+      copy: { ...COPY, quiet, accounts: { m2: 'other@example.com' }, appName: 'Other Mail' },
+      load: reject,
+    });
+    await handleMailPush('m1', push(['e1']), foreign.worker);
+    expect(foreign.shown[0]).toMatchObject({ title: 'New email', options: { body: 'app.test', silent: false } });
+    // From before the copy named the app user.
+    const unbound: Partial<MailPushCopy> = { ...COPY, quiet };
+    delete unbound.user;
+    const old = setup({ copy: unbound as MailPushCopy, load: reject });
+    await handleMailPush('m1', push(['e1']), old.worker);
+    expect(old.shown[0]).toMatchObject({ title: 'New email', options: { body: 'app.test', silent: false } });
   });
 
   it('shows something even if the mail is already gone or the push unreadable', async () => {

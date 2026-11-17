@@ -158,15 +158,23 @@ function fakeManager(endpoint: string, existing?: string) {
 
 type FakeRegistration = ServiceWorkerRegistration & { unregister: ReturnType<typeof vi.fn> };
 
-type FakeStore = MailPushStore & { copy: MailPushCopy | null; writes: number };
+type FakeStore = MailPushStore & {
+  copy: MailPushCopy | null;
+  writes: number;
+  clearFails: boolean;
+  writeFails: boolean;
+};
 
 /** Service worker storage in memory. */
 function fakeStore(): FakeStore {
   const store: FakeStore = {
     copy: null,
     writes: 0,
+    clearFails: false,
+    writeFails: false,
     read: () => Promise.resolve(store.copy),
     write: (copy) => {
+      if (store.writeFails) return Promise.reject(new Error('quota'));
       store.copy = copy;
       store.writes++;
       return Promise.resolve();
@@ -174,8 +182,9 @@ function fakeStore(): FakeStore {
     renewedAt: () => Promise.resolve(0),
     markRenewed: () => Promise.resolve(),
     clear: () => {
+      if (store.clearFails) return Promise.resolve(false);
       store.copy = null;
-      return Promise.resolve();
+      return Promise.resolve(true);
     },
   };
   return store;
@@ -183,6 +192,8 @@ function fakeStore(): FakeStore {
 
 interface FakeBrowser {
   allowed: boolean;
+  /** Signed-in app user. */
+  user: string | null;
   subscribed: boolean;
   updates: number;
   store: FakeStore;
@@ -203,6 +214,7 @@ function fakeBrowser(): FakeBrowser {
   const store = fakeStore();
   const browser: FakeBrowser = {
     allowed: true,
+    user: 'u1',
     subscribed: true,
     updates: 0,
     store,
@@ -244,6 +256,7 @@ function fakeBrowser(): FakeBrowser {
         return run;
       },
       store,
+      user: () => browser.user,
     },
   };
   return browser;
@@ -837,6 +850,7 @@ describe('mailPush', () => {
 
   describe('copy for the service worker', () => {
     const copy = {
+      user: 'u1',
       quiet: { on: true, from: '22:00', to: '07:00', tz: 'UTC' },
       accounts: { m1: 'user@example.com' },
       appName: 'Roedy Mail',
@@ -880,6 +894,101 @@ describe('mailPush', () => {
       await enabled(module);
       module.share(copy);
       module.reset();
+      expect(browser.store.copy).toEqual(copy);
+    });
+
+    it('removes the copy of the previous app user when the next one has no push', async () => {
+      browser.store.copy = copy;
+      browser.user = 'u2';
+      const module = mailPushWith(browser, 1000);
+      module.share({ ...copy, user: 'u2', accounts: { m2: 'other@example.com' } });
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
+      expect(browser.store.writes).toBe(0);
+    });
+
+    it('removes the copy of the previous app user at start, also one without a user', async () => {
+      browser.store.copy = copy;
+      browser.user = 'u2';
+      await mailPushWith(browser, 1000).resume();
+      expect(browser.store.copy).toBeNull();
+      const unbound: Partial<MailPushCopy> = { ...copy };
+      delete unbound.user;
+      browser.store.copy = unbound as MailPushCopy;
+      await mailPushWith(browser, 1000).resume();
+      expect(browser.store.copy).toBeNull();
+    });
+
+    it('tries again to remove the copy of the previous app user if deleting it failed', async () => {
+      browser.store.copy = copy;
+      browser.store.clearFails = true;
+      browser.user = 'u2';
+      const module = mailPushWith(browser, 1000);
+      await module.resume();
+      expect(browser.store.copy).toEqual(copy);
+      browser.store.clearFails = false;
+      await module.resume();
+      expect(browser.store.copy).toBeNull();
+    });
+
+    it('checks for the copy of the previous app user again after a failed write', async () => {
+      browser.store.copy = copy;
+      browser.store.clearFails = true;
+      browser.user = 'u2';
+      const module = mailPushWith(browser, 1000);
+      await enabled(module);
+      browser.store.writeFails = true;
+      module.share({ ...copy, user: 'u2' });
+      await vi.waitFor(() => expect(browser.store.writes).toBe(0));
+      await Promise.resolve();
+      browser.store.clearFails = false;
+      await module.disable('m1');
+      module.share({ ...copy, user: 'u2' });
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
+    });
+
+    it('deletes the copy again after the last push account if deleting it failed', async () => {
+      const module = mailPushWith(browser, 1000);
+      await enabled(module);
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toEqual(copy));
+      await module.disable('m1');
+      browser.store.clearFails = true;
+      module.share(copy);
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(browser.store.copy).toEqual(copy);
+      browser.store.clearFails = false;
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
+    });
+
+    it('still deletes the copy after a failed delete and a failed write in between', async () => {
+      const module = mailPushWith(browser, 1000);
+      await enabled(module);
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toEqual(copy));
+      await module.disable('m1');
+      browser.store.clearFails = true;
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toEqual(copy));
+      await Promise.resolve();
+      await enabled(module);
+      browser.store.writeFails = true;
+      module.share({ ...copy, lang: 'de' });
+      await Promise.resolve();
+      await Promise.resolve();
+      browser.store.clearFails = false;
+      await module.disable('m1');
+      module.share(copy);
+      await vi.waitFor(() => expect(browser.store.copy).toBeNull());
+    });
+
+    it('keeps the copy of the same app user', async () => {
+      browser.store.copy = copy;
+      const module = mailPushWith(browser, 1000);
+      await module.resume();
+      module.share(copy);
+      await Promise.resolve();
       expect(browser.store.copy).toEqual(copy);
     });
   });

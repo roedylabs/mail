@@ -21,6 +21,7 @@ import { isInstalled } from '#lib/installed.ts';
 import { localStore } from '#lib/last-page.ts';
 import type { MailAccount } from '#lib/state/accounts.svelte.ts';
 import { appFetch } from '#lib/state/network.svelte.ts';
+import { session } from '#lib/state/session.svelte.ts';
 import { originOf } from '#lib/url.ts';
 
 /**
@@ -111,6 +112,8 @@ export interface LoginDeps {
   now: () => number;
   /** Origin of the app for the redirect URI. */
   origin: string;
+  /** ID of the signed-in app user, `null` without a session: an attempt only completes for the user who started it. */
+  user: () => string | null;
 }
 
 export function browserDeps(): LoginDeps {
@@ -122,6 +125,7 @@ export function browserDeps(): LoginDeps {
     assign: (url) => location.assign(url),
     now: () => Date.now(),
     origin: location.origin,
+    user: () => session.user?.id ?? null,
   };
 }
 
@@ -284,6 +288,12 @@ export interface Pending {
   redirectUri: string;
   /** ms since 1970 */
   created: number;
+  /**
+   * App user who started the attempt. `state` and PKCE only bind it to the tab
+   * and the flow; if someone else signed in to the app meanwhile, the mail
+   * account must not be attached to their account.
+   */
+  user: string;
 }
 
 const strings = (value: Record<string, unknown>, keys: readonly string[]) =>
@@ -294,7 +304,17 @@ function isPending(value: unknown): value is Pending {
   if (!isRecord(value)) return false;
   const { purpose, form } = value;
   return (
-    strings(value, ['state', 'verifier', 'url', 'serverId', 'clientId', 'issuer', 'tokenEndpoint', 'redirectUri']) &&
+    strings(value, [
+      'state',
+      'verifier',
+      'url',
+      'serverId',
+      'clientId',
+      'issuer',
+      'tokenEndpoint',
+      'redirectUri',
+      'user',
+    ]) &&
     typeof value.backendExchange === 'boolean' &&
     typeof value.issRequired === 'boolean' &&
     typeof value.created === 'number' &&
@@ -341,13 +361,23 @@ export function takePending(state: string | null, storage: Storage, now: number)
   return pending && pending.state === state && now - pending.created < PENDING_TTL ? pending : null;
 }
 
-/** Like `takePending`, but also searches the device storage: the return can arrive in a different window than the start. */
+/** Whether the signed-in app user is the one who started the attempt. */
+export function ownAttempt(pending: Pending, deps: Pick<LoginDeps, 'user'>): boolean {
+  const user = deps.user();
+  return user !== null && user === pending.user;
+}
+
+/**
+ * Like `takePending`, but also searches the device storage: the return can arrive in a different window than the start.
+ * An attempt of another app user (signed in meanwhile in the same browser) counts as unknown and is discarded.
+ */
 export function takeReturning(
   state: string | null,
-  deps: Pick<LoginDeps, 'storage' | 'device' | 'now'>,
+  deps: Pick<LoginDeps, 'storage' | 'device' | 'now' | 'user'>,
 ): Pending | null {
-  const pending = takePending(state, deps.storage, deps.now());
-  return pending ?? (deps.device ? takePending(state, deps.device, deps.now()) : null);
+  const pending =
+    takePending(state, deps.storage, deps.now()) ?? (deps.device ? takePending(state, deps.device, deps.now()) : null);
+  return pending && ownAttempt(pending, deps) ? pending : null;
 }
 
 /** Discards the open attempts in the device storage (sign-out): they name the address of the account. */
@@ -433,6 +463,8 @@ export function failureOf(error: unknown, kind: AuthKind): Failure {
   const account = isRecord(body.account) ? body.account : {};
   const email = typeof account.email === 'string' ? account.email : '';
   switch (error.code) {
+    case 'session_changed':
+      return { error: 'expired' };
     case 'dup':
       return { error: 'dup', as: email, ...(typeof account.id === 'string' ? { account: account.id } : {}) };
     case 'other_account':
@@ -518,6 +550,8 @@ export async function begin(
   }
   signal?.throwIfAborted();
   if (!metadata) return fail('oauth');
+  const user = deps.user();
+  if (user === null) return fail(null, { cause: new Error('Not signed in') });
   const pending: Pending = {
     state: randomToken(),
     verifier: randomToken(),
@@ -532,6 +566,7 @@ export async function begin(
     issRequired: metadata.iss_supported,
     redirectUri: deps.origin + CALLBACK_PATH,
     created: deps.now(),
+    user,
   };
   const url = authorizeUrl({
     endpoint: metadata.authorization_endpoint,
@@ -613,12 +648,14 @@ async function exchange(pending: Pending, code: string, deps: LoginDeps): Promis
 }
 
 /**
- * Completes an attempt after the return: check `iss` (RFC 9207 –
+ * Completes an attempt after the return: check that the app user is still the one who
+ * started it (otherwise `expired`, before and after the exchange), check `iss` (RFC 9207 –
  * otherwise the response could come from another server), report `error` of
  * the redirect back (RFC 6749 4.1.2.1), exchange the code or give it to the
  * backend, then create the account or sign in again.
  */
 export async function complete(pending: Pending, params: CallbackParams, deps: LoginDeps): Promise<Outcome> {
+  if (!ownAttempt(pending, deps)) return fail('expired');
   if (params.iss !== null ? params.iss !== pending.issuer : pending.issRequired) return fail('iss');
   if (params.error !== null) return fail('denied', { code: params.error });
   if (!params.code) return fail('denied', { code: '' });
@@ -628,10 +665,14 @@ export async function complete(pending: Pending, params: CallbackParams, deps: L
   } else {
     const tokens = await exchange(pending, params.code, deps);
     if ('error' in tokens) return { ok: false, ...tokens };
+    if (!ownAttempt(pending, deps)) return fail('expired');
     credentials = { ...tokens };
   }
+  // The backend refuses (`session_changed`) if another app user signed in meanwhile in this
+  // browser: the cookie, not this tab's state, decides whose account it becomes.
   return submit(pending.purpose, pending.form.email, { id: pending.serverId, url: pending.url }, 'oauth', {
     ...credentials,
     client_id: pending.clientId,
+    user_id: pending.user,
   });
 }

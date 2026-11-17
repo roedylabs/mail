@@ -19,6 +19,8 @@
  *   tokens, then `clearDevice()`.
  * - **Copy for the service worker** (`share`): quiet hours and account
  *   addresses as soon as an account has push (`#lib/mail-push-store.ts`).
+ *   It names the app user; `resume` and `share` remove the copy of another
+ *   user who signed in before in this browser.
  *
  * The device remembers selection and confirmation (`PushSubscription/get`
  * does not show them) in local storage.
@@ -42,6 +44,7 @@ import { browserSubscription } from '#lib/push-keys.ts';
 import { onWorkerMessage, push } from '#lib/push.svelte.ts';
 import { accounts } from '#lib/state/accounts.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
+import { session } from '#lib/state/session.svelte.ts';
 
 /**
  * State of an account on this device: `pending` and `stopping` while
@@ -79,6 +82,8 @@ export interface MailPushEnv {
   exclusive<T>(name: string, task: () => Promise<T>): Promise<T>;
   /** Storage that the service worker reads as well. */
   store: MailPushStore;
+  /** ID of the signed-in app user, `null` without a session. */
+  user(): string | null;
 }
 
 /** The scope has no page, hence no `navigator.serviceWorker.ready` either. */
@@ -125,6 +130,7 @@ const browserEnv: MailPushEnv = {
     return locks ? locks.request(name, task) : task();
   },
   store: mailPushStore,
+  user: () => session.user?.id ?? null,
 };
 
 function readChoices(): Record<string, string | null> {
@@ -222,6 +228,10 @@ export class MailPush {
   #generation = 0;
   /** Last stored copy; `share` only writes when something changes. */
   #shared: string | null = null;
+  /** App user whose copy (or none) is in the store, as far as this tab knows: written or checked here. */
+  #owner: string | null = null;
+  /** Deleting this tab's copy after the last push account failed: the next `share` tries again. */
+  #unclear = false;
   /** Last `pause`; never rejects. */
   #pausing: Promise<void> = Promise.resolve();
 
@@ -261,6 +271,8 @@ export class MailPush {
    * the next start tries again.
    */
   async resume(): Promise<void> {
+    const user = this.env.user();
+    if (user !== null) await this.#dropForeign(user);
     this.#listen();
     try {
       const found = await this.#own();
@@ -321,21 +333,46 @@ export class MailPush {
     );
   }
 
-  /** Stores the copy for the service worker while an account has push; otherwise no addresses stay behind. */
+  /**
+   * Stores the copy for the service worker while an account has push; otherwise no addresses stay behind –
+   * neither this user's nor those of another user who signed in before in this browser.
+   */
   share(copy: MailPushCopy): void {
     if (!Object.values(this.status).some((status) => status === 'on' || status === 'pending')) {
-      if (this.#shared === null) return;
+      if (this.#shared === null && !this.#unclear) {
+        void this.#dropForeign(copy.user);
+        return;
+      }
       this.#shared = null;
-      this.env.store.clear().catch(() => {});
+      this.#owner = copy.user;
+      this.#unclear = false;
+      // Not deleted: the next call deletes again, and whatever is stored is unknown again.
+      void this.env.store
+        .clear()
+        .catch(() => false)
+        .then((done) => {
+          if (done) return;
+          this.#owner = null;
+          this.#unclear = true;
+        });
       return;
     }
     const text = JSON.stringify(copy);
     if (text === this.#shared) return;
     this.#shared = text;
+    this.#owner = copy.user;
     // Without a copy no quiet hours apply and the app is named like its host.
-    this.env.store.write(copy).catch(() => {
-      this.#shared = null;
-    });
+    this.env.store.write(copy).then(
+      () => {
+        // Replaced: a deletion still pending is no longer needed.
+        this.#unclear = false;
+      },
+      () => {
+        this.#shared = null;
+        // A copy of another user may still be there: the next call checks again.
+        this.#owner = null;
+      },
+    );
   }
 
   /** Before signing out: remove entries at the mail servers while there are tokens. Errors stay silent. */
@@ -355,6 +392,8 @@ export class MailPush {
     }
     await this.env.store.clear().catch(() => {});
     this.#shared = null;
+    this.#owner = null;
+    this.#unclear = false;
     this.status = {};
   }
 
@@ -367,7 +406,25 @@ export class MailPush {
     this.#waiters.clear();
     this.#running.clear();
     this.#shared = null;
+    this.#owner = null;
+    this.#unclear = false;
     this.status = {};
+  }
+
+  /**
+   * Removes the copy of another app user (signed in before in this browser, the copy stays for
+   * their notices when the session expires): its addresses, quiet hours and app name must not
+   * outlive the change of user. A copy this tab writes in the meantime replaces it anyway.
+   */
+  async #dropForeign(user: string): Promise<void> {
+    if (this.#owner === user || this.#shared !== null) return;
+    const generation = this.#generation;
+    const stored = await this.env.store.read().catch(() => undefined);
+    if (stored === undefined || generation !== this.#generation || this.#shared !== null) return;
+    // Only once the foreign copy is gone does this user count as checked; otherwise the next
+    // `resume`/`share` tries again.
+    if (stored !== null && stored.user !== user && !(await this.env.store.clear().catch(() => false))) return;
+    if (generation === this.#generation) this.#owner = user;
   }
 
   /**

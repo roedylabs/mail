@@ -268,6 +268,10 @@ struct CreateBody {
     code_verifier: Option<String>,
     /// `token`: access token.
     token: Option<String>,
+    /// App user the browser started the sign-in for; if it is not the
+    /// signed-in user (another sign-in in the same browser meanwhile), 409
+    /// `session_changed` before anything is exchanged or stored.
+    user_id: Option<String>,
 }
 
 /// "Sign in again": the same fields as when creating, without account and
@@ -282,6 +286,10 @@ struct ReauthBody {
     code: Option<String>,
     code_verifier: Option<String>,
     token: Option<String>,
+    /// App user the browser started the sign-in for; if it is not the
+    /// signed-in user (another sign-in in the same browser meanwhile), 409
+    /// `session_changed` before anything is exchanged or stored.
+    user_id: Option<String>,
 }
 
 /// Tokens or code from the body.
@@ -820,12 +828,24 @@ impl Login {
     }
 }
 
+/// 409 `session_changed` if the browser started the sign-in for another app
+/// user than the one signed in now (`user_id` in the body).
+fn same_user(expected: Option<&str>, user_id: &str) -> Result<(), ApiError> {
+    match expected {
+        Some(expected) if expected != user_id => {
+            Err(ApiError::rejected(StatusCode::CONFLICT, "session_changed"))
+        }
+        _ => Ok(()),
+    }
+}
+
 async fn create(
     State(state): State<AppState>,
     CurrentUser(user): CurrentUser,
     JsonBody(mut body): JsonBody<CreateBody>,
 ) -> Result<(StatusCode, Json<AccountView>), ApiError> {
     let received = Instant::now();
+    same_user(body.user_id.as_deref(), &user.id)?;
     let mut errors = FieldErrors::default();
     let hint = body.email.trim().to_lowercase();
     if hint.is_empty() {
@@ -982,6 +1002,7 @@ async fn reauth(
     JsonBody(body): JsonBody<ReauthBody>,
 ) -> Result<Json<AccountView>, ApiError> {
     let received = Instant::now();
+    same_user(body.user_id.as_deref(), &user.id)?;
     let (user_id, row) = (user.id.clone(), id.clone());
     let found = db::call(&state.db, move |conn| {
         let Some(account) = mail_accounts::get(conn, &user_id, &row)? else {

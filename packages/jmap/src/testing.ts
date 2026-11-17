@@ -14,6 +14,7 @@ export interface Seen {
   body: BodyInit | null;
   signal: AbortSignal | null;
   keepalive: boolean;
+  cache: RequestCache | null;
 }
 
 export type Reply = Response | ((seen: Seen) => Response | Promise<Response>);
@@ -30,6 +31,7 @@ export function fakeFetch(...replies: Reply[]): { fetch: typeof fetch; seen: See
       body: init.body ?? null,
       signal: init.signal ?? null,
       keepalive: init.keepalive ?? false,
+      cache: init.cache ?? null,
     };
     seen.push(entry);
     const reply = queue.shift();

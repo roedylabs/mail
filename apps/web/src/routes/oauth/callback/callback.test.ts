@@ -1,14 +1,27 @@
 import { render } from '@testing-library/svelte';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { mailLogin } from '#lib/auth/mail-login.svelte.ts';
 import { savePending, type Pending } from '#lib/auth/stalwart-login.ts';
 import { mockApi } from '#lib/state/fetch-mock.ts';
+import { session, type Me } from '#lib/state/session.svelte.ts';
 import Page from './+page.svelte';
 
 const nav = vi.hoisted(() => ({ goto: vi.fn(() => Promise.resolve()) }));
 vi.mock('$app/navigation', () => ({ goto: nav.goto }));
 
 const MAIL = 'https://mail.example.com';
+
+const ME: Me = {
+  id: 'u1',
+  username: null,
+  email: 'alex@example.com',
+  display_name: 'Alex',
+  role: 'user',
+  mfa_enabled: false,
+  password_changed_at: '2026-10-27T10:00:00Z',
+  email_change: null,
+  sole_admin: false,
+};
 
 const pending: Pending = {
   state: 'st',
@@ -24,13 +37,19 @@ const pending: Pending = {
   issRequired: false,
   redirectUri: `${location.origin}/oauth/callback`,
   created: Date.now(),
+  user: 'u1',
 };
+
+beforeEach(() => {
+  session.user = ME;
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
   nav.goto.mockClear();
   sessionStorage.clear();
   mailLogin.reset();
+  session.user = null;
   history.replaceState(null, '', '/');
 });
 
