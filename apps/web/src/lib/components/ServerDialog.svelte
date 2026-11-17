@@ -9,6 +9,7 @@
 <script lang="ts">
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { focustrap } from '#lib/actions/focustrap.ts';
+  import { dialogDrag } from '#lib/dialog-drag.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
@@ -207,7 +208,7 @@
 
 {#if !isMobile}
   <div class="scrim" role="presentation" onmousedown={sd.overlay}>
-    <div class="dialog" role="dialog" aria-modal="true" use:focustrap aria-labelledby="{uid}-t">
+    <div class="dialog" role="dialog" aria-modal="true" use:focustrap {@attach dialogDrag()} aria-labelledby="{uid}-t">
       <div class="head">
         <span class="tile"><Icon name={sd.icon} /></span>
         <div class="head-text">

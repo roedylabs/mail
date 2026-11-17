@@ -5,6 +5,7 @@
 -->
 <script lang="ts">
   import { focustrap } from '#lib/actions/focustrap.ts';
+  import { dialogDrag } from '#lib/dialog-drag.ts';
   import type { CommandPaletteValues } from '#lib/shell.ts';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
@@ -27,7 +28,14 @@
 </script>
 
 <div class="scrim" role="presentation" onmousedown={onPalOverlay}>
-  <div class="dialog" role="dialog" aria-modal="true" use:focustrap aria-label={m.palette_label()}>
+  <div
+    class="dialog"
+    role="dialog"
+    aria-modal="true"
+    use:focustrap
+    {@attach dialogDrag()}
+    aria-label={m.palette_label()}
+  >
     <div class="head">
       <span class="spark"><Icon name="ti-sparkles" /></span>
       <input

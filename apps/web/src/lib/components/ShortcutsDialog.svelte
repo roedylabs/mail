@@ -4,6 +4,7 @@
 -->
 <script lang="ts">
   import { focustrap } from '#lib/actions/focustrap.ts';
+  import { dialogDrag } from '#lib/dialog-drag.ts';
   import type { ShortcutsDialogValues } from '#lib/shell.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
   import Icon from '#lib/components/Icon.svelte';
@@ -29,6 +30,7 @@
     role="dialog"
     aria-modal="true"
     use:focustrap
+    {@attach dialogDrag()}
     aria-label={m.shortcuts_title()}
     tabindex="-1"
   >

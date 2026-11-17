@@ -9,6 +9,7 @@
 -->
 <script lang="ts">
   import { focustrap } from '#lib/actions/focustrap.ts';
+  import { dialogDrag } from '#lib/dialog-drag.ts';
   import type { Snippet } from 'svelte';
   import { tooltip } from '#lib/actions/tooltip.ts';
   import Icon from '#lib/components/Icon.svelte';
@@ -137,6 +138,7 @@
       role="dialog"
       aria-modal="true"
       use:focustrap
+      {@attach dialogDrag()}
       aria-labelledby="{uid}-t"
       tabindex="-1"
     >

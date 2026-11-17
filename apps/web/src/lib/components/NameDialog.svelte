@@ -9,6 +9,7 @@
 <script lang="ts">
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { focustrap } from '#lib/actions/focustrap.ts';
+  import { dialogDrag } from '#lib/dialog-drag.ts';
   import { tick } from 'svelte';
   import type { NameDialogValues } from '#lib/state/folders.svelte.ts';
   import { tooltip } from '#lib/actions/tooltip.ts';
@@ -181,7 +182,7 @@
 
 {#if !isMobile}
   <div class="scrim" role="presentation" onmousedown={overlay}>
-    <div class="dialog" role="dialog" aria-modal="true" use:focustrap aria-labelledby="{uid}-t">
+    <div class="dialog" role="dialog" aria-modal="true" use:focustrap {@attach dialogDrag()} aria-labelledby="{uid}-t">
       {@render head()}
       <div class="body">
         <label class="field">

@@ -114,8 +114,8 @@ export class Ui {
   dark = $derived(isDarkMode(prefs.values.mode, this.systemDark.current));
   private coarse = new MediaQuery('(pointer: coarse)');
   /**
-   * Swipe gestures of the list: on mobile and tablet, the latter detected by the
-   * coarse primary pointer (touch) without the mobile layout.
+   * Swipe gestures of the list and dragging dialogs down: on mobile and tablet,
+   * the latter detected by the coarse primary pointer (touch) without the mobile layout.
    */
   swipeOn = $derived(this.isMobile || this.coarse.current);
 
