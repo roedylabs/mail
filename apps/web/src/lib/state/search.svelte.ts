@@ -565,10 +565,14 @@ export class Search {
       this.mail = null;
       return;
     }
-    // Back from a local area: the hits are there again immediately, the query refreshes them.
-    if (!this.mail && this.#parked?.key === key) this.mail = this.#parked;
+    // Back from a local area or to the search: the hits are there again immediately, the query
+    // refreshes them as far as they were loaded, so that loaded pages do not disappear.
+    const back = !this.mail && this.#parked?.key === key ? this.#parked : null;
+    if (back) this.mail = back;
     this.#parked = null;
-    this.#timer = setTimeout(() => void this.#load(gen, key, queries, raw), soon ? 0 : SEARCH_DELAY);
+    const extent: Record<string, number> = {};
+    if (back) for (const [account, p] of Object.entries(back.pages)) extent[account] = p.loaded;
+    this.#timer = setTimeout(() => void this.#load(gen, key, queries, raw, extent), soon ? 0 : SEARCH_DELAY);
   }
 
   /** Online again: refetch hits from storage from the server; the displayed ones stay until the response. */
@@ -579,21 +583,46 @@ export class Search {
     void this.#load(++this.#gen, cur.key, list, cur.words);
   }
 
-  /** First page of an account: from the server, without a response from storage. */
-  async #page(account: string, query: MailQuery, words: readonly string[]): Promise<MailPage> {
+  /**
+   * First page of an account: from the server, without a response from storage.
+   * With `extent` further pages up to that many positions (hits loaded before);
+   * if one of them fails, the pages so far apply.
+   */
+  async #page(account: string, query: MailQuery, words: readonly string[], extent = 0): Promise<MailPage> {
+    let first: MailPage;
     try {
-      return await this.#api.page(account, query, 0, MAIL_PAGE);
+      first = await this.#api.page(account, query, 0, MAIL_PAGE);
     } catch (error) {
       if (!isOffline(error)) throw error;
       return localPage(await this.#saved(account), account, query.filter, words);
     }
+    const out = { ...first, hits: [...first.hits] };
+    while (out.positions < extent && first.positions > 0 && out.total != null && out.positions < out.total) {
+      try {
+        first = await this.#api.page(account, query, out.positions, MAIL_PAGE);
+      } catch {
+        break;
+      }
+      out.hits.push(...first.hits);
+      out.positions += first.positions;
+      out.total = first.total;
+    }
+    return out;
   }
 
-  async #load(gen: number, key: string, list: readonly AccountQuery[], words: readonly string[]): Promise<void> {
+  async #load(
+    gen: number,
+    key: string,
+    list: readonly AccountQuery[],
+    words: readonly string[],
+    extent: Readonly<Record<string, number>> = {},
+  ): Promise<void> {
     const snippets = words.length > 0;
     const queries: Record<string, MailQuery> = {};
     for (const q of list) queries[q.account] = { filter: q.filter, snippets };
-    const got = await Promise.allSettled(list.map((q) => this.#page(q.account, queries[q.account]!, words)));
+    const got = await Promise.allSettled(
+      list.map((q) => this.#page(q.account, queries[q.account]!, words, extent[q.account])),
+    );
     if (gen !== this.#gen) return;
     const pages: Record<string, AccountPage> = {};
     const hits: MailHit[] = [];

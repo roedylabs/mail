@@ -619,6 +619,29 @@ describe('Search', () => {
       expect(s.hits.map((h) => h.id)).toEqual(['e2']);
     });
 
+    it('the refresh after returning keeps the pages loaded before', async () => {
+      pages.set('k1', [
+        { hits: [hit('k1', 'e1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'e2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'f1')], positions: 1, total: 2 },
+        { hits: [hit('k1', 'f2', '2026-11-01T09:00:00Z')], positions: 1, total: 2 },
+      ]);
+      s.open('inv', null);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      await s.more();
+      expect(s.hits.map((h) => h.id)).toEqual(['e1', 'e2']);
+      s.expectReturn('results');
+      s.done();
+      sync(['k1']);
+      s.navigating(THREAD, true);
+      s.takeReturn(THREAD);
+      sync(['k1']);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(page.mock.calls.map((c) => c[2])).toEqual([0, 1, 0, 1]);
+      expect(s.hits.map((h) => h.id)).toEqual(['f1', 'f2']);
+    });
+
     it('none without a navigation in the same task (contact, action) or to a list', async () => {
       s.expectReturn('results');
       await vi.advanceTimersByTimeAsync(0);
