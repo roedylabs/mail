@@ -508,10 +508,15 @@
     color: var(--deep);
   }
 
-  /* Hover after `.on`: an active button also shows `--hov` and `--fg`. */
-  .tool:hover {
-    background: var(--hov);
-    color: var(--fg);
+  /*
+   * Hover after `.on`: an active button also shows `--hov` and `--fg`. Only with
+   * a pointer, so that it does not stick after a tap and hide the active state.
+   */
+  @media (hover: hover) {
+    .tool:hover {
+      background: var(--hov);
+      color: var(--fg);
+    }
   }
 
   .badge {
