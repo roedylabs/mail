@@ -447,6 +447,34 @@ describe('Compose', () => {
     expect(c.values(TIME)?.from).toMatchObject({ email: 'k1@example.com', stale: true, multi: false });
   });
 
+  it('loads identities for the account switch without compose and retries failed ones', async () => {
+    let fail = true;
+    const calls: string[] = [];
+    const c = new Compose(
+      fakeApi({
+        identities: (a) => {
+          calls.push(a);
+          return a === 'k2' && fail ? Promise.reject(new Error('unreachable')) : Promise.resolve(IDS[a] ?? []);
+        },
+      }).api,
+    );
+    expect(c.identitiesOf('k1')).toBeNull();
+    c.loadIdentities(['k1', 'k2']);
+    expect(c.identitiesOf('k1')).toBeNull();
+    await settle();
+    expect(c.identitiesOf('k1')).toEqual(IDS.k1);
+    expect(c.identitiesOf('k2')).toBeNull();
+    // Loaded ones are not fetched again, a failed one on the next call.
+    fail = false;
+    c.loadIdentities(['k1', 'k2']);
+    await settle();
+    expect(calls).toEqual(['k1', 'k2', 'k2']);
+    expect(c.identitiesOf('k2')).toEqual([]);
+    // A change in Mail account › Identities reaches the account switch.
+    c.identitiesChanged('k1', [identity('i1', 'k1@example.com', { name: 'Anna B.' })]);
+    expect(c.identitiesOf('k1')?.[0]?.name).toBe('Anna B.');
+  });
+
   it('takes over identities from Mail account › Identities; an older fetch does not overwrite them', async () => {
     let resolve: (list: Identity[]) => void = () => {};
     const c = new Compose(
