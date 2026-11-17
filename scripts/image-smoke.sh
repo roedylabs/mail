@@ -1,7 +1,8 @@
 #!/bin/sh
 # Smoke test for the image (release.yml before and after the push, locally `just smoke`):
-# starts a container with a named volume, waits for the HEALTHCHECK and
-# checks user, endpoints, embedded SPA, setup token and version.
+# starts a container with a named volume and the restrictions of
+# deploy/compose.yml, waits for the HEALTHCHECK and checks user and privileges
+# of the process, endpoints, embedded SPA, setup token and version.
 #
 #   scripts/image-smoke.sh <image> [<version>]
 set -eu
@@ -24,7 +25,11 @@ trap cleanup EXIT
 
 [ "$(docker image inspect -f '{{.Config.User}}' "$image")" = 65532:65532 ] || fail "USER is not 65532:65532"
 
-docker run -d --name "$name" -p 127.0.0.1::8080 -v "$volume:/data" "$image" >/dev/null
+# The same restrictions as deploy/compose.yml: read-only file system apart from
+# /data and a tmpfs on /tmp, no capabilities, no privilege escalation.
+docker run -d --name "$name" -p 127.0.0.1::8080 -v "$volume:/data" \
+  --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+  "$image" >/dev/null
 url="http://$(docker port "$name" 8080/tcp | head -n 1)"
 
 # HEALTHCHECK (roedy-mail healthcheck) must report "healthy" within 30 s.
@@ -45,6 +50,24 @@ check() { # <description> <command …>
 }
 body() { curl -fsS "$url$1"; }
 status() { curl -s -o /dev/null -w '%{http_code}' "$url$1"; }
+
+# The server process as the host sees it (the image has no shell): UID and GID
+# 65532 (real, effective, saved, file system), no capabilities, no_new_privs.
+# Without /proc (Docker Desktop) only a note; in CI the check is mandatory.
+pid=$(docker inspect -f '{{.State.Pid}}' "$name")
+proc="/proc/$pid/status"
+if [ -r "$proc" ]; then
+  field() { sed -n "s/^$1:[[:space:]]*//p" "$proc" | tr -s '[:space:]' ' ' | sed 's/ $//'; }
+  check "UID 65532 (Uid: $(field Uid))" [ "$(field Uid)" = "65532 65532 65532 65532" ]
+  check "GID 65532 (Gid: $(field Gid))" [ "$(field Gid)" = "65532 65532 65532 65532" ]
+  check "no effective capabilities (CapEff: $(field CapEff))" [ "$(field CapEff)" = 0000000000000000 ]
+  check "empty capability bounding set (CapBnd: $(field CapBnd))" [ "$(field CapBnd)" = 0000000000000000 ]
+  check "no_new_privs (NoNewPrivs: $(field NoNewPrivs))" [ "$(field NoNewPrivs)" = 1 ]
+elif [ -n "${GITHUB_ACTIONS:-}" ]; then
+  fail "$proc missing, user and privileges of the process not checked"
+else
+  echo "User and privileges of the process not checked: $proc missing (e.g. Docker Desktop)"
+fi
 
 check "/healthz" sh -c "curl -fsS '$url/healthz' | grep -q '\"ok\"'"
 check "/readyz" sh -c "curl -fsS '$url/readyz' | grep -q '\"ok\"'"
@@ -73,20 +96,19 @@ fi
 # VmRSS of the server process via the host's /proc, in MB = 10^6 bytes like the
 # image size in release.yml. Without /proc (Docker Desktop) only a note.
 sleep 1
-pid=$(docker inspect -f '{{.State.Pid}}' "$name")
-if [ -r "/proc/$pid/status" ]; then
-  kib() { sed -n "s/^$1:[[:space:]]*\([0-9]*\) kB\$/\1/p" "/proc/$pid/status"; }
+if [ -r "$proc" ]; then
+  kib() { sed -n "s/^$1:[[:space:]]*\([0-9]*\) kB\$/\1/p" "$proc"; }
   mb() { awk -v k="$1" 'BEGIN { printf "%.1f", k * 1024 / 1000000 }'; }
   rss=$(kib VmRSS)
   peak=$(kib VmHWM)
-  check "VmRSS in /proc/$pid/status" [ -n "$rss" ]
-  check "VmHWM in /proc/$pid/status" [ -n "$peak" ]
+  check "VmRSS in $proc" [ -n "$rss" ]
+  check "VmHWM in $proc" [ -n "$peak" ]
   line="Idle RSS: $(mb "$rss") MB (peak since start $(mb "$peak") MB)"
   echo "$line"
   [ -z "${GITHUB_STEP_SUMMARY:-}" ] || echo "$line" >>"$GITHUB_STEP_SUMMARY"
   check "idle RSS ≤ 40 MB (actual: $(mb "$rss") MB)" [ $((rss * 1024)) -le 40000000 ]
 else
-  echo "RSS not measured: /proc/$pid/status missing (e.g. Docker Desktop)"
+  echo "RSS not measured: $proc missing (e.g. Docker Desktop)"
 fi
 
 docker stop -t 10 "$name" >/dev/null

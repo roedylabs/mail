@@ -1,8 +1,9 @@
 name: Release
 
 # Build, check and publish a release.
-# - Tag v*: web app and static musl binaries (`just dist`) → amd64 image →
-#   size, smoke test, Trivy → multi-arch push to ghcr.io with SBOM and
+# - Tag v*: only on the release commit on main (`just release-tag`) → web app
+#   and static musl binaries (`just dist`) → amd64 image → size, smoke test,
+#   Trivy → version not yet on ghcr.io → multi-arch push with SBOM and
 #   provenance → cosign signature and build attestations → check the published
 #   image → GitHub release with notes and binaries.
 # - Pull requests that change the image or this pipeline: build and check
@@ -16,6 +17,7 @@ on:
     paths:
       - Dockerfile
       - .dockerignore
+      - .github/buildkit/Dockerfile
       - Cargo.lock # new crates must also build for musl with Zig
       - justfile
       - scripts/image-smoke.sh
@@ -63,6 +65,15 @@ jobs:
             fi
             if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
               echo "::error::Tag $GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+            # Only the release commit itself (as `just release-tag` sets it):
+            # a tag on a later commit of main with the same version would
+            # publish unreleased code as x.y.z, x.y and latest. The squash
+            # merge appends " (#<PR>)" to the title.
+            title=$(git log -1 --format=%s "$GITHUB_SHA")
+            if [ "$(printf '%s\n' "$title" | sed -E 's/ \(#[0-9]+\)$//')" != "chore(release): v$version" ]; then
+              echo "::error::Tag $GITHUB_REF_NAME is not on the release commit 'chore(release): v$version' but on '$title'"
               exit 1
             fi
           fi
@@ -115,7 +126,20 @@ jobs:
           check dist/amd64/roedy-mail x86-64
           check dist/arm64/roedy-mail aarch64
 
+      # BuildKit pinned by digest instead of the moby/buildkit tag that
+      # setup-buildx-action would pull; Dependabot maintains the FROM line.
+      - name: BuildKit image
+        id: buildkit
+        run: |
+          image=$(sed -n 's/^FROM //p' .github/buildkit/Dockerfile)
+          if ! printf '%s\n' "$image" | grep -Eqx 'moby/buildkit:[^@ ]+@sha256:[0-9a-f]{64}'; then
+            echo "::error::.github/buildkit/Dockerfile has no FROM moby/buildkit:<tag>@sha256:<digest> (found '$image')"
+            exit 1
+          fi
+          echo "image=$image" >>"$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ steps.buildkit.outputs.image }}
       - name: Build image for amd64
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -195,12 +219,40 @@ jobs:
           name: dist
           path: dist
 
+      # BuildKit pinned by digest instead of the moby/buildkit tag that
+      # setup-buildx-action would pull; Dependabot maintains the FROM line.
+      - name: BuildKit image
+        id: buildkit
+        run: |
+          image=$(sed -n 's/^FROM //p' .github/buildkit/Dockerfile)
+          if ! printf '%s\n' "$image" | grep -Eqx 'moby/buildkit:[^@ ]+@sha256:[0-9a-f]{64}'; then
+            echo "::error::.github/buildkit/Dockerfile has no FROM moby/buildkit:<tag>@sha256:<digest> (found '$image')"
+            exit 1
+          fi
+          echo "image=$image" >>"$GITHUB_OUTPUT"
       - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+        with:
+          driver-opts: image=${{ steps.buildkit.outputs.image }}
       - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      # A moved or re-created tag must not overwrite a published version (and
+      # with it x.y and latest): the push only happens if the tag is missing.
+      - name: Version not yet published
+        run: |
+          if out=$(docker buildx imagetools inspect "$IMAGE:$VERSION" 2>&1); then
+            echo "::error::$IMAGE:$VERSION is already published; releases are never overwritten"
+            exit 1
+          fi
+          echo "$out"
+          # Fail closed: only "not found" counts as unpublished, not every error.
+          if ! printf '%s\n' "$out" | grep -Eqi 'not found|manifest unknown|name unknown'; then
+            echo "::error::Could not check whether $IMAGE:$VERSION is already published"
+            exit 1
+          fi
+          echo "$IMAGE:$VERSION is not published yet"
       - name: Tags and labels
         id: meta
         uses: docker/metadata-action@dc802804100637a589fabce1cb79ff13a1411302 # v6.2.0

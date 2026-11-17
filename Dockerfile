@@ -1,11 +1,14 @@
-# syntax=docker/dockerfile:1
-#
 # Roedy Mail image. The Dockerfile only packages: web app
 # and binary are built beforehand with `just dist` (in CI via release.yml) –
 # statically linked musl binaries with the embedded SPA under
 # dist/<amd64|arm64>/roedy-mail. Then `docker buildx build --platform
 # linux/amd64,linux/arm64 .` builds without emulation, because no stage runs
 # code of the target platform.
+#
+# No `# syntax=` line on purpose: the Dockerfile frontend built into BuildKit
+# is used, and release.yml runs BuildKit pinned by digest
+# (.github/buildkit/Dockerfile). Every image is pinned by tag and digest, which
+# Dependabot keeps up to date; scripts/docker-pins.test.mjs checks that.
 
 # File system for scratch: CA certificates, /data for USER 65532, /tmp for SQLite.
 FROM --platform=$BUILDPLATFORM alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf AS rootfs
