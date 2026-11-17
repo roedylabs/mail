@@ -16,8 +16,12 @@ vi.mock('$app/navigation', () => ({ goto: vi.fn(() => Promise.resolve()) }));
 
 // Local scopes come from `search-items` (own tests).
 const local = vi.hoisted(() => ({ candidates: [] as Candidate[] }));
+// Notifications of the bell: none, without a fetch.
+vi.mock('#lib/state/notifications.svelte.ts', () => ({ notifications: { list: [], load: vi.fn() } }));
+
 vi.mock('#lib/search-items.ts', () => ({
   searchCandidates: () => local.candidates,
+  notifItems: () => [],
   hitBox: () => ({ label: 'Inbox', role: 'inbox', target: { role: 'inbox' } }),
 }));
 
