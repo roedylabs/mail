@@ -335,9 +335,11 @@ export interface ReadValues {
   canTag: boolean;
   tg: ReadMenuButton;
   tgOpts: ReadTagOption[];
+  /** "Move": not for an email in drafts or Scheduled (per its mailbox, also in tag views). */
   canMove: boolean;
   mv: ReadMenuButton;
   mvOpts: ReadMoveOption[];
+  /** "Report spam": not in the trash and not for an email in sent, drafts or Scheduled (per its mailbox). */
   canSpam: boolean;
   spamIcon: 'ti-shield-check' | 'ti-alert-octagon';
   spamTip: string;
@@ -709,7 +711,9 @@ export function readValues(input: ReadInput): ReadValues {
   // Also per the mailbox of the email (e.g. a scheduled message in a tag view).
   const rmIn = (box: string | null) => !!box && rm.mailboxIds.includes(box);
   const sched = scheduled || rmIn(roles.scheduled);
-  const canReply = !(drafts || sched || isTrash || rmIn(roles.drafts));
+  const draft = drafts || rmIn(roles.drafts);
+  const outbox = isOutbox(kind) || draft || sched || rmIn(roles.sent);
+  const canReply = !(draft || sched || isTrash);
   // "Reply all" if there is someone besides the sender and the own account; for own
   // emails the reply goes to the recipients, so "all" only from two (`replyContext`).
   const shown = msgs.find((x) => x.key === rm.id);
@@ -768,10 +772,10 @@ export function readValues(input: ReadInput): ReadValues {
     canTag: !isTrash,
     tg: menuButton(input.menu === 'tag'),
     tgOpts: tagOptions(input.tagTree, tagged),
-    canMove: !drafts && !scheduled,
+    canMove: !draft && !sched,
     mv: menuButton(input.menu === 'move'),
     mvOpts: moveOptions(input.move, { base: 12, step: 16 }),
-    canSpam: !isOutbox(kind) && !isTrash,
+    canSpam: !outbox && !isTrash,
     spamIcon: inSpam ? 'ti-shield-check' : 'ti-alert-octagon',
     spamTip: inSpam ? m.read_not_spam() : m.read_spam(),
     thIcon: mDark ? 'ti-sun' : 'ti-moon',
