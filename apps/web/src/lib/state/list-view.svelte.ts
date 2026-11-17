@@ -38,9 +38,14 @@ export class ListView {
     return this.#to === pathname ? 'all' : this.segment;
   }
 
-  /** The page shows `pathname`: completes a choice on the way there. */
+  /**
+   * The mailbox page shows `pathname`: completes a choice on the way there.
+   * Arriving anywhere else abandons it (another navigation superseded it), so
+   * a later visit there through back or forward keeps the segment.
+   */
   reached(pathname: string): void {
     if (this.#to === pathname) this.#complete();
+    else this.#to = null;
   }
 
   #complete(): void {

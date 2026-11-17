@@ -66,9 +66,22 @@ describe('ListView', () => {
     v.segment = 'unread';
     v.choose(SENT, INBOX);
     v.choose('/mailbox/a1/drafts', INBOX);
-    v.reached(SENT);
-    expect(v.segment).toBe('unread');
+    expect(v.segmentAt(SENT)).toBe('unread');
     v.reached('/mailbox/a1/drafts');
     expect(v.segment).toBe('all');
+  });
+
+  it('a choice superseded by another navigation is dropped: a later visit keeps the segment', () => {
+    const v = new ListView();
+    v.segment = 'unread';
+    v.choose(SENT, INBOX);
+    // Another navigation (e.g. history back) arrives first.
+    v.reached('/mailbox/a1/drafts');
+    expect(v.segment).toBe('unread');
+    expect(v.chosen).toBe(0);
+    // Later in "Sent" through back or forward: no reset.
+    v.reached(SENT);
+    expect(v.segmentAt(SENT)).toBe('unread');
+    expect(v.segment).toBe('unread');
   });
 });
