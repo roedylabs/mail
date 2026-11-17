@@ -1,12 +1,14 @@
 /**
- * Swipe gestures of the message list and the toast, and dragging sheets and
- * dialogs down to close them: actions per direction from the settings,
- * threshold, rubber band, sliding out or springing back.
+ * Swipe gestures of the message list and the toast, dragging sheets and
+ * dialogs down to close them, and swiping back in the settings: actions per
+ * direction from the settings, threshold, rubber band, sliding out or
+ * springing back.
  *
  * The gestures paint directly on the DOM (offset, clip and colour of the
  * background), not via Svelte state: otherwise every pointer move would change
  * the values of the whole list. One gesture at a time.
  */
+import { tick } from 'svelte';
 import type { Attachment } from 'svelte/attachments';
 import type { IconName } from '#lib/icons.ts';
 import { hideTooltip } from '#lib/actions/tooltip.ts';
@@ -177,8 +179,8 @@ interface Steps {
   /** After 8 px: does the movement belong to this gesture? Otherwise tracking ends (scrolling stays with the browser). */
   decide: (dx: number, dy: number) => boolean;
   start: () => void;
-  /** Movement since the point of decision. */
-  move: (dx: number, dy: number) => void;
+  /** Movement since the point of decision, with the pointer event (at the decision the one that decided). */
+  move: (dx: number, dy: number, e: PointerEvent) => void;
   /**
    * Released with the velocity in px/ms; `cancelled` if the browser cancelled
    * the gesture (`pointercancel`, e.g. a system gesture): then back without an
@@ -239,7 +241,7 @@ function follow(down: PointerEvent, steps: Steps): void {
     const dx = e.clientX - x0;
     const dy = e.clientY - y0;
     if (decided) {
-      steps.move(dx, dy);
+      steps.move(dx, dy, e);
       return;
     }
     if (Math.hypot(dx, dy) < SLOP) return;
@@ -256,7 +258,7 @@ function follow(down: PointerEvent, steps: Steps): void {
     window.getSelection()?.removeAllRanges();
     hideTooltip();
     steps.start();
-    steps.move(0, 0);
+    steps.move(0, 0, e);
   };
   const onUp = (e: PointerEvent) => {
     if (e.pointerId !== id) return;
@@ -516,12 +518,14 @@ function fling(sc: HTMLElement, v: number): void {
   flingRaf = requestAnimationFrame(step);
 }
 
-/** Nearest element between `from` and `stop` (exclusive) that scrolls vertically (`gScroller`). */
-function scroller(from: Element, stop: Element): HTMLElement | null {
+/** Nearest element between `from` and `stop` (exclusive) that scrolls vertically or horizontally (`gScroller`). */
+function scroller(from: Element, stop: Element, axis: 'x' | 'y' = 'y'): HTMLElement | null {
   for (let n: Element | null = from; n && n !== stop; n = n.parentElement) {
     if (!(n instanceof HTMLElement)) continue;
-    const o = getComputedStyle(n).overflowY;
-    if ((o === 'auto' || o === 'scroll') && n.scrollHeight > n.clientHeight + 1) return n;
+    const cs = getComputedStyle(n);
+    const o = axis === 'y' ? cs.overflowY : cs.overflowX;
+    const more = axis === 'y' ? n.scrollHeight > n.clientHeight + 1 : n.scrollWidth > n.clientWidth + 1;
+    if ((o === 'auto' || o === 'scroll') && more) return n;
   }
   return null;
 }
@@ -642,6 +646,193 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
     return () => {
       el.removeEventListener('pointerdown', onDown);
       clearTimeout(resetTimer);
+    };
+  };
+}
+
+// --- Back ---
+
+/** Progress 0 to 1 of the back gesture for the movement `dx`: complete at 45 % of the width, at most 360 px. */
+export const backProgress = (dx: number, width: number): number =>
+  Math.min(1, Math.max(0, dx) / Math.min(width * 0.45, 360));
+
+/** The back gesture is "ready" (chip in the accent colour): further than 25 % of the width, at most 180 px. */
+export const backReady = (dx: number, width: number): boolean => Math.max(0, dx) > Math.min(width * 0.25, 180);
+
+/** Going back on release: ready, or flung to the right faster than 0.45 px/ms after more than 24 px. */
+export const backFires = (dx: number, vx: number, width: number): boolean =>
+  backReady(dx, width) || (vx > 0.45 && dx > 24);
+
+/** Top edge of the chip at finger height `py` (its middle), at least 70 px from the top and 120 px from the bottom of the area of `height`. */
+export const backChipY = (py: number, height: number): number => Math.min(Math.max(py - 22, 70), height - 120);
+
+/** Values of the back gesture; `null` from `get` turns it off (desktop, a view without "Back"). */
+export interface BackSwipe {
+  /** Setting "Animations": without it, the page goes and comes back immediately. */
+  animations: boolean;
+  /** The way back of the back button; resolves once the new view is shown, which then slides in. */
+  back: () => Promise<void>;
+}
+
+/** Inline styles of the page that the back gesture sets and clears again. */
+const BACK_STYLES = [
+  'transition',
+  'translate',
+  'scale',
+  'borderRadius',
+  'background',
+  'overflow',
+  'boxShadow',
+  'opacity',
+] as const;
+
+/**
+ * Swiping right to go back, as an attachment on the page (mobile: back bar and
+ * panel; tablet: the row of settings navigation and panel). Its parent holds
+ * the layer underneath (`[data-back-under]`, only mobile) and the arrow chip
+ * (`[data-back-chip]`), both with `opacity: 0` via CSS. Horizontal movement to
+ * the right anywhere on the page except in fields and in content scrolled
+ * sideways; the page needs `touch-action: pan-y`. The page moves right by up
+ * to 7 % of the width and shrinks, the layer fades in and the chip follows at
+ * finger height. Released when ready or flung, the page flies out, `back` runs
+ * and the new view slides in; otherwise, and always after `pointercancel`,
+ * everything springs back.
+ */
+export function swipeBack(get: () => BackSwipe | null): Attachment<HTMLElement> {
+  return (el) => {
+    let resetTimer: ReturnType<typeof setTimeout> | undefined;
+    let alive = true;
+    /** This page holds the lock of all gestures until `back` has settled (`animating`). */
+    let holding = false;
+    const release = () => {
+      if (holding) animating = false;
+      holding = false;
+    };
+    const reset = () => {
+      for (const k of BACK_STYLES) el.style[k] = '';
+    };
+
+    const onDown = (e: PointerEvent) => {
+      if (!canStart(e)) return;
+      const o = get();
+      const root = el.parentElement;
+      if (!o || !root) return;
+      const ms = (n: number) => (o.animations ? n : 0);
+      const target = e.target instanceof Element ? e.target : el;
+      let under: HTMLElement | null = null;
+      let chip: HTMLElement | null = null;
+      let width = 0;
+      let x = 0;
+
+      follow(e, {
+        decide: (dx, dy) => {
+          if (Math.abs(dx) <= Math.abs(dy) || dx <= 0) return false;
+          // Content scrolled sideways scrolls back first.
+          const sc = scroller(target, el, 'x');
+          return !(sc && sc.scrollLeft > 0);
+        },
+        start: () => {
+          clearTimeout(resetTimer);
+          under = root.querySelector<HTMLElement>('[data-back-under]');
+          chip = root.querySelector<HTMLElement>('[data-back-chip]');
+          width = root.offsetWidth;
+          Object.assign(el.style, {
+            transition: 'none',
+            background: 'var(--cnv)',
+            overflow: 'hidden',
+            boxShadow: 'var(--sh3)',
+          });
+          if (under) under.style.transition = 'none';
+          if (chip) chip.style.transition = 'none';
+        },
+        move: (dx, dy, ev) => {
+          x = dx;
+          const p = backProgress(dx, width);
+          const ready = backReady(dx, width);
+          el.style.translate = `${p * width * 0.07}px ${dy * 0.08 * p}px`;
+          el.style.scale = String(1 - p * 0.08);
+          el.style.borderRadius = `${p * 36}px`;
+          if (under) under.style.opacity = String(p);
+          if (chip) {
+            const py = ev.clientY - root.getBoundingClientRect().top;
+            Object.assign(chip.style, {
+              transition: 'background-color 160ms, color 160ms, scale 180ms cubic-bezier(.3,1.6,.5,1)',
+              opacity: String(Math.min(1, p * 2.5)),
+              translate: `${-52 + p * 66}px ${backChipY(py, root.offsetHeight)}px`,
+              scale: ready ? '1.08' : String(0.7 + 0.25 * p),
+              background: ready ? 'var(--acc)' : 'var(--surface)',
+              color: ready ? 'var(--accink)' : 'var(--fg)',
+            });
+          }
+        },
+        end: (vx, _vy, cancelled) => {
+          // Cancelled by the browser or the system (`pointercancel`): back, even when ready.
+          if (!cancelled && backFires(x, vx, width)) {
+            const t = ms(190);
+            el.style.transition = `translate ${t}ms ${ACCEL}, scale ${t}ms ${ACCEL}, opacity ${t}ms ease-in`;
+            el.style.translate = `${width * 0.35}px 0`;
+            el.style.scale = '0.86';
+            el.style.opacity = '0';
+            if (chip) {
+              chip.style.transition = `opacity ${t}ms, scale ${t}ms`;
+              chip.style.opacity = '0';
+              chip.style.scale = '1.3';
+            }
+            // The new view: from the left and smaller, the layer underneath fades out (`gPending`).
+            const slideIn = () => {
+              release();
+              // Detached in the meantime: teardown has reset the page, which may now belong to a new gesture.
+              if (!alive) return;
+              reset();
+              if (o.animations && typeof el.animate === 'function') {
+                el.animate(
+                  [
+                    { opacity: 0, translate: '-28px 0', scale: '0.97' },
+                    { opacity: 1, translate: '0 0', scale: '1' },
+                  ],
+                  { duration: 320, easing: 'cubic-bezier(.2,.9,.3,1)' },
+                );
+              }
+              if (under) {
+                under.style.transition = `opacity ${ms(260)}ms ease`;
+                under.style.opacity = '0';
+              }
+            };
+            later(t, () => {
+              if (!alive) return;
+              // No new gesture until the new view is shown (navigation is asynchronous).
+              animating = true;
+              holding = true;
+              void o.back().then(tick).finally(slideIn);
+            });
+            return;
+          }
+          const t = ms(380);
+          el.style.transition = `translate ${t}ms ${SPRING}, scale ${t}ms ${SPRING}, border-radius ${t}ms ease`;
+          el.style.translate = '0 0';
+          el.style.scale = '1';
+          el.style.borderRadius = '0px';
+          if (under) {
+            under.style.transition = `opacity ${t}ms ease`;
+            under.style.opacity = '0';
+          }
+          if (chip) {
+            chip.style.transition = `opacity 160ms, translate ${t}ms ease`;
+            chip.style.opacity = '0';
+          }
+          resetTimer = setTimeout(reset, t + 30);
+        },
+      });
+    };
+
+    el.addEventListener('pointerdown', onDown);
+    return () => {
+      alive = false;
+      // Gone while going back: free the other gestures; a later completion changes nothing.
+      release();
+      el.removeEventListener('pointerdown', onDown);
+      clearTimeout(resetTimer);
+      reset();
     };
   };
 }

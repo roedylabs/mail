@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { m } from '#lib/paraglide/messages.js';
-import { returnable, returnBackLabel, returnLabel, returnToSearch } from '#lib/search-return.ts';
+import { returnable, returnBackLabel, returnLabel, returnToSearch, searchReturn } from '#lib/search-return.ts';
 import { search } from '#lib/state/search.svelte.ts';
 
 const nav = vi.hoisted(() => ({ goto: vi.fn() }));
@@ -47,5 +47,18 @@ describe('Return path to the search', () => {
     expect(returnToSearch('/mailbox/a1/inbox/t1')).toBe(true);
     expect(nav.goto).toHaveBeenCalledWith('/search');
     expect(search.q).toBe('invoice');
+  });
+
+  it('hands the navigation to the search to the back gesture, null without a return path', async () => {
+    const shown = Promise.resolve();
+    nav.goto.mockReturnValueOnce(shown);
+    expect(searchReturn('/settings/general')).toBeNull();
+    search.expectReturn('search');
+    search.done();
+    search.navigating('/settings/general', true);
+    const back = searchReturn('/settings/general');
+    expect(back).toBe(shown);
+    await back;
+    expect(nav.goto).toHaveBeenCalledWith('/search');
   });
 });
