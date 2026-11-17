@@ -13,7 +13,7 @@
   import '@fontsource/young-serif/400.css';
   import '../app.css';
   import { onMount, tick, untrack } from 'svelte';
-  import { afterNavigate, goto } from '$app/navigation';
+  import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import type { TipState } from '#lib/actions/tooltip.ts';
@@ -141,6 +141,7 @@
   import { edits } from '#lib/state/edits.svelte.ts';
   import { network, pollVisible } from '#lib/state/network.svelte.ts';
   import { scopeOf, search } from '#lib/state/search.svelte.ts';
+  import { returnable, returnBackLabel, returnLabel, searchReturn } from '#lib/search-return.ts';
   import { swipeBack, TOAST_BACK_MS, type BackSwipe, type ToastSwipe } from '#lib/swipe.ts';
   import { ago } from '#lib/ago.ts';
   import { editLogs } from '#lib/mail-queue.ts';
@@ -311,9 +312,15 @@
     };
   });
 
+  // Return path to the search: the navigation of an opened hit sets it, leaving its target ends it.
+  beforeNavigate(({ to }) => {
+    if (to) search.navigating(to.url.pathname, returnable(to.url.pathname));
+  });
+
   // History within the app for the error page's "Back". The app's start does not count: in the SPA
   // `from.url` is `null` there, unlike in SvelteKit's type. If this threw, the router would never start.
   afterNavigate(({ from, to }) => {
+    if (to) search.arrived(to.url.pathname);
     if (!from?.url) return;
     ui.navigated = true;
     if (to && to.url.pathname !== from.url.pathname) {
@@ -1515,15 +1522,22 @@
         })
       : null,
   );
-  /** Mobile "Back": on start to "Email accounts", on a subpage with the account's address (`mBackLabel`). */
+  /** Return path to the search at this page; the email account's own way back takes precedence. */
+  const searchBack = $derived(maRoute ? null : search.returnAt(path));
+  /**
+   * Mobile "Back": on start to "Email accounts", on a subpage with the account's address; after a
+   * search hit "Search" or "Search results" (`mBackLabel`).
+   */
   const mBackLabel = $derived(
     maRoute
       ? panelList
         ? m.mail_account_back_list()
         : accounts.get(maRoute.id)?.email || m.nav_group_account()
-      : panelList
-        ? backToApp
-        : sectionName,
+      : searchBack
+        ? returnLabel(searchBack.kind)
+        : panelList
+          ? backToApp
+          : sectionName,
   );
 
   /** Mobile from the "More" menu: first the area's list (`openSettings()` without a page). */
@@ -1538,10 +1552,12 @@
   }
 
   /**
-   * "Back" of the mobile header: from the page to the list, from the list to the app (`mBack`);
+   * "Back" of the mobile header: back to the search, from the page to the list, from the list to the app (`mBack`);
    * resolves once the target is shown.
    */
   function panelBack(): Promise<void> {
+    const toSearch = maRoute ? null : searchReturn(path);
+    if (toSearch) return toSearch;
     if (ui.isMobile && !panelList) {
       ui.panelList = path;
       return tick();
@@ -1549,8 +1565,13 @@
     return navigate(maRoute ? hrefOf('/account/mail-accounts') : HOME);
   }
 
-  /** "Back" of the settings navigation (desktop and tablet): to the app, from a mail account to its list. */
-  const deskBack = (): Promise<void> => navigate(maNav ? hrefOf('/account/mail-accounts') : HOME);
+  /**
+   * "Back" of the settings navigation (desktop and tablet): back to the search, to the app, from a
+   * mail account to its list; resolves once the target is shown.
+   */
+  function deskBack(): Promise<void> {
+    return (maNav ? null : searchReturn(path)) ?? navigate(maNav ? hrefOf('/account/mail-accounts') : HOME);
+  }
 
   /**
    * Swiping right to go back (same target as "Back"): on mobile on the page of the panel,
@@ -1581,7 +1602,7 @@
       advanced: prefs.values.advanced,
       open: openPage,
     });
-    const backLabel = maNav ? m.mail_account_back() : backToApp;
+    const backLabel = maNav ? m.mail_account_back() : searchBack ? returnBackLabel(searchBack.kind) : backToApp;
     return {
       isMobile: ui.isMobile,
       appName: session.appName,

@@ -34,8 +34,11 @@
 
   const isMobile = $derived(ui.isMobile);
 
-  /** Hits of all areas and values of the results, shared with the search suggestions. */
-  const view = new SearchView();
+  /**
+   * Hits of all areas and values of the results, shared with the search suggestions.
+   * An opened hit remembers the way back: "Search results" on desktop, "Search" on mobile.
+   */
+  const view = new SearchView(undefined, () => (ui.isMobile ? 'search' : 'results'));
   const srOff = $derived(view.srOff);
   const rp = $derived(view.rp);
 

@@ -182,6 +182,26 @@ describe('Search', () => {
     expect(nav.goto).toHaveBeenCalledWith('/mailbox/a1/inbox/t-m1');
   });
 
+  it('an opened hit remembers the search as "Search results", on mobile as "Search"', async () => {
+    const THREAD = '/mailbox/a1/inbox/t-m1';
+    for (const [setup, kind] of [
+      [() => {}, 'results'],
+      [mobile, 'search'],
+    ] as const) {
+      setup();
+      answer([hit('m1', 'Meeting with Anna')]);
+      search.q = 'anna';
+      search.set({ st: ['u'] });
+      const view = render(Page);
+      await fireEvent.click(await view.findByText(/^Anna Berg · Inbox$/));
+      // The layout reports the navigation the hit started (`beforeNavigate`).
+      search.navigating(THREAD, true);
+      expect(search.ret).toMatchObject({ kind, target: THREAD, snap: { q: 'anna', sf: { st: ['u'] } } });
+      view.unmount();
+      search.reset();
+    }
+  });
+
   it('removes the “From” filter via its chip', async () => {
     answer([hit('m1', 'Meeting')]);
     search.searchFrom('anna@example.com');
