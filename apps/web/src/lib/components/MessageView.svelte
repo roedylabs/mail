@@ -55,6 +55,25 @@
   interface Props {
     rd: ReadValues;
     isMobile: boolean;
+    /**
+     * Conversation shown: another one replaces the content in place and
+     * starts at the top (`pfOpen` › `scrollTop = 0`), without rebuilding the
+     * view or animating it in again.
+     */
+    conversationKey?: string | null;
+    /** Animate in when appearing (`snFromL`): only on opening, not when paging; read once. */
+    enter?: boolean;
+    /**
+     * Grows with "Reply" and "Reply all" (`pfReply`): the text of the bar
+     * gets focus each time, also when the bar is already open.
+     */
+    replyFocus?: number;
+    /**
+     * Paging button (`data-nav`) that had focus when the skeleton replaced
+     * the view while paging: it gets focus again when the view returns.
+     * Read once.
+     */
+    focusNav?: string | null;
     /** Back to the list (`rd.close`). */
     onClose: () => void;
     onPrev: () => void;
@@ -109,6 +128,10 @@
   let {
     rd,
     isMobile,
+    conversationKey = null,
+    enter = true,
+    replyFocus = 0,
+    focusNav = null,
     onClose,
     onPrev,
     onNext,
@@ -137,6 +160,43 @@
     rp,
     replyActions,
   }: Props = $props();
+
+  // Only on mounting: the view stays when paging, the class must not go away mid-animation.
+  const animate = untrack(() => enter);
+
+  /** Scroll area of the message (desktop `.scroll`, mobile `.m-card`). */
+  let scroller: HTMLElement | undefined = $state();
+  // Another conversation starts at the top, not at the previous one's position.
+  let shownKey = untrack(() => conversationKey);
+  $effect(() => {
+    const key = conversationKey;
+    if (key === shownKey) return;
+    shownKey = key;
+    untrack(() => {
+      if (scroller) scroller.scrollTop = 0;
+    });
+  });
+
+  /** Root of the view; mounted again after the skeleton while paging, `focusNav` gets focus back. */
+  let root: HTMLElement | undefined = $state();
+  const restoreNav = untrack(() => focusNav);
+  $effect(() => {
+    if (animate || !restoreNav || !root) return;
+    // Only if focus did not go elsewhere meanwhile.
+    const active = document.activeElement;
+    if (active && active !== document.body) return;
+    untrack(() => root?.querySelector<HTMLElement>(`[data-nav="${restoreNav}"]`)?.focus());
+  });
+
+  /** Text of the open reply bar. */
+  let replyField: HTMLTextAreaElement | undefined = $state();
+  let focusedFor = untrack(() => replyFocus);
+  $effect(() => {
+    const n = replyFocus;
+    if (n === focusedFor) return;
+    focusedFor = n;
+    untrack(() => replyField?.focus());
+  });
 
   /** Colors that the message theme (`rd.tv`) replaces in the message area. */
   const TV_VARS = [
@@ -329,6 +389,7 @@
     oninput={(e) => replyActions.text(e.currentTarget.value)}
     onkeydown={mobile ? undefined : onReplyKey}
     placeholder={rp.ph}
+    bind:this={replyField}
     use:autofocus={rp.notFwd}></textarea>
 {/snippet}
 
@@ -581,7 +642,7 @@
 {/snippet}
 
 {#if !isMobile}
-  <div class="rd">
+  <div class="rd" class:enter={animate} bind:this={root}>
     <div class="bar-wrap">
       <div role="toolbar" aria-label={m.read_toolbar()} class="bar">
         <button type="button" class="back" onclick={onClose} use:tooltip={m.read_back_tip()}
@@ -742,6 +803,7 @@
           class="ib nav"
           style:opacity={rd.prevOp}
           style:cursor={rd.prevCur}
+          data-nav="prev"
           onclick={onPrev}
           aria-label={m.read_prev()}
           use:tooltip={m.read_prev_tip()}><Icon name="ti-chevron-left" /></button
@@ -751,6 +813,7 @@
           class="ib nav"
           style:opacity={rd.nextOp}
           style:cursor={rd.nextCur}
+          data-nav="next"
           onclick={onNext}
           aria-label={m.read_next()}
           use:tooltip={m.read_next_tip()}><Icon name="ti-chevron-right" /></button
@@ -760,6 +823,7 @@
 
     <div
       class="scroll no-scrollbar"
+      bind:this={scroller}
       {@attach scrollbar}
       style={tvStyle}
       style:margin={rd.tv.m}
@@ -819,7 +883,7 @@
     </div>
   </div>
 {:else}
-  <div class="m-rd">
+  <div class="m-rd" class:enter={animate} bind:this={root}>
     <div class="m-bar">
       <!-- Name "Back" with the visible folder (WCAG 2.5.3). -->
       <button type="button" class="m-back" onclick={onClose}
@@ -828,11 +892,21 @@
         ></button
       >
       <span class="grow"></span>
-      <button type="button" class="m-ib m-nav" style:opacity={rd.prevOp} onclick={onPrev} aria-label={m.read_prev()}
-        ><Icon name="ti-chevron-up" /></button
+      <button
+        type="button"
+        class="m-ib m-nav"
+        style:opacity={rd.prevOp}
+        data-nav="prev"
+        onclick={onPrev}
+        aria-label={m.read_prev()}><Icon name="ti-chevron-up" /></button
       >
-      <button type="button" class="m-ib m-nav" style:opacity={rd.nextOp} onclick={onNext} aria-label={m.read_next()}
-        ><Icon name="ti-chevron-down" /></button
+      <button
+        type="button"
+        class="m-ib m-nav"
+        style:opacity={rd.nextOp}
+        data-nav="next"
+        onclick={onNext}
+        aria-label={m.read_next()}><Icon name="ti-chevron-down" /></button
       >
       <button
         type="button"
@@ -851,7 +925,7 @@
         aria-expanded={moreOpen}><Icon name="ti-dots-vertical" /></button
       >
     </div>
-    <main class="m-card no-scrollbar" style={tvStyle}>
+    <main class="m-card no-scrollbar" style={tvStyle} bind:this={scroller}>
       <div class="m-in">
         <h1 class="m-subj">{rd.subj}</h1>
         <div class="m-chips">{@render chips(false)}</div>
@@ -948,6 +1022,9 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .rd.enter {
     animation: snFromL 380ms cubic-bezier(0.2, 0.9, 0.3, 1);
   }
 
@@ -1936,6 +2013,9 @@
     min-height: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .m-rd.enter {
     animation: snFromL 340ms cubic-bezier(0.2, 0.9, 0.3, 1);
   }
 

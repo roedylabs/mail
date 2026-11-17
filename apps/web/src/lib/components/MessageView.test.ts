@@ -1,5 +1,6 @@
 import { MA_COLORS, MODES } from '@roedy/tokens';
 import { fireEvent, render, waitFor, within } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { hideTooltip, TIP_DELAY, TIP_FADE } from '#lib/actions/tooltip.ts';
 import { renderMail } from '#lib/mail/render.ts';
@@ -149,7 +150,18 @@ function reply(rd: ReadValues, state: Partial<ReplyState> | null = null, off = f
 
 const OFF_REPLY = m.offline_reply();
 
-function setup(props: { rd?: ReadValues; rp?: ReplyValues; isMobile?: boolean; moreOpen?: boolean } = {}) {
+function setup(
+  props: {
+    rd?: ReadValues;
+    rp?: ReplyValues;
+    isMobile?: boolean;
+    moreOpen?: boolean;
+    conversationKey?: string;
+    enter?: boolean;
+    replyFocus?: number;
+    focusNav?: string | null;
+  } = {},
+) {
   const fns = {
     onClose: vi.fn(),
     onPrev: vi.fn(),
@@ -582,7 +594,95 @@ describe('reading view', () => {
     expect(calls()).toBe(0);
   });
 
+  it('animates in only when it appears with `enter`, on desktop and mobile', async () => {
+    for (const isMobile of [false, true]) {
+      const sel = isMobile ? '.m-rd' : '.rd';
+      const first = setup({ isMobile, rd: values({ isMobile }), enter: true });
+      const root = first.view.container.querySelector(sel)!;
+      expect(root).toHaveClass('enter');
+      // The route clears `enter` once the view is shown; the running animation is not cut off.
+      await first.view.rerender({ enter: false });
+      expect(root).toHaveClass('enter');
+      first.view.unmount();
+      // Mounted again while paging (the next conversation had to load): no animation.
+      const again = setup({ isMobile, rd: values({ isMobile }), enter: false });
+      expect(again.view.container.querySelector(sel)).not.toHaveClass('enter');
+      again.view.unmount();
+    }
+  });
+
+  it('swaps another conversation in place: toolbar and focus stay, the message starts at the top', async () => {
+    for (const isMobile of [false, true]) {
+      const { view } = setup({ isMobile, rd: values({ isMobile }), conversationKey: 'a', enter: true });
+      const root = view.container.querySelector(isMobile ? '.m-rd' : '.rd')!;
+      const scroller = view.container.querySelector<HTMLElement>(isMobile ? '.m-card' : '.scroll')!;
+      let top = 240;
+      Object.defineProperty(scroller, 'scrollTop', {
+        configurable: true,
+        get: () => top,
+        set: (v: number) => (top = v),
+      });
+      const next = view.getByRole('button', { name: 'Next message' });
+      next.focus();
+      // New values of the same conversation keep the position.
+      await view.rerender({ rd: values({ isMobile, folds: { e1: true } }) });
+      expect(top).toBe(240);
+      await view.rerender({ conversationKey: 'b', enter: false, rd: values({ isMobile, emails: [THREAD[0]!] }) });
+      expect(top).toBe(0);
+      expect(view.container.querySelector(isMobile ? '.m-rd' : '.rd')).toBe(root);
+      expect(root).toHaveClass('enter');
+      expect(document.activeElement).toBe(next);
+      view.unmount();
+    }
+  });
+
+  it('gives the paging button focus again when the view returns after the skeleton', async () => {
+    for (const isMobile of [false, true]) {
+      // The route passes the button that had focus when the skeleton replaced the view.
+      const back = setup({ isMobile, rd: values({ isMobile }), enter: false, focusNav: 'next' });
+      const next = back.view.getByRole('button', { name: 'Next message' });
+      await waitFor(() => expect(document.activeElement).toBe(next));
+      expect(next).toHaveAttribute('data-nav', 'next');
+      expect(back.view.getByRole('button', { name: 'Previous message' })).toHaveAttribute('data-nav', 'prev');
+      // Read once: a later value does not move focus.
+      next.blur();
+      await back.view.rerender({ focusNav: 'prev' });
+      expect(document.activeElement).toBe(document.body);
+      back.view.unmount();
+      // Not on a fresh opening, and not if focus went elsewhere meanwhile.
+      const fresh = setup({ isMobile, rd: values({ isMobile }), enter: true, focusNav: 'next' });
+      await tick();
+      expect(document.activeElement).toBe(document.body);
+      fresh.view.unmount();
+      const field = document.body.appendChild(document.createElement('input'));
+      field.focus();
+      const away = setup({ isMobile, rd: values({ isMobile }), enter: false, focusNav: 'next' });
+      await tick();
+      expect(document.activeElement).toBe(field);
+      away.view.unmount();
+      field.remove();
+    }
+  });
+
   describe('open reply bar', () => {
+    it('focuses the text with each "Reply" and "Reply all", also when already open; not for forward', async () => {
+      const rd = values();
+      const { view } = setup({ rd, rp: reply(rd, { mode: 'fwd' }), replyFocus: 4 });
+      // Forward: the address field has focus, not the text.
+      expect(document.activeElement).toBe(view.getByPlaceholderText('To: email address'));
+      await view.rerender({ rp: reply(rd, { mode: 'reply' }), replyFocus: 5 });
+      const text = view.getByPlaceholderText('Reply to Anna …');
+      expect(document.activeElement).toBe(text);
+      text.blur();
+      await view.rerender({ rp: reply(rd, { mode: 'reply', text: 'Hi' }) });
+      expect(document.activeElement).toBe(document.body);
+      await view.rerender({ rp: reply(rd, { mode: 'reply', text: 'Hi' }), replyFocus: 6 });
+      expect(document.activeElement).toBe(text);
+      text.blur();
+      await view.rerender({ rp: reply(rd, { mode: 'all', text: 'Hi' }), replyFocus: 7 });
+      expect(document.activeElement).toBe(text);
+    });
+
     it('shows toggle, recipients, text, send disabled and the hint', async () => {
       vi.useFakeTimers();
       const rd = values();

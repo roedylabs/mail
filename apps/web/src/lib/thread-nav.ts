@@ -25,10 +25,20 @@ export function threadHref(location: MailboxLocation, account: string, threadId:
   return resolve('/mailbox/[account]/[...path]', { ...params, path: `${params.path}/${thread}` });
 }
 
-/** Open a thread in the view (`threadHref`). `replace` replaces the history entry instead of adding a new one. */
-export function openThread(location: MailboxLocation, account: string, threadId: string, replace = false): void {
+/**
+ * Open a thread in the view (`threadHref`). `replace` replaces the history entry instead of adding a new one.
+ * `keepFocus` when paging (`reset: false`): the reading view stays, so focus stays where it is (e.g. on "Next message").
+ */
+export function openThread(
+  location: MailboxLocation,
+  account: string,
+  threadId: string,
+  replace = false,
+  keepFocus = false,
+): void {
+  const href = threadHref(location, account, threadId);
   // eslint-disable-next-line svelte/no-navigation-without-resolve -- threadHref() returns a resolve() result
-  void goto(threadHref(location, account, threadId), { replace });
+  void goto(href, keepFocus ? { replace, reset: false } : { replace });
 }
 
 /** Back to the list of the view. */

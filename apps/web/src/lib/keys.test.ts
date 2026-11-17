@@ -159,6 +159,12 @@ describe('keyboard shortcuts', () => {
     expect(keyCommand(key('r'), reply)).toBe('reply');
     expect(keyCommand(key('R', { shiftKey: true }), reply)).toBe('reply');
     expect(keyCommand(key('f'), reply)).toBe('forward');
+    expect(keyCommand(key('F', { shiftKey: true }), reply)).toBe('forward');
+    // Caps Lock: capital letters without Shift.
+    expect(keyCommand(key('R'), reply)).toBe('reply');
+    expect(keyCommand(key('F'), reply)).toBe('forward');
+    expect(keyCommand(key('R', { repeat: true }), reply)).toBeNull();
+    expect(keyCommand(key('F', { repeat: true }), reply)).toBeNull();
     expect(keyCommand(key('r', { repeat: true }), reply)).toBeNull();
     // Without a reply bar (Drafts, Scheduled, Trash) and outside the reading view the palette.
     expect(keyCommand(key('r'), { ...CTX, reader: true })).toEqual({ palette: 'r' });
