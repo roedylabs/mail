@@ -60,7 +60,7 @@
   import { logout } from '#lib/logout.ts';
   import {
     accountSwitch,
-    inScope,
+    activeLocation,
     mailboxCommands,
     mobileRows,
     navRowsFor,
@@ -505,6 +505,12 @@
     void navigate(to, keepMenu);
   }
 
+  /** Jump to an administration page (shortcut, palette, notice, notification): closes the search results. */
+  function goAdmin(to: string) {
+    search.resultsOpen = false;
+    go(to);
+  }
+
   /** Like `go`; resolves once the target is shown. */
   function navigate(to: string, keepMenu = false): Promise<void> {
     if (keepMenu) ui.keepMenuAt = to;
@@ -833,7 +839,7 @@
     else if (command === 'sidebar') ui.toggleSidebar();
     else if (command === 'settings') go(SETTINGS);
     else if (command === 'help') ui.openHelp();
-    else if (command === 'mailservers') go(MAILSERVERS);
+    else if (command === 'mailservers') goAdmin(MAILSERVERS);
     else if (command === 'next') ui.reader?.next();
     else if (command === 'prev') ui.reader?.prev();
     else if (command === 'reply') ui.reader?.reply?.('reply');
@@ -860,7 +866,8 @@
       if (!route) return;
       // Team: the row of the user or the invitation; without a match the list stays.
       if (route.userOpen) ui.userOpen = route.userOpen;
-      go(route.path);
+      if (entry.target?.view === 'admin') goAdmin(route.path);
+      else go(route.path);
     },
     dismiss: (id) => notifications.remove(id),
     markAll: () => void notifications.readAll(),
@@ -958,8 +965,8 @@
             systemMailOff: session.user?.system_mail_configured === false,
             onMailPage: path === '/admin/email',
             systemMailHidden: ui.systemMailHidden,
-            openMaintenance: () => go(MAINTENANCE),
-            openSystemMail: () => go(SYSTEM_MAIL),
+            openMaintenance: () => goAdmin(MAINTENANCE),
+            openSystemMail: () => goAdmin(SYSTEM_MAIL),
             hideSystemMail: () => (ui.systemMailHidden = true),
             // Only with the settings: otherwise a banner closed for oneself would flash until their response.
             own: prefs.loaded ? (session.config?.banner ?? null) : null,
@@ -1031,14 +1038,14 @@
     const admin = m.palette_group_admin();
     const adminCommands: Command[] = session.isAdmin
       ? [
-          { g: admin, label: m.palette_mailservers(), icon: 'ti-server-2', k: '⇧M', run: () => go(MAILSERVERS) },
+          { g: admin, label: m.palette_mailservers(), icon: 'ti-server-2', k: '⇧M', run: () => goAdmin(MAILSERVERS) },
           {
             g: admin,
             label: m.palette_mailserver_add(),
             icon: 'ti-server-bolt',
             run: () => {
               ui.serverAdd = true;
-              go(MAILSERVERS);
+              goAdmin(MAILSERVERS);
             },
           },
         ]
@@ -1137,12 +1144,19 @@
   $effect(() => {
     if (mailboxLocation) lastMailbox = mailboxLocation;
   });
+  // The results page opens the search results (desktop), a mailbox and an error page close them.
+  $effect(() => {
+    if (path === SEARCH) search.resultsOpen = !ui.isMobile;
+    else if (mailboxLocation || page.error) search.resultsOpen = false;
+  });
   /** View of the sidebar (`curA`, `allMode`): account or "All accounts" of the mailbox, otherwise the default. */
   const scope = $derived(sidebarScope(accounts.list, prefs.values.defaultAccount, mailboxLocation ?? lastMailbox));
   /** Accounts of the sidebar: in "All accounts" all, otherwise the one. */
   const scopeAccounts = $derived(scope.all ? (accounts.list ?? []) : scope.account ? [scope.account] : []);
-  /** Mailbox of the address if it belongs to the sidebar's view. */
-  const here = $derived(inScope(scope, mailboxLocation) ? mailboxLocation : null);
+  /** Active mailbox of the sidebar's view: that of the address, in compose the one the user came from. */
+  const here = $derived(
+    activeLocation(scope, { path, location: mailboxLocation, lastMailbox, results: search.resultsOpen }),
+  );
   /** Mailbox an account switch opens (`curF`): the open one, otherwise the inbox. */
   const curRole: RoleId = $derived.by(() => {
     const location = mailboxLocation ?? lastMailbox;

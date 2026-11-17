@@ -457,6 +457,21 @@ describe('Search', () => {
     expect([s.q, s.recent, s.mail]).toEqual(['', [], null]);
   });
 
+  it('results stay open until a hit or "Close"; a contact opens them again', () => {
+    expect(s.resultsOpen).toBe(false);
+    // The results page opens them (layout).
+    s.resultsOpen = true;
+    s.done();
+    expect(s.resultsOpen).toBe(false);
+    s.searchFrom('anna@example.com');
+    expect(s.resultsOpen).toBe(true);
+    s.close();
+    expect(s.resultsOpen).toBe(false);
+    s.resultsOpen = true;
+    s.reset();
+    expect(s.resultsOpen).toBe(false);
+  });
+
   it('filters without text ask immediately with status, without snippets; operators add to them', async () => {
     pages.set('k1', [
       { hits: [hit('k1', 'e1')], positions: 1, total: 1 },

@@ -324,6 +324,12 @@ export class Search {
   recent = $state<string[]>([]);
   /** Way back for "Close search results". */
   back: string | null = null;
+  /**
+   * Results open (`results`, desktop): from the results page until a mailbox,
+   * an error page, a jump to an administration page, a hit or "Close"; other
+   * pages such as the settings keep them. Compose then marks no mailbox.
+   */
+  resultsOpen = $state(false);
   /** Return path to the search after opening a hit (`navRet`); see `expectReturn()`. */
   ret = $state.raw<SearchReturn | null>(null);
   /** The server's hits for the most recently answered query. */
@@ -742,6 +748,7 @@ export class Search {
     this.sf = { ...SF0, from: email, cats: ['mail'] };
     this.#anchor = Date.now();
     this.#now = true;
+    this.resultsOpen = true;
   }
 
   /** "Clear filters" (`setSf(SF0)`): also the areas. */
@@ -791,6 +798,7 @@ export class Search {
     this.panelOver = false;
     const back = this.back;
     this.back = null;
+    this.resultsOpen = false;
     return back;
   }
 
@@ -803,6 +811,7 @@ export class Search {
     this.q = '';
     this.clearFilters();
     this.panelOver = false;
+    this.resultsOpen = false;
   }
 
   /** The search as it is now, for the return path. */
@@ -894,6 +903,7 @@ export class Search {
     this.sf = SF0;
     this.recent = [];
     this.back = null;
+    this.resultsOpen = false;
     this.mail = null;
     this.loadingMore = false;
     this.tileCounts = null;
