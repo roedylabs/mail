@@ -318,7 +318,13 @@ describe('readValues', () => {
     expect(inTag('sent')).toMatchObject({ canMove: true, canSpam: false });
     expect(inTag('drafts')).toMatchObject({ canMove: false, canSpam: false });
     expect(inTag('sched')).toMatchObject({ canMove: false, canSpam: false });
+    expect(inTag('trash')).toMatchObject({ canMove: true, canSpam: false });
     expect(inTag('in')).toMatchObject({ canMove: true, canSpam: true });
+    // Mailbox views go by their role only, even if the email is also in another role mailbox.
+    for (const box of ['sent', 'drafts', 'sched']) {
+      const inInbox = readValues(input({ emails: [email('e1', { mailboxIds: ['in', box] })] }));
+      expect(inInbox).toMatchObject({ canMove: true, canSpam: true });
+    }
     // The representing email counts, not others of the conversation.
     expect(
       readValues(
