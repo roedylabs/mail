@@ -79,6 +79,10 @@ describe('Kept', () => {
       failed();
       await vi.advanceTimersByTimeAsync(0);
       expect(late).toHaveBeenCalledTimes(2);
+      // The hanging call ran out once: a later load does not wait for it again.
+      let again = false;
+      void kept.after({}, () => Promise.resolve((again = true)), late);
+      expect(again).toBe(true);
     } finally {
       vi.useRealTimers();
     }

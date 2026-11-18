@@ -689,6 +689,8 @@ export class UsersPage {
     };
     this.#final = action;
     ui.toasts.defer(action);
+    // Confirmed only after leaving the page (the dialog stays open): send right away.
+    if (this.#disposed) void ui.toasts.flush(true);
   }
 
   /**

@@ -226,6 +226,9 @@ export class ServersPage {
   #removing: string[] = [];
   /** Their rows, as long as the removal may yet fail (kept list). */
   #removingRows: AdminServer[] = [];
+  /** Last list from the server, unfiltered, and how many arrived (undo of a removal uses the newest). */
+  #lastList: AdminServer[] = [];
+  #lists = 0;
   /** "Allow custom server URLs" as the server knows it (kept list; a toggle may yet fail). */
   #ownKnown = false;
   /** Local changes per server; a test result only applies without newer ones. */
@@ -294,6 +297,8 @@ export class ServersPage {
         const now = list.servers.find((r) => r.id === id);
         if (!now || now.tested_at !== this.rows.find((r) => r.id === id)?.tested_at) this.reasons.delete(id);
       }
+      this.#lastList = list.servers;
+      this.#lists++;
       this.rows = list.servers.filter((s) => !this.#removing.includes(s.id));
       this.redirectUri = list.redirect_uri;
       this.systemServer = list.system_mail_server;
@@ -460,6 +465,7 @@ export class ServersPage {
         this.diag.delete(server.id);
         this.#edited(server.id);
         const alive = keptServers.alive();
+        const lists = this.#lists;
         const action: DeferredAction = {
           text: m.server_removed({ label: (shown ?? server).label }),
           // After "Undo" or a failed call: back at its place.
@@ -467,12 +473,15 @@ export class ServersPage {
             this.#removing = this.#removing.filter((x) => x !== server.id);
             this.#removingRows = this.#removingRows.filter((s) => s.id !== server.id);
             keptServers.changed();
-            if (!shown || this.rows.some((s) => s.id === server.id)) return;
-            const at = before.findIndex((s) => s.id === server.id);
-            const after = before.slice(at + 1).map((s) => s.id);
+            // A newer list decides: its row at its place, or nothing if the server is gone meanwhile.
+            const base = lists === this.#lists ? before : this.#lastList;
+            const at = base.findIndex((s) => s.id === server.id);
+            const row = base[at];
+            if (!shown || !row || this.rows.some((s) => s.id === server.id)) return;
+            const after = base.slice(at + 1).map((s) => s.id);
             const next = this.rows.findIndex((s) => after.includes(s.id));
             const rows = [...this.rows];
-            rows.splice(next < 0 ? rows.length : next, 0, shown);
+            rows.splice(next < 0 ? rows.length : next, 0, row);
             this.rows = rows;
           },
           commit: async (keepalive) => {
@@ -494,6 +503,8 @@ export class ServersPage {
         };
         this.#final = action;
         ui.toasts.defer(action);
+        // Confirmed only after leaving the page (the dialog stays open): send right away.
+        if (this.#disposed) void ui.toasts.flush(true);
       },
     });
   }

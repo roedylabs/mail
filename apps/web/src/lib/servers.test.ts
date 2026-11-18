@@ -642,6 +642,24 @@ describe('Remove', () => {
     expect(new ServersPage().rows.map((s) => s.id)).toEqual(['s1', 's2']);
   });
 
+  it('brings back a server with undo as the newest list has it, or not if it is gone', async () => {
+    const { p, v } = await loaded({
+      'GET admin/servers': [list([S1, S2]), list([S1, { ...S2, label: 'VPS 2 new' }]), list([S1])],
+      'GET admin/servers/policy': [POLICY, POLICY, POLICY],
+    });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    await p.load();
+    ui.toasts.undo();
+    expect(p.rows.map((s) => s.label)).toEqual(['VPS 1', 'VPS 2 new']);
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    // Removed by another administrator in the meantime.
+    await p.load();
+    ui.toasts.undo();
+    expect(p.rows.map((s) => s.id)).toEqual(['s1']);
+  });
+
   it('brings back the row as it was shown at the confirmation', async () => {
     const { p } = await loaded();
     const old = p.rows[1] as AdminServer;

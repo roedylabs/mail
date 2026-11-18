@@ -1115,6 +1115,17 @@ describe('Actions per row', () => {
     await ui.toasts.flush();
   });
 
+  it('sends a removal confirmed only after leaving the page right away', async () => {
+    const { p, v, calls } = await loaded({ 'DELETE users/u2': [{ status: 204 }] });
+    row(v(), 'Luke Walker').remove();
+    p.dispose();
+    ui.confirmOk();
+    expect(sent(calls)).toContain('DELETE users/u2');
+    expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]).toMatchObject({ keepalive: true });
+    expect(ui.toast).toBeNull();
+    await ui.toasts.flush();
+  });
+
   it('reports a removal that fails after leaving the page, without loading again', async () => {
     const { p, v, calls } = await loaded({ 'DELETE users/u2': [{ status: 500, body: { error: 'internal' } }] });
     row(v(), 'Luke Walker').remove();

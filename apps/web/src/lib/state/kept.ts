@@ -15,6 +15,8 @@ export class Kept<T> {
   #changes = 0;
   /** Calls still on their way per page; another page of the same list waits for them (`after()`). */
   readonly #sending = new Map<Promise<void>, object>();
+  /** Calls a wait already ran out for (`after()`). */
+  readonly #overdue = new WeakSet<Promise<void>>();
 
   constructor() {
     onForget(() => this.forget());
@@ -63,11 +65,14 @@ export class Kept<T> {
    * Runs `load` of `page` once the calls of other pages are through (also
    * failed ones), at most `KEPT_WAIT_MS`; without any right away. If the
    * wait ran out, `late` follows for each of them that is through after all
-   * (load again), also while another one still hangs.
-   * `null` without `load` if the session ended while waiting.
+   * (load again), also while another one still hangs; a call that already
+   * ran out once holds up no later load. `null` without `load` if the
+   * session ended while waiting.
    */
   after<R>(page: object, load: () => Promise<R | null>, late: () => void): Promise<R | null> {
-    const others = [...this.#sending].filter(([, p]) => p !== page).map(([call]) => call);
+    const others = [...this.#sending]
+      .filter(([call, p]) => p !== page && !this.#overdue.has(call))
+      .map(([call]) => call);
     if (!others.length) return load();
     const gen = this.#gen;
     const through = Promise.all(others);
@@ -77,6 +82,7 @@ export class Kept<T> {
       (resolve) =>
         (timer = setTimeout(() => {
           overdue = true;
+          for (const call of others) this.#overdue.add(call);
           resolve();
         }, KEPT_WAIT_MS)),
     );
