@@ -708,6 +708,65 @@ describe('mailPush', () => {
       expect(later.of('m1')).toBe('off');
     });
 
+    it('shows an account deselected while waiting for the lock as off', async () => {
+      server.showsCode = true;
+      await enabled(mailPushWith(browser, 1000));
+      const { env } = browser;
+      const exclusive = env.exclusive.bind(env);
+      env.exclusive = (name, task) => {
+        // Another tab holds the lock and turns push off for the account.
+        localStorage.removeItem(MAIL_PUSH_KEY);
+        return exclusive(name, task);
+      };
+      const later = mailPushWith(browser);
+      await later.resume();
+      expect(later.of('m1')).toBe('off');
+      expect(verified()).toEqual({});
+    });
+
+    it('shows an account deselected while a failing renewal runs as off, not expired', async () => {
+      await enabled(mailPushWith(browser, 1000));
+      const [id, entry] = [...server.entries.entries()][0] ?? [];
+      server.entries.set(id as string, { ...(entry as Entry), expires: new Date(Date.now() + DAY).toISOString() });
+      server.onCall = (name) => {
+        if (name !== 'PushSubscription/set') return;
+        localStorage.removeItem(MAIL_PUSH_KEY);
+        throw new TypeError('offline');
+      };
+      const later = mailPushWith(browser);
+      await later.resume();
+      expect(later.of('m1')).toBe('off');
+    });
+
+    it('still shows a failing renewal of a selected account as expired', async () => {
+      await enabled(mailPushWith(browser, 1000));
+      const [id, entry] = [...server.entries.entries()][0] ?? [];
+      server.entries.set(id as string, { ...(entry as Entry), expires: new Date(Date.now() + DAY).toISOString() });
+      server.onCall = (name) => {
+        if (name === 'PushSubscription/set') throw new TypeError('offline');
+      };
+      const later = mailPushWith(browser);
+      await later.resume();
+      expect(later.of('m1')).toBe('expired');
+    });
+
+    it('stays on if the storage cannot be read while renewing', async () => {
+      await enabled(mailPushWith(browser, 1000));
+      const [id, entry] = [...server.entries.entries()][0] ?? [];
+      server.entries.set(id as string, { ...(entry as Entry), expires: new Date(Date.now() + DAY).toISOString() });
+      const getItem = vi.spyOn(Storage.prototype, 'getItem');
+      server.onCall = (name) => {
+        if (name !== 'PushSubscription/set') return;
+        getItem.mockImplementation(() => {
+          throw new DOMException('locked', 'SecurityError');
+        });
+      };
+      const later = mailPushWith(browser);
+      await later.resume();
+      getItem.mockRestore();
+      expect(later.of('m1')).toBe('on');
+    });
+
     it('stays on from Stalwart v1.1.0 if the storage remembers nothing', async () => {
       server.showsCode = true;
       await enabled(mailPushWith(browser, 1000));

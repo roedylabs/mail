@@ -135,13 +135,32 @@ const browserEnv: MailPushEnv = {
   user: () => session.user?.id ?? null,
 };
 
-function readChoices(): Record<string, string | null> {
+/** `null` if the storage cannot be read right now. */
+function storedChoices(): Record<string, string | null> | null {
+  let text: string | null;
   try {
-    const value: unknown = JSON.parse(localStore()?.getItem(MAIL_PUSH_KEY) ?? '{}');
+    const store = localStore();
+    if (!store) return null;
+    text = store.getItem(MAIL_PUSH_KEY);
+  } catch {
+    return null;
+  }
+  try {
+    const value: unknown = JSON.parse(text ?? '{}');
     return value && typeof value === 'object' ? (value as Record<string, string | null>) : {};
   } catch {
     return {};
   }
+}
+
+function readChoices(): Record<string, string | null> {
+  return storedChoices() ?? {};
+}
+
+/** Only what the storage shows counts as deselected; an unreadable storage says nothing. */
+function deselected(accountId: string): boolean {
+  const choices = storedChoices();
+  return choices !== null && !(accountId in choices);
 }
 
 /** Locked storage counts like a missing record: up to Stalwart v1.0.x the next start replaces the entry. */
@@ -482,8 +501,10 @@ export class MailPush {
     const generation = this.#generation;
     const waiter = newWaiter();
     this.#waiters.set(accountId, waiter);
+    // Selected before every call (`enable`, `#check`), taken before waiting for the lock; without working storage it never is.
+    const chosen = accountId in readChoices();
     const task = this.env
-      .exclusive(mailPushScope(accountId), () => this.#build(accountId, generation, waiter))
+      .exclusive(mailPushScope(accountId), () => this.#build(accountId, generation, waiter, chosen))
       .catch((): MailPushStatus => 'failed')
       .then((status) => {
         this.#set(accountId, status, generation);
@@ -498,10 +519,8 @@ export class MailPush {
     return task;
   }
 
-  async #build(accountId: string, generation: number, waiter: Waiter): Promise<MailPushStatus> {
+  async #build(accountId: string, generation: number, waiter: Waiter, chosen: boolean): Promise<MailPushStatus> {
     if (!this.env.allowed()) return 'off';
-    // Selected before every call (`enable`, `#check`); without working storage it never is.
-    const chosen = accountId in readChoices();
     const client = await accounts.client(accountId);
     const key = await serverKey(client);
     if (!key) return 'unsupported';
@@ -518,11 +537,18 @@ export class MailPush {
       usable.find((entry) => entry.id === recorded) ?? usable.find((entry) => entry.verificationCode !== null);
     if (current) {
       // Accounts deselected in the meantime stay deselected; an earlier session writes nothing.
-      const selected = () => accountId in readChoices();
-      if (current.id !== recorded && generation === this.#generation && selected()) markChosen(accountId, current.id);
-      await renewIfDue(client, current);
-      // Deselected meanwhile, for example in another tab, also while renewing.
-      return chosen && !selected() ? 'off' : 'on';
+      if (current.id !== recorded && generation === this.#generation && !deselected(accountId)) {
+        markChosen(accountId, current.id);
+      }
+      // Deselected meanwhile, for example in another tab, also while renewing: off, even if renewing failed.
+      const dropped = () => chosen && deselected(accountId);
+      try {
+        await renewIfDue(client, current);
+      } catch (error) {
+        if (dropped()) return 'off';
+        throw error;
+      }
+      return dropped() ? 'off' : 'on';
     }
     // Neither record nor code: unclear whether the entry was ever confirmed, replace it. Stalwart only confirms the newest.
     await destroyPushSubscriptions(
