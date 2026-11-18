@@ -23,7 +23,7 @@ const ACTIVE: NotifInput['push'] = {
   support: 'yes',
   permission: 'granted',
   status: 'active',
-  subscribed: true,
+  missing: false,
   appName: 'Roedy Mail',
 };
 const ACCOUNT: MailPushAccount = {
@@ -40,7 +40,7 @@ function input(over: Partial<NotifInput> = {}, values: Partial<NotifInput['value
     values: { ...structuredClone(RESET0), ...values },
     email: 'jane@example.net',
     isAdmin: true,
-    push: { support: 'yes', permission: 'default', status: 'ask', subscribed: false, appName: 'Roedy Mail' },
+    push: { support: 'yes', permission: 'default', status: 'ask', missing: false, appName: 'Roedy Mail' },
     mailAccounts: null,
     offline: false,
     zone: 'Europe/Berlin',
@@ -132,20 +132,42 @@ describe('notifications: channels', () => {
     );
   });
 
-  it('offers "Allow in browser" only with the channel on and the browser not subscribed', () => {
-    const push = (status: NotifInput['push']['status'], on: boolean) =>
+  it('offers "Allow in browser" only with the channel on and before the browser has asked', () => {
+    const push = (p: Partial<NotifInput['push']>, on: boolean) =>
       values(
-        { push: { support: 'yes', permission: 'default', status, subscribed: false, appName: 'Roedy Mail' } },
+        { push: { support: 'yes', permission: 'default', status: 'ask', missing: false, appName: 'Roedy Mail', ...p } },
         { nCh: { app: true, mail: true, push: on } },
       ).nChRows[2]?.askHere;
-    expect(push('ask', true)).toBe(true);
-    expect(push('ask', false)).toBe(false);
-    expect(push('active', true)).toBe(false);
-    expect(push('denied', true)).toBe(false);
-    expect(push('busy', true)).toBe(false);
+    expect(push({}, true)).toBe(true);
+    expect(push({}, false)).toBe(false);
+    // While the browser asks, the permission is still `default`.
+    expect(push({ status: 'busy' }, true)).toBe(true);
+    expect(push({ permission: 'granted', status: 'active' }, true)).toBe(false);
+    expect(push({ permission: 'denied', status: 'denied' }, true)).toBe(false);
+    expect(push({ support: 'none', status: 'none' }, true)).toBe(false);
+    expect(push({ support: 'ios', status: 'ios' }, true)).toBe(false);
     const ctx = context();
     notifValues(input(), ctx).pushRequest();
     expect(ctx.pushDialog).toHaveBeenCalledOnce();
+  });
+
+  it('permission without a subscription on this device: switch off, "Allowed in the browser", no "Allow in browser"', () => {
+    const ctx = context();
+    const push = { ...ACTIVE, status: 'ask' as const, missing: true };
+    const v = notifValues(
+      input({ push, mailAccounts: [ACCOUNT] }, { nCh: { app: true, mail: true, push: true } }),
+      ctx,
+    );
+    expect(v.nChRows[2]).toMatchObject({ desc: 'Allowed in the browser', askHere: false, tg: { on: false } });
+    expect(v).toMatchObject({ mpNeed: true, mpNeedBtn: 'Turn on push' });
+    expect(v.mpRows[0]).toMatchObject({ dim: true, dis: true });
+    v.nChRows[2]?.tg.onClick();
+    expect(ctx.pushOn).toHaveBeenCalledOnce();
+    expect(ctx.set).not.toHaveBeenCalled();
+    expect(ctx.mailPushPause).not.toHaveBeenCalled();
+    // Permission and channel on, this device registered or still registering: on, without the button.
+    const active = values({ push: ACTIVE }, { nCh: { app: true, mail: true, push: true } }).nChRows[2];
+    expect(active).toMatchObject({ desc: 'Allowed in the browser', askHere: false, tg: { on: true } });
   });
 
   it('toggles app and email', () => {
@@ -174,27 +196,17 @@ describe('notifications: channels', () => {
     expect(ctx.mailPushPause).not.toHaveBeenCalled();
   });
 
-  it('turning on push: if subscribed only the channel, with permission subscribe silently, otherwise the dialog', () => {
+  it('turning on push: with permission subscribe this browser, otherwise the dialog', () => {
     const on = (p: NotifInput['push']) => {
       const ctx = context();
       notifValues(input({ push: p }), ctx).nChRows[2]?.tg.onClick();
       return ctx;
     };
-    const subscribed = on({
-      support: 'yes',
-      permission: 'granted',
-      status: 'ask',
-      subscribed: true,
-      appName: 'Roedy Mail',
-    });
-    expect(subscribed.set).toHaveBeenCalledWith({ nCh: { app: true, mail: true, push: true } });
-    expect(subscribed.pushOn).not.toHaveBeenCalled();
-
     const granted = on({
       support: 'yes',
       permission: 'granted',
       status: 'ask',
-      subscribed: false,
+      missing: false,
       appName: 'Roedy Mail',
     });
     expect(granted.pushOn).toHaveBeenCalledOnce();
@@ -202,10 +214,10 @@ describe('notifications: channels', () => {
     expect(granted.pushDialog).not.toHaveBeenCalled();
 
     for (const p of [
-      { support: 'yes', permission: 'default', status: 'ask', subscribed: false, appName: 'Roedy Mail' },
-      { support: 'yes', permission: 'denied', status: 'denied', subscribed: false, appName: 'Roedy Mail' },
-      { support: 'none', permission: 'default', status: 'none', subscribed: false, appName: 'Roedy Mail' },
-      { support: 'ios', permission: 'default', status: 'ios', subscribed: false, appName: 'Roedy Mail' },
+      { support: 'yes', permission: 'default', status: 'ask', missing: false, appName: 'Roedy Mail' },
+      { support: 'yes', permission: 'denied', status: 'denied', missing: false, appName: 'Roedy Mail' },
+      { support: 'none', permission: 'default', status: 'none', missing: false, appName: 'Roedy Mail' },
+      { support: 'ios', permission: 'default', status: 'ios', missing: false, appName: 'Roedy Mail' },
     ] as const) {
       const ctx = on(p);
       expect(ctx.pushDialog).toHaveBeenCalledOnce();
@@ -427,9 +439,9 @@ describe('notifications: new emails', () => {
       return ctx;
     };
     const base = { ...ACTIVE, status: 'ask' as const };
-    expect(run(base).set).toHaveBeenCalledWith({ nCh: { app: true, mail: true, push: true } });
-    expect(run({ ...base, subscribed: false }).pushOn).toHaveBeenCalledOnce();
-    expect(run({ ...base, subscribed: false, permission: 'default' }).pushDialog).toHaveBeenCalledOnce();
+    expect(run(base).pushOn).toHaveBeenCalledOnce();
+    expect(run(base).set).not.toHaveBeenCalled();
+    expect(run({ ...base, permission: 'default' }).pushDialog).toHaveBeenCalledOnce();
   });
 
   it('notice only with active push and active quiet hours', () => {

@@ -5,16 +5,20 @@
  * - **Turning on** (`request`): `Notification.requestPermission()` →
  *   `GET push/vapid-public-key` → `pushManager.subscribe` →
  *   `POST push/subscriptions` → `nCh.push` on.
- * - **Active** means: the browser has a subscription, the backend knows it
- *   for this session, and the push channel is on.
- * - **After every sign-in** (`resume`): subscriptions end with the session;
- *   a browser with permission and subscription therefore registers again at
- *   start and after sign-in. If the key no longer matches (new instance), a
- *   new subscription is created.
+ * - **Active** means: the browser has permission and the push channel is on,
+ *   unless this device could not be registered (`missing`).
+ * - **Silent registration** (`resume` at start and after every sign-in,
+ *   `refresh` on opening Settings › Notifications): subscriptions end with
+ *   the session, so a browser with permission and subscription registers
+ *   again. With the channel on (for example turned on on another device) a
+ *   browser without subscription subscribes, without a toast. If the key no
+ *   longer matches (new instance), a new subscription is created. If that
+ *   fails (or the browser wants a gesture for it), this device counts as
+ *   off (`missing`) until `request` subscribes it.
  * - **Turning off** (`off`): `DELETE push/subscriptions/:id`, then
- *   `unsubscribe()`. `nCh.push` only turns off when no other browser is
- *   registered anymore – "Push turned off on this device" must not switch
- *   off the other devices.
+ *   `unsubscribe()`, then `nCh.push` off – for all devices of the account.
+ *   The other browsers keep their subscriptions and register again
+ *   silently once the channel is turned on again.
  * - **Test** (`test`): `POST push/test`; 409 `no_subscription` registers the
  *   browser again and tries once more.
  */
@@ -84,15 +88,25 @@ export class Push {
   /** Subscription of this browser as the backend knows it for this session. */
   current = $state<PushSubscriptionEntry | null>(null);
 
+  /**
+   * Permission and channel on, but this device has no subscription for this
+   * session: the silent registration failed. The channel then shows as off
+   * on this device.
+   */
+  missing = $state(false);
+
   status: PushStatus = $derived.by(() => {
     if (this.busy) return 'busy';
     if (this.support !== 'yes') return this.support;
     if (this.permission === 'denied') return 'denied';
-    return this.current && prefs.values.nCh.push ? 'active' : 'ask';
+    return this.permission === 'granted' && prefs.values.nCh.push && !this.missing ? 'active' : 'ask';
   });
 
   /** Counts `reset()`; responses from an earlier session expire. */
   #generation = 0;
+
+  /** Running silent registration; turning off waits for it so that it cannot subscribe again afterwards. */
+  #silentRun: Promise<void> = Promise.resolve();
 
   /** Re-read support and permission (without the server). */
   readEnv(): void {
@@ -101,36 +115,25 @@ export class Push {
   }
 
   /**
-   * Notifications page opened: if the browser has permission and a
-   * subscription, it registers for this session (200 for known endpoints)
-   * and then knows whether it is active. A POST instead of
-   * `GET push/subscriptions`, so that a concurrent registration from
-   * `resume()` is not overtaken by an older list. Without permission no
-   * service worker is registered.
+   * Notifications page opened: registers silently (`#silent`, 200 for known
+   * endpoints). A POST instead of `GET push/subscriptions`, so that a
+   * concurrent registration from `resume()` is not overtaken by an older
+   * list. Without permission no service worker is registered.
    */
   async refresh(): Promise<void> {
     this.readEnv();
-    const generation = this.#generation;
-    if (this.permission !== 'granted' || !(await this.#subscription())) {
-      if (generation === this.#generation) this.current = null;
+    if (this.permission !== 'granted') {
+      this.current = null;
+      this.missing = false;
       return;
     }
-    await this.#subscribe();
+    await this.#silent();
   }
 
-  /**
-   * After a start with a session and after every sign-in: if the browser has
-   * a subscription and permission, it registers again for this session.
-   * Errors stay silent (the page then offers to turn push on again).
-   */
+  /** After a start with a session and after every sign-in (with loaded settings): registers silently (`#silent`). */
   async resume(): Promise<void> {
     this.readEnv();
-    if (this.permission !== 'granted') return;
-    try {
-      if (await this.#subscription()) await this.#subscribe();
-    } catch {
-      // Without registration no push arrives; the page offers to turn push on again.
-    }
+    if (this.permission === 'granted') await this.#silent();
   }
 
   /** "Grant permission" or turning on the push channel. */
@@ -147,6 +150,7 @@ export class Push {
       if (permission === 'granted') {
         await this.#subscribe();
         if (generation !== this.#generation) return;
+        this.missing = false;
         if (!prefs.values.nCh.push) prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
         ui.toasts.show(m.push_toast_active());
       } else if (permission === 'default') {
@@ -182,10 +186,11 @@ export class Push {
     }
   }
 
-  /** "Turn off on this device": delete the subscription; without other browsers also the channel. */
+  /** "Turn off on this device": delete this browser's subscription and turn off the channel (for all devices). */
   async off(): Promise<void> {
     const generation = this.#generation;
     try {
+      await this.#silentRun;
       const current = this.current;
       if (current) {
         try {
@@ -198,9 +203,8 @@ export class Push {
       await subscription?.unsubscribe().catch(() => false);
       if (generation !== this.#generation) return;
       this.current = null;
-      const { subscriptions } = await api<{ subscriptions: PushSubscriptionEntry[] }>('GET', 'push/subscriptions');
-      if (generation !== this.#generation) return;
-      if (subscriptions.length === 0 && prefs.values.nCh.push) prefs.set({ nCh: { ...prefs.values.nCh, push: false } });
+      this.missing = false;
+      if (prefs.values.nCh.push) prefs.set({ nCh: { ...prefs.values.nCh, push: false } });
       ui.toasts.show(m.push_toast_off());
     } catch (error) {
       if (generation === this.#generation) ui.toasts.error(failText(error));
@@ -212,6 +216,42 @@ export class Push {
     this.#generation++;
     this.busy = false;
     this.current = null;
+    this.missing = false;
+  }
+
+  /**
+   * Registers this browser for the session without a toast: an existing
+   * subscription again, with the channel on also a new one. If that fails
+   * and the browser has no registration for this session, this device
+   * counts as off (`missing`); errors stay silent.
+   */
+  #silent(): Promise<void> {
+    const run = this.#silentRun.then(() => this.#silentOnce());
+    this.#silentRun = run;
+    return run;
+  }
+
+  async #silentOnce(): Promise<void> {
+    const generation = this.#generation;
+    try {
+      const existing = await this.#subscription();
+      if (generation !== this.#generation) return;
+      if (!existing && !(prefs.loaded && prefs.values.nCh.push)) {
+        this.current = null;
+        this.missing = false;
+        return;
+      }
+      await this.#subscribe();
+      if (generation === this.#generation) this.missing = false;
+    } catch {
+      // Without registration no push arrives; the page offers to turn push on again.
+      if (generation !== this.#generation) return;
+      // A new key replaces the subscription: if the old one is already gone, the entry of this session no longer counts.
+      const still = await this.#subscription().catch(() => null);
+      if (generation !== this.#generation) return;
+      if (!still) this.current = null;
+      if (this.current === null) this.missing = true;
+    }
   }
 
   /** Subscription of the browser; `null` without support or service worker. */

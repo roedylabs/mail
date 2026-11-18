@@ -382,11 +382,13 @@
     const returning = session.fromCopy;
     await session.load(restoreCopy);
     if (session.authed && !session.fromCopy) {
-      // Push subscriptions end with the session; an existing browser subscribes again.
-      void push.resume();
+      // Without settings the defaults apply; saving tries again.
+      const settings = prefs.load().catch(() => {});
+      // Push subscriptions end with the session: once the channel is known, this browser registers again
+      // (with the channel on it subscribes silently).
+      void settings.then(() => push.resume());
       await Promise.all([
-        // Without settings the defaults apply; saving tries again.
-        prefs.load().catch(() => {}),
+        settings,
         // The effect below reports the error.
         (returning ? accounts.load() : accounts.ensure()).catch(() => {}),
       ]);

@@ -492,10 +492,12 @@ export class MaintenancePage {
   async #reloadAll(): Promise<void> {
     await session.load();
     if (!session.authed) return;
-    void push.resume();
     // Without the role in the backup the layout shows "Access denied", the page then loads nothing more.
     const page = session.isAdmin ? this.load() : undefined;
-    await Promise.all([prefs.load().catch(() => {}), accounts.load().catch(() => {}), page]);
+    const settings = prefs.load().catch(() => {});
+    // With the settings it is known whether the push channel is on (silent subscription).
+    void settings.then(() => push.resume());
+    await Promise.all([settings, accounts.load().catch(() => {}), page]);
     void mailPush.resume();
   }
 

@@ -8,13 +8,13 @@
  *   security topic, app and email are locked and always active (`lock`),
  *   even if the channel above is off; push can be chosen.
  * - **Push channel** follows the state of this browser (`#lib/push.svelte.ts`):
- *   the description names support and permission. Turning it on only sets
- *   the channel if this browser is already subscribed; with permission it
- *   subscribes silently (`pushOn`), otherwise it opens the push dialog
- *   (`pushDialog`). "Allow in browser" (`askHere`) appears while the channel
- *   is on but this browser is not subscribed. Turning it off also
- *   unsubscribes the subscriptions of the mail accounts on this device
- *   (`mailPushPause`).
+ *   the description names support and permission. Turning it on with
+ *   permission subscribes this browser (`pushOn`), otherwise it opens the
+ *   push dialog (`pushDialog`). "Allow in browser" (`askHere`) appears while
+ *   the channel is on and the browser has not asked yet (permission
+ *   `default`). With permission but without a subscription on this device
+ *   (`missing`) the switch shows off. Turning it off also unsubscribes the
+ *   subscriptions of the mail accounts on this device (`mailPushPause`).
  * - **New emails**: one switch per mail account, only for this device
  *   (`#lib/mail-push.svelte.ts`). It requires the active push channel
  *   (`push.status`); otherwise tile and switch are dimmed and disabled, and
@@ -235,8 +235,8 @@ export interface PushInfo {
   support: PushSupport;
   permission: NotificationPermission;
   status: PushStatus;
-  /** This browser is subscribed at the backend (`push.current`). */
-  subscribed: boolean;
+  /** Permission and channel on, but this device without subscription (`push.missing`): the switch shows off. */
+  missing: boolean;
   /** Name of the app for the notice on iPhone and iPad (`session.appName`). */
   appName: string;
 }
@@ -277,7 +277,7 @@ export interface NotifInput {
 export interface NotifContext {
   set: (patch: Partial<Settings>) => void;
   scrollTo: (section: NotifSection) => void;
-  /** Subscribe push silently with permission and turn on the channel (`push.request()`). */
+  /** With permission: subscribe this browser and turn on the channel (`push.request()`). */
   pushOn: () => void;
   /** Open the push dialog. */
   pushDialog: () => void;
@@ -314,14 +314,13 @@ export function notifValues(input: NotifInput, ctx: NotifContext): NotifValues {
   const clk = (v: string) => (h12 ? clockLabel(v, true) : m.notif_clock({ time: clockLabel(v, false) }));
 
   const pushEnable = () => {
-    // This browser is already subscribed: only turn on the channel.
-    if (push.subscribed) ctx.set({ nCh: { ...x.nCh, push: true } });
-    else if (push.support === 'yes' && push.permission === 'granted') ctx.pushOn();
+    if (push.support === 'yes' && push.permission === 'granted') ctx.pushOn();
     else ctx.pushDialog();
   };
 
   const channelRow = (ch: NotifChannel, i: number): ChannelRow => {
-    const on = chOn(ch.id);
+    // This device without subscription: push counts as off here.
+    const on = chOn(ch.id) && !(ch.id === 'push' && push.missing);
     let desc: string;
     if (ch.id === 'push') desc = pushText(push);
     else if (ch.id === 'mail')
@@ -333,7 +332,8 @@ export function notifValues(input: NotifInput, ctx: NotifContext): NotifValues {
       icon: ch.icon,
       sep: i > 0,
       desc,
-      askHere: ch.id === 'push' && on && push.status === 'ask',
+      // Only while the browser has not asked yet.
+      askHere: ch.id === 'push' && on && push.support === 'yes' && push.permission === 'default',
       tg: {
         on,
         onClick: () => {

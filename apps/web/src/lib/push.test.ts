@@ -176,6 +176,141 @@ describe('turning on', () => {
   });
 });
 
+/** Settings loaded with the push channel on (for example turned on on another device). */
+function channelOn() {
+  prefs.fromCopy({ version: 1, settings: { ...prefs.values, nCh: { app: true, mail: true, push: true } } });
+}
+
+describe('silent subscription', () => {
+  it('permission and channel on count as active, also before the registration', () => {
+    push.env = fakeBrowser({ permission: 'granted' }).env;
+    push.readEnv();
+    expect(push.status).toBe('ask');
+    prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
+    expect(push.status).toBe('active');
+    expect(push.current).toBeNull();
+  });
+
+  it('channel on without a subscription in this browser: subscribes without a toast', async () => {
+    const browser = fakeBrowser({ permission: 'granted' });
+    push.env = browser.env;
+    channelOn();
+    const { calls } = mockApi({
+      'GET push/vapid-public-key': [{ body: { key: KEY } }],
+      'POST push/subscriptions': [{ status: 201, body: entry() }],
+    });
+    await push.resume();
+    expect(browser.requestPermission).not.toHaveBeenCalled();
+    expect(browser.subscribe).toHaveBeenCalledOnce();
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['GET push/vapid-public-key', 'POST push/subscriptions']);
+    expect(push.status).toBe('active');
+    expect(push.missing).toBe(false);
+    expect(show).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+  });
+
+  it('opening the page subscribes the same way', async () => {
+    const browser = fakeBrowser({ permission: 'granted' });
+    push.env = browser.env;
+    channelOn();
+    mockApi({
+      'GET push/vapid-public-key': [{ body: { key: KEY } }],
+      'POST push/subscriptions': [{ status: 201, body: entry() }],
+    });
+    await push.refresh();
+    expect(browser.subscribe).toHaveBeenCalledOnce();
+    expect(push.current?.id).toBe('s1');
+  });
+
+  it('fails: this device counts as off, without a toast; turning on here subscribes', async () => {
+    const browser = fakeBrowser({ permission: 'granted' });
+    push.env = browser.env;
+    channelOn();
+    mockApi({
+      'GET push/vapid-public-key': [{ status: 500, body: { error: 'internal' } }, { body: { key: KEY } }],
+      'POST push/subscriptions': [{ status: 201, body: entry() }],
+    });
+    await push.resume();
+    expect(push.missing).toBe(true);
+    expect(push.status).toBe('ask');
+    expect(show).not.toHaveBeenCalled();
+    expect(error).not.toHaveBeenCalled();
+    await push.request();
+    expect(push.missing).toBe(false);
+    expect(push.status).toBe('active');
+    expect(show).toHaveBeenCalledWith('Push notifications on');
+  });
+
+  it('a failed check on opening keeps a registration of this session', async () => {
+    push.env = fakeBrowser({ permission: 'granted', key: KEY }).env;
+    channelOn();
+    push.current = entry();
+    mockApi({ 'GET push/vapid-public-key': [{ status: 500, body: { error: 'internal' } }] });
+    await push.refresh();
+    expect(push.missing).toBe(false);
+    expect(push.status).toBe('active');
+  });
+
+  it('a new key whose replacement fails: the old entry no longer counts', async () => {
+    const browser = fakeBrowser({ permission: 'granted', key: OTHER_KEY });
+    push.env = browser.env;
+    channelOn();
+    push.current = entry();
+    mockApi({
+      'GET push/vapid-public-key': [{ body: { key: KEY } }],
+      'POST push/subscriptions': [{ status: 500, body: { error: 'internal' } }],
+    });
+    // The old subscription is gone, the new one is not registered either.
+    browser.subscribe.mockImplementationOnce(() => Promise.reject(new Error('no subscription')));
+    await push.refresh();
+    expect(browser.unsubscribe).toHaveBeenCalledOnce();
+    expect(push.current).toBeNull();
+    expect(push.missing).toBe(true);
+    expect(push.status).toBe('ask');
+  });
+
+  it('turning off waits for a running silent registration and removes what it created', async () => {
+    const browser = fakeBrowser({ permission: 'granted' });
+    push.env = browser.env;
+    channelOn();
+    let key: ((value: { body: unknown }) => void) | undefined;
+    const { calls } = mockApi({
+      'GET push/vapid-public-key': [() => new Promise((resolve) => (key = resolve))],
+      'POST push/subscriptions': [{ status: 201, body: entry() }],
+      'DELETE push/subscriptions/s1': [{ status: 204 }],
+    });
+    const silent = push.resume();
+    await vi.waitFor(() => expect(key).toBeDefined());
+    const off = push.off();
+    key?.({ body: { key: KEY } });
+    await Promise.all([silent, off]);
+    expect(calls.filter((c) => c.path.startsWith('push/')).map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET push/vapid-public-key',
+      'POST push/subscriptions',
+      'DELETE push/subscriptions/s1',
+    ]);
+    expect(browser.current()).toBeNull();
+    expect(push.current).toBeNull();
+    expect(prefs.values.nCh.push).toBe(false);
+  });
+
+  it('settings not loaded yet: no new subscription', async () => {
+    const browser = fakeBrowser({ permission: 'granted' });
+    push.env = browser.env;
+    prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
+    const { calls } = mockApi({});
+    await push.resume();
+    expect(calls).toHaveLength(0);
+    expect(browser.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('reset forgets that this device was off', () => {
+    push.missing = true;
+    push.reset();
+    expect(push.missing).toBe(false);
+  });
+});
+
 describe('after sign-in', () => {
   it('registers an existing browser for the new session', async () => {
     const browser = fakeBrowser({ permission: 'granted', key: KEY });
@@ -292,38 +427,44 @@ describe('test and turning off', () => {
     expect(show).not.toHaveBeenCalled();
   });
 
-  it('turning off deletes the subscription; without other browsers also the channel', async () => {
+  it('turning off deletes the subscription and turns off the channel', async () => {
     const browser = fakeBrowser({ permission: 'granted', key: KEY });
     push.env = browser.env;
     push.readEnv();
     push.current = entry();
     prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
-    const { calls } = mockApi({
-      'DELETE push/subscriptions/s1': [{ status: 204 }],
-      'GET push/subscriptions': [{ body: { subscriptions: [] } }],
-    });
+    const { calls } = mockApi({ 'DELETE push/subscriptions/s1': [{ status: 204 }] });
     await push.off();
-    expect(calls[0]?.method).toBe('DELETE');
+    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['DELETE push/subscriptions/s1']);
     expect(browser.unsubscribe).toHaveBeenCalledOnce();
     expect(push.current).toBeNull();
     expect(prefs.values.nCh.push).toBe(false);
+    expect(push.status).toBe('ask');
     expect(show).toHaveBeenCalledWith('Push turned off on this device');
   });
 
-  it('other devices stay: channel stays on', async () => {
+  it('the channel turns off for all devices, also when the subscription is already gone', async () => {
     push.env = fakeBrowser({ permission: 'granted', key: KEY }).env;
     push.readEnv();
     push.current = entry();
     prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
-    mockApi({
-      'DELETE push/subscriptions/s1': [{ status: 404, body: { error: 'not_found' } }],
-      'GET push/subscriptions': [
-        { body: { subscriptions: [entry({ id: 's2', endpoint: 'https://x.test/2', current: false })] } },
-      ],
-    });
+    const { calls } = mockApi({ 'DELETE push/subscriptions/s1': [{ status: 404, body: { error: 'not_found' } }] });
     await push.off();
-    expect(prefs.values.nCh.push).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(prefs.values.nCh.push).toBe(false);
     expect(push.status).toBe('ask');
+    expect(show).toHaveBeenCalledWith('Push turned off on this device');
+  });
+
+  it('turning off fails: error toast, the channel stays', async () => {
+    push.env = fakeBrowser({ permission: 'granted', key: KEY }).env;
+    push.readEnv();
+    push.current = entry();
+    prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
+    mockApi({ 'DELETE push/subscriptions/s1': [{ status: 500, body: { error: 'internal' } }] });
+    await push.off();
+    expect(error).toHaveBeenCalledOnce();
+    expect(prefs.values.nCh.push).toBe(true);
   });
 });
 
