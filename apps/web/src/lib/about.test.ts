@@ -31,6 +31,7 @@ function setup(patch: Partial<AboutInput> = {}, copied = true) {
     scrollTo: vi.fn(),
     copy: vi.fn(() => Promise.resolve(copied)),
     notify: vi.fn(),
+    error: vi.fn(),
     openLicenses: vi.fn(),
   } satisfies AboutContext;
   const input: AboutInput = {
@@ -74,17 +75,22 @@ describe('About', () => {
     expect(v.aboutRows.map((r) => r.v)).toEqual(['0.6.0', 'Unknown', '14.10.2026', 'Unknown']);
   });
 
-  it('copies the system information and reports it only after success', async () => {
+  it('copies the system information and reports it after success', async () => {
     const { v, ctx } = setup();
     await v.copySys();
     expect(ctx.copy).toHaveBeenCalledWith(
       'Roedy Mail 0.6.0 (Build 7f3c2a1)\nBrowser: Firefox\nTime zone: Europe/Berlin',
     );
     expect(ctx.notify).toHaveBeenCalledWith('System information copied');
+    expect(ctx.error).not.toHaveBeenCalled();
+  });
 
-    const failed = setup({}, false);
-    await failed.v.copySys();
-    expect(failed.ctx.notify).not.toHaveBeenCalled();
+  it('shows the error toast “Couldn’t copy.” when copying the system information fails', async () => {
+    const { v, ctx } = setup({}, false);
+    await v.copySys();
+    expect(ctx.copy).toHaveBeenCalledOnce();
+    expect(ctx.error).toHaveBeenCalledWith('Couldn’t copy.');
+    expect(ctx.notify).not.toHaveBeenCalled();
   });
 
   it('shows the chip after `update` from `public/config`', () => {
