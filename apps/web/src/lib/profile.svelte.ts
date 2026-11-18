@@ -8,19 +8,20 @@
  *
  * Saving goes to the server immediately, without undo: it checks user name and
  * address, and its response decides whether the password prompt follows.
- * "Discard change" waits with undo for the end of the toast
- * (`ui.toasts.defer`). Errors without a text of their own show the error
- * toast.
+ * "Discard change" first reloads `auth/me`, then waits with undo for the end
+ * of the toast (`ui.toasts.defer`). A change discarded elsewhere in the
+ * meantime (another device, password changed) is reported with a regular
+ * toast instead. Errors without a text of their own show the error toast.
  */
 import { api, fieldsOf, isApiError, retryAfter } from '#lib/api.ts';
 import { isEmail } from '#lib/email.ts';
-import { failText } from '#lib/errors.ts';
+import { failText, isOffline } from '#lib/errors.ts';
 import type { KeyInput } from '#lib/keys.ts';
 import { formatOtp } from '#lib/login.svelte.ts';
 import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { CODE_LENGTH, reauthError } from '#lib/reauth.ts';
-import { initialsOf, session, type Me } from '#lib/state/session.svelte.ts';
+import { CONFIG_TIMEOUT_MS, initialsOf, session, type Me } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import { waitText } from '#lib/wait.ts';
 
@@ -39,6 +40,12 @@ interface ProfileResponse {
   user: ProfileUser;
   email_change?: EmailChange;
 }
+
+/** "Resend link" sends two mails; after this long the page shows the server's state. */
+export const RESEND_TIMEOUT_MS = 60_000;
+
+/** Result of reading `auth/me` again (`#reread`). */
+type Read = { me: Me } | { error: unknown } | null;
 
 /** User name like the backend (`^[a-z0-9][a-z0-9._-]{1,31}$`). */
 const USERNAME = /^[a-z0-9][a-z0-9._-]{1,31}$/;
@@ -61,6 +68,15 @@ export class ProfilePage {
   saving = $state(false);
   sending = $state(false);
   resending = $state(false);
+  /** "Discard change" reloads `auth/me` first. */
+  checking = $state(false);
+  /** The page is gone: late answers of its reads change nothing anymore. */
+  #disposed = false;
+
+  /** Leaving the page (`onDestroy`). */
+  dispose(): void {
+    this.#disposed = true;
+  }
 
   get mfa(): boolean {
     return session.user?.mfa_enabled ?? false;
@@ -259,7 +275,8 @@ export class ProfilePage {
   /** "Send confirmation link": the server checks password and code, then both mails go out. */
   async sendLink(): Promise<void> {
     const ea = this.ea;
-    if (!ea || this.sending || !this.eaReady) return;
+    // During "Resend link" both would replace the link: one after the other.
+    if (!ea || this.sending || this.resending || !this.eaReady) return;
     const mfa = this.mfa;
     if (mfa && this.eaOtp.length !== CODE_LENGTH) {
       this.eaErr = m.reauth_code_short();
@@ -321,16 +338,24 @@ export class ProfilePage {
 
   /** "Resend link": new link with a new 24 hours; if it fails, everything stays. */
   async resend(): Promise<void> {
-    if (this.resending) return;
+    // The account and change the request is for; the answer applies only to them.
+    const before = session.user;
+    if (!before?.email_change || this.resending || this.checking || this.sending) return;
     this.resending = true;
     this.pendErr = null;
     try {
       await ui.toasts.flush();
-      const open = await api<EmailChange>('POST', 'auth/me/email/resend');
+      const open = await api<EmailChange>('POST', 'auth/me/email/resend', undefined, {
+        signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
+      });
+      // A newer link (or another account) in the meantime: its state and notice stay.
       const user = session.user;
-      if (user) session.user = { ...user, email_change: open };
+      if (!user || !this.#unchanged(before)) return;
+      session.user = { ...user, email_change: open };
       ui.toasts.show(m.profile_link_resent());
     } catch (error) {
+      // A newer link (or another account) in the meantime: the message would not apply to it.
+      if (!this.#unchanged(before)) return;
       if (isApiError(error, 502, 'mail_failed')) {
         this.pendErr =
           error.body.previous_link_valid === true ? m.profile_resend_failed_valid() : m.profile_resend_failed();
@@ -339,10 +364,12 @@ export class ProfilePage {
       } else if (isApiError(error, 429)) {
         // Limit `auth.email.send`.
         this.pendErr = m.error_limit({ wait: waitText(retryAfter(error)) });
-      } else if (isApiError(error, 404)) {
-        // No pending change anymore (confirmed or discarded elsewhere).
-        void session.refreshUser().catch(() => {});
+      } else if (isApiError(error, 404) || isApiError(error, 409, 'email_change_discarded')) {
+        // No pending change anymore (confirmed or discarded elsewhere, also while sending).
+        await this.#gone(before);
       } else {
+        // No answer in time: the server may still have sent the link, so show its state.
+        if (isOffline(error)) await this.#reread(before);
         this.#unexpected(error);
       }
     } finally {
@@ -350,12 +377,44 @@ export class ProfilePage {
     }
   }
 
-  /** "Discard change" with undo: `DELETE auth/me/email` only after the toast expires. */
-  discardChange(): void {
+  /**
+   * "Discard change" with undo: `DELETE auth/me/email` only after the toast
+   * expires. The toast says "Change discarded" only if the change is still
+   * pending, so `auth/me` is read first; without an answer the change stays
+   * and the error toast appears.
+   */
+  async discardChange(): Promise<void> {
+    const before = session.user;
+    // During "Resend link" its response would set the change right back.
+    if (!before?.email_change || this.resending || this.checking) return;
+    const clicked = before.email_change;
+    this.checking = true;
+    let read: Read;
+    try {
+      read = await this.#reread(before);
+    } finally {
+      this.checking = false;
+    }
+    if (!read) return;
+    if ('error' in read) {
+      if (!isApiError(read.error, 401)) ui.toasts.error(failText(read.error));
+      return;
+    }
+    if (!read.me.email_change) {
+      this.#reportGone(clicked, read.me);
+      return;
+    }
+    // A different change replaced the clicked one: show it, discard nothing; the clicked one is gone.
+    if (read.me.email_change.email !== clicked.email) {
+      this.#reportGone(clicked, read.me);
+      return;
+    }
+    // A new link is being sent: its notice would send this discard and remove the new change.
+    if (this.sending) return;
     const user = session.user;
     const open = user?.email_change;
-    // During "Resend link" its response would set the change right back.
-    if (!user || !open || this.resending) return;
+    // A change installed in the meantime replaces the clicked one: discard nothing.
+    if (!user || !open || open.email !== clicked.email) return;
     this.pendErr = null;
     session.user = { ...user, email_change: null };
     ui.toasts.defer({
@@ -381,6 +440,71 @@ export class ProfilePage {
   }
 
   // ---- internal ----
+
+  /** Account, address and pending change are still those of `before`. */
+  #unchanged(before: Me): boolean {
+    const now = session.user;
+    return (
+      !!now &&
+      now.id === before.id &&
+      now.email === before.email &&
+      now.email_change?.email === before.email_change?.email &&
+      now.email_change?.expires_at === before.email_change?.expires_at
+    );
+  }
+
+  /**
+   * Reads `auth/me` for "Confirmation pending" and applies address and pending
+   * change (other fields may have been saved in the meantime). `null`: the
+   * page changed in the meantime (another account, a new link, "Discard
+   * change"), the newer state stays and decides; `error`: no answer, nothing
+   * changed. Without a session the account reloads, the layout then shows the
+   * sign-in.
+   */
+  async #reread(before: Me): Promise<Read> {
+    let me: Me;
+    try {
+      me = await api<Me>('GET', 'auth/me', undefined, { signal: AbortSignal.timeout(CONFIG_TIMEOUT_MS) });
+    } catch (error) {
+      if (isApiError(error, 401)) void session.refreshUser().catch(() => {});
+      return !this.#disposed && this.#unchanged(before) ? { error } : null;
+    }
+    const now = session.user;
+    if (this.#disposed || !now || !this.#unchanged(before)) return null;
+    if (me.id !== before.id) {
+      void session.refreshUser().catch(() => {});
+      return null;
+    }
+    const merged = { ...now, email: me.email, email_change: me.email_change };
+    session.user = merged;
+    return { me: merged };
+  }
+
+  /** "Resend link" found no pending change anymore: reload the account, then report it. */
+  async #gone(before: Me): Promise<void> {
+    const read = await this.#reread(before);
+    if (!read) return;
+    if ('error' in read) {
+      if (isApiError(read.error, 401)) return;
+      // Without an answer the 404 still counts: nothing is pending anymore.
+      const now = { ...before, ...session.user, email_change: null };
+      session.user = now;
+      this.#reportGone(before.email_change, now);
+    } else if (read.me.email_change?.email !== before.email_change?.email) {
+      // Also with a new change from elsewhere: it shows, the resent one is gone.
+      this.#reportGone(before.email_change, read.me);
+    }
+  }
+
+  /**
+   * "Confirmation pending" is gone: discarded elsewhere gives the regular toast
+   * "… has since been discarded"; confirmed elsewhere (the address applies) no toast.
+   */
+  #reportGone(open: EmailChange | null | undefined, user: Me): void {
+    this.pendErr = null;
+    if (open && user.email === open.email) return;
+    ui.toasts.show(m.profile_email_gone());
+  }
 
   #current(field: ProfileField): string {
     const user = session.user;
@@ -415,13 +539,13 @@ export class ProfilePage {
 
   /**
    * Without a text of its own: error toast; a change discarded in the
-   * meantime (`email_change_discarded`) with its own text.
+   * meantime (`email_change_discarded`) with its own text as a regular toast.
    * Without a session the account reloads, the layout then shows the sign-in.
    */
   #unexpected(error: unknown): void {
     const gone = isApiError(error, 409, 'email_change_discarded');
     if (isApiError(error, 401) || gone) void session.refreshUser().catch(() => {});
-    if (gone) ui.toasts.error(m.profile_email_gone());
+    if (gone) ui.toasts.show(m.profile_email_gone());
     else if (!isApiError(error, 401)) ui.toasts.error(failText(error));
   }
 }
@@ -459,7 +583,7 @@ export interface AcctRowValues {
   pendEmail: string;
   pendErr: string;
   hasPendErr: boolean;
-  /** Response pending ("Resend link"). */
+  /** Response pending ("Resend link", "Discard change" reading `auth/me`, or a new link). */
   busy: boolean;
   edit: () => void;
   onChange: (value: string) => void;
@@ -599,13 +723,13 @@ export function profileValues(p: ProfilePage, mailAccounts = 0): ProfileValues {
         pendEmail: pend && pending ? pending.email : '',
         pendErr,
         hasPendErr: !!pendErr,
-        busy: pend && p.resending,
+        busy: pend && (p.resending || p.checking || p.sending),
         edit: () => id && p.edit(id),
         onChange: (value: string) => id && p.setField(id, value),
         onBlur: () => id && p.blurField(id),
         onKey: (event: KeyInput) => id && p.fieldKey(id, event),
         resend: () => void p.resend(),
-        discard: () => p.discardChange(),
+        discard: () => void p.discardChange(),
       };
     }),
     eaIntro: mfa ? m.profile_ea_intro_code() : m.profile_ea_intro(),
@@ -614,7 +738,7 @@ export function profileValues(p: ProfilePage, mailAccounts = 0): ProfileValues {
     eaMsg: p.eaErr ?? '',
     hasEaMsg: !!p.eaErr,
     eaDis: !p.eaReady,
-    eaBusy: p.sending,
+    eaBusy: p.sending || p.resending,
     eaGo: () => void p.sendLink(),
     eaCancel: () => p.cancelAuth(),
     nameDirty: p.dirty,

@@ -7,8 +7,10 @@
   subtitle.
 -->
 <script lang="ts">
+  import { onDestroy } from 'svelte';
   import { tooltip } from '#lib/actions/tooltip.ts';
   import { autofocus } from '#lib/actions/autofocus.ts';
+  import { focusback } from '#lib/actions/focusback.ts';
   import DirtyBar from '#lib/components/DirtyBar.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { MAX_NAME } from '#lib/name.ts';
@@ -19,6 +21,7 @@
   import { ui } from '#lib/state/ui.svelte.ts';
 
   const p = new ProfilePage();
+  onDestroy(() => p.dispose());
   const v = $derived(profileValues(p, accounts.count ?? 0));
   const isMobile = $derived(ui.isMobile);
   const info = $derived(pageOf('/account/profile'));
@@ -84,7 +87,7 @@
 
 <!-- "Confirmation pending" (confirmation pending, `acctRows[].pend`). -->
 {#snippet pending(r: AcctRowValues)}
-  <div role="status" class="pend">
+  <div role="status" class="pend" use:focusback={'button.edit, input.row-input'}>
     <div class="pend-head">
       <span class="pend-tile"><Icon name="ti-mail-forward" /></span>
       <div class="pend-text">
