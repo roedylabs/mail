@@ -1492,7 +1492,30 @@ describe('Shell layout', () => {
     ui.pageDialog = () => ({ title: 'Add server', close, content: dialog });
     const sheet = await vi.waitFor(() => getByRole('dialog', { name: 'Add server' }));
     expect(sheet).toHaveTextContent('Content in the sheet');
+    // Without `own` in the level 1 sheet (e.g. "Time", "All licenses").
+    expect(sheet).not.toHaveClass('own');
     await fireEvent.mouseDown(document.querySelector('.scrim') as Element);
+    expect(close).toHaveBeenCalled();
+  });
+
+  it('shows a page dialog with `own` on its own sheet layer on mobile', async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('admin') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+    });
+    const { findByText, getByRole } = renderAt('/admin/mail-servers');
+    await findByText('Page content');
+    const close = vi.fn();
+    ui.pageDialog = () => ({ title: 'Add server', close, content: dialog, own: true });
+    const sheet = await vi.waitFor(() => getByRole('dialog', { name: 'Add server' }));
+    expect(sheet).toHaveClass('own');
+    const scrim = document.querySelector('.scrim.own');
+    expect(scrim).not.toBeNull();
+    await fireEvent.mouseDown(scrim as Element);
     expect(close).toHaveBeenCalled();
   });
 
@@ -2329,6 +2352,9 @@ describe('Mailboxes in the shell', () => {
       await fireEvent.click(await within(sheet).findByRole('button', { name: 'Fix tags, 1 mismatch' }));
       const top = getByRole('dialog', { name: 'Fix tags' });
       expect(within(top).getByText('Unlink')).toBeInTheDocument();
+      // Own layer above "Mailboxes" and "Switch account".
+      expect(top).toHaveClass('own');
+      expect(top).not.toHaveClass('top');
       expect(sheet).toHaveClass('behind');
       await fireEvent.keyDown(window, { key: 'Escape' });
       expect(queryByRole('dialog', { name: 'Fix tags' })).toBeNull();

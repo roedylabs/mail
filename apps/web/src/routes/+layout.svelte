@@ -2001,7 +2001,8 @@
             <AccountSwitcher {...switcherProps} />
           </Sheet>
         {:else if tagFixProps}
-          <Sheet level={2} label={m.tagfix_title()} onclose={() => (tagFixOpen = false)}>
+          <!-- Own layer above "Mailboxes" (`tsMob`). -->
+          <Sheet level={3} label={m.tagfix_title()} onclose={() => (tagFixOpen = false)}>
             <TagFixDialog {...tagFixProps} isMobile={true} close={() => (tagFixOpen = false)} />
           </Sheet>
         {/if}
@@ -2028,7 +2029,7 @@
         </Sheet>
       {/if}
       {#if pageDialog}
-        <Sheet label={pageDialog.title} onclose={pageDialog.close}>
+        <Sheet level={pageDialog.own ? 3 : 1} label={pageDialog.title} onclose={pageDialog.close}>
           {@render pageDialog.content(true)}
         </Sheet>
       {/if}

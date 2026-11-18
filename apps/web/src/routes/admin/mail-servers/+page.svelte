@@ -28,7 +28,7 @@
 
   onMount(() => {
     void p.load();
-    ui.pageDialog = () => (sd ? { title: sd.title, close: sd.close, content: serverDialog } : null);
+    ui.pageDialog = () => (sd ? { title: sd.title, close: sd.close, content: serverDialog, own: true } : null);
     return () => {
       p.dispose();
       ui.pageDialog = null;

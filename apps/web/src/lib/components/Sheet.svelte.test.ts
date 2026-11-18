@@ -73,6 +73,26 @@ describe('Sheet', () => {
     expect(onclose).not.toHaveBeenCalled();
   });
 
+  it('lies on a layer of its own above levels 1 and 2 as level 3', () => {
+    const { container, getByRole } = render(Sheet, { label: 'Fix tags', onclose: () => {}, children: body, level: 3 });
+    const sheet = getByRole('dialog', { name: 'Fix tags' });
+    expect(sheet).toHaveClass('own');
+    expect(sheet).not.toHaveClass('top');
+    expect(sheet).toHaveAttribute('data-sheet', '3');
+    expect(container.querySelector('.scrim')).toHaveClass('own');
+    expect(container.querySelector('.scrim')).not.toHaveClass('top');
+  });
+
+  it('keeps levels 1 and 2 off the own layer', () => {
+    const one = render(Sheet, { label: 'More', onclose: () => {}, children: body });
+    expect(one.getByRole('dialog')).not.toHaveClass('own');
+    expect(one.container.querySelector('.scrim')).not.toHaveClass('own');
+    one.unmount();
+    const two = render(Sheet, { label: 'Switch account', onclose: () => {}, children: body, level: 2 });
+    expect(two.getByRole('dialog')).not.toHaveClass('own');
+    expect(two.container.querySelector('.scrim')).not.toHaveClass('own');
+  });
+
   describe('focus trap', () => {
     const opener = createRawSnippet(() => ({ render: () => '<div><button>Switch account</button></div>' }));
     const list = createRawSnippet(() => ({ render: () => '<div><button>Account 1</button></div>' }));
