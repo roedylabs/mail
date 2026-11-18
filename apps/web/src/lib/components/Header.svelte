@@ -95,6 +95,8 @@
         >
           <Icon name="ti-menu-2" />
         </button>
+      {:else if props.sbToggleHold}
+        <span class="round" aria-hidden="true"></span>
       {/if}
       {@render brand('desk')}
     </div>

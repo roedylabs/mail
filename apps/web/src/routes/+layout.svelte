@@ -308,6 +308,18 @@
   );
   // The search takes the full width: sidebar slid out and no sidebar toggle, as without a mail account.
   const sbHidden = $derived(noAccounts || path === SEARCH);
+  /**
+   * Mail accounts still loading: the sidebar stays slid out, but its slot already has the width it will have,
+   * so the sidebar slides into reserved space instead of pushing the page aside. Not on the search and on
+   * "No account", where it stays out, and not after a failed load, which leaves the list unknown.
+   */
+  const sbReserve = $derived(
+    mailAccountCount === null &&
+      !accounts.failed &&
+      chrome === 'main' &&
+      path !== SEARCH &&
+      path !== ENTRY['/no-account'],
+  );
   /** Tablet in portrait: the sidebar lies as a drawer over the mailbox (`drawerOpen`), with a scrim. */
   const drawerOpen = $derived(ui.isPortrait && ui.drawer && chrome === 'main' && !sbHidden);
   /** Sidebar shows labels (270 px): expanded, or as an open drawer. */
@@ -963,6 +975,8 @@
     appName: session.appName,
     logo: session.logo,
     sbToggleOn: !sbHidden,
+    // While the accounts load, an empty space holds the toggle's place (`sbReserve`).
+    sbToggleHold: sbReserve,
     hdrQ: search.q,
     hdrHasQ: search.q.length > 0,
     searchPlaceholder: m.shell_search_placeholder({ app: session.appName }),
@@ -1965,6 +1979,7 @@
             drawer={drawerOpen}
             closeDrawer={() => closeDrawer()}
             hidden={sbHidden}
+            reserve={sbReserve}
             {sbTab}
             navRows={mailRows}
             inFolder={folderValues?.inFolder ?? false}

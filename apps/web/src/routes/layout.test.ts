@@ -470,6 +470,66 @@ describe('Shell layout', () => {
     ui.collapsed = false;
   });
 
+  it('reserves the sidebar room while the mail accounts load, so the sidebar slides in without moving the page', async () => {
+    let answer: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [() => new Promise((resolve) => (answer = resolve))],
+      'GET tags': [{ body: { tags: [] } }],
+    });
+    const { findByText, queryByRole, container } = renderAt('/start');
+    await vi.waitFor(() => expect(calls.some((c) => c.path === 'mail-accounts')).toBe(true));
+    const sidebar = () => container.querySelector<HTMLElement>('nav.sidebar');
+    const slot = () => sidebar()?.parentElement;
+    await vi.waitFor(() => expect(sidebar()).not.toBeNull());
+    // Unknown list: slid out as without an account, but with the room it will take.
+    expect(sidebar()).toHaveClass('hidden');
+    expect(slot()?.style.width).toBe('270px');
+    // The toggle's place is held by an empty, inert space: nothing to press while the sidebar is out.
+    expect(queryByRole('button', { name: 'Show or hide sidebar' })).toBeNull();
+    expect(container.querySelector('header.desk .start > span.round[aria-hidden="true"]')).not.toBeNull();
+    answer({ body: { accounts: [ACCOUNT] } });
+    await findByText('account1@s1.test');
+    expect(sidebar()).not.toHaveClass('hidden');
+    expect(slot()?.style.width).toBe('270px');
+    expect(queryByRole('button', { name: 'Show or hide sidebar' })).not.toBeNull();
+    expect(container.querySelector('header.desk .start > span.round')).toBeNull();
+  });
+
+  it('gives the reserved sidebar room back when the mail accounts fail to load', async () => {
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ status: 500, body: { error: 'internal' } }],
+      'GET tags': [{ body: { tags: [] } }],
+    });
+    const { container } = renderAt('/start');
+    const sidebar = () => container.querySelector<HTMLElement>('nav.sidebar');
+    await vi.waitFor(() => expect(accounts.failed).toBe(true));
+    await vi.waitFor(() => expect(sidebar()?.parentElement?.style.width).toBe('16px'));
+    expect(sidebar()).toHaveClass('hidden');
+    expect(container.querySelector('header.desk .start > span.round')).toBeNull();
+  });
+
+  it('reserves no sidebar room on “No account” while the mail accounts load', async () => {
+    const { calls } = mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [() => new Promise<never>(() => {})],
+    });
+    const { queryByRole, container } = renderAt('/no-account');
+    await vi.waitFor(() => expect(calls.some((c) => c.path === 'mail-accounts')).toBe(true));
+    const sidebar = () => container.querySelector<HTMLElement>('nav.sidebar');
+    await vi.waitFor(() => expect(sidebar()).not.toBeNull());
+    expect(sidebar()).toHaveClass('hidden');
+    expect(sidebar()?.parentElement?.style.width).toBe('16px');
+    expect(queryByRole('button', { name: 'Show or hide sidebar' })).toBeNull();
+  });
+
   it('opens “New email” with C, from the palette and the sidebar with the view account', async () => {
     mockApi({
       'GET public/config': [{ body: CONFIG }],

@@ -21,6 +21,8 @@
   interface Props extends SidebarInput {
     /** Sidebar collapsed (room 82 instead of 270 px). */
     collapsed: boolean;
+    /** Hidden, but the slot keeps the room it will have (mail accounts still loading). */
+    reserve?: boolean;
     /** Open as a drawer over the content (tablet in portrait). */
     drawer?: boolean;
     /** Focus has left the open drawer. */
@@ -39,6 +41,7 @@
   let {
     wide,
     hidden,
+    reserve = false,
     sbTab,
     inFolder = false,
     inTag = false,
@@ -76,7 +79,7 @@
   );
   // Position of the indicator below the active tab: columns 4fr (active) and 1fr.
   const indLeft = $derived(`calc(4px + (100% - 8px - 2 * var(--sgap)) * ${tabIndex / 6} + ${tabIndex} * var(--sgap))`);
-  const slotW = $derived(hidden ? '16px' : collapsed ? '82px' : '270px');
+  const slotW = $derived(hidden && !reserve ? '16px' : collapsed ? '82px' : '270px');
 
   let composeButton: HTMLButtonElement | undefined = $state();
   // The opened drawer takes the focus, starting with "New email".
