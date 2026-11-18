@@ -350,7 +350,6 @@
     margin-top: 12px;
     padding: 0 16px;
     font-size: 16px;
-    transition: none;
   }
 
   /* Field error: red ring as for the banner */

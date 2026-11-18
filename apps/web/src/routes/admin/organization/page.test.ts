@@ -188,10 +188,10 @@ describe('Organization page', () => {
     expect(field('Website')).not.toHaveAttribute('aria-describedby');
   });
 
-  it('fields on mobile without transition, the red ring applies in both layouts', () => {
+  it('fields animate the focus ring and show the red ring in both layouts', () => {
     const rule = (selector: string) =>
       new RegExp(`^ {2}${selector.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')} \\{([^}]*)\\}`, 'm').exec(SOURCE)?.[1] ?? '';
-    expect(rule('.mobile input')).toMatch(/transition: none;/);
+    expect(rule('.mobile input')).not.toMatch(/transition/);
     expect(rule('input')).toMatch(/transition: box-shadow var\(--dur, 220ms\);/);
     expect(rule('input.bad')).toMatch(/box-shadow: 0 0 0 2px var\(--danger\);/);
   });
