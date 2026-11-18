@@ -186,7 +186,28 @@ describe('Invitation page', () => {
     await type('Verification code', '111111');
     expect(await view.findByText('Too many incorrect codes.')).toBeInTheDocument();
     expect(view.getByRole('button', { name: 'Confirm in 15:00' })).toBeDisabled();
-    expect(view.getByLabelText('Verification code')).toBeDisabled();
+    expect(view.getByRole('button', { name: 'Confirm in 15:00' }).style.opacity).toBe('0.55');
+    const input = view.getByLabelText('Verification code');
+    expect(input).toBeDisabled();
+    // Only field and button are locked, the boxes stay opaque.
+    expect(input.closest<HTMLElement>('.code-ctl')?.style.opacity).toBe('1');
+  });
+
+  it('shows maintenance mode as a status rather than an alert', async () => {
+    mockApi({
+      'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],
+      'POST invites/tok/totp': [{ body: { secret: SECRET, uri: `otpauth://totp/x?secret=${SECRET}` } }],
+      'POST invites/tok/accept': [{ status: 503, body: { error: 'maintenance', message: 'Back at 6 pm.' } }],
+    });
+    const view = renderPage();
+    await view.findByRole('heading', { level: 1 });
+    await click('Accept invitation');
+    await type('Choose a password', 'Safe-enough1');
+    await click('Continue');
+    await view.findByRole('heading', { name: 'Multi-factor authentication' });
+    await type('Verification code', '123456');
+    expect(await view.findByRole('status')).toHaveTextContent('Back at 6 pm.');
+    expect(view.queryByRole('alert')).not.toBeInTheDocument();
   });
 
   it('locks “Continue” after 429 with lock and countdown', async () => {

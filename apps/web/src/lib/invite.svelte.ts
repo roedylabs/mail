@@ -502,9 +502,9 @@ export class InviteFlow {
     } else if (isApiError(error, 404)) {
       this.status = 'missing';
     } else if (isApiError(error, 503, 'maintenance')) {
+      // A notice, not a mistake: no shake.
       this.maint = { message: maintenanceMessage(error) };
       this.otp = '';
-      this.hooks.fail?.();
     } else if (isApiError(error, 422, 'invalid')) {
       this.fieldsFailed(fieldsOf(error));
     } else {

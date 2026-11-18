@@ -40,4 +40,24 @@ describe('code boxes', () => {
     expect(view.container.querySelectorAll('.sep')).toHaveLength(1);
     expect(view.container.querySelector('.box.active .caret')).not.toBeNull();
   });
+
+  it('fades locked boxes unless the page keeps them opaque', () => {
+    const base = {
+      id: 'code',
+      kind: 'otp' as const,
+      value: '',
+      active: true,
+      bad: false,
+      gap: '10px',
+      height: '64px',
+      oninput: () => {},
+    };
+    const faded = render(CodeBoxes, { ...base, locked: true });
+    expect(faded.container.querySelector<HTMLElement>('.code-ctl')?.style.opacity).toBe('0.5');
+    expect(faded.container.querySelector('input')).toBeDisabled();
+    faded.unmount();
+    const opaque = render(CodeBoxes, { ...base, locked: true, fadeLocked: false });
+    expect(opaque.container.querySelector<HTMLElement>('.code-ctl')?.style.opacity).toBe('1');
+    expect(opaque.container.querySelector('input')).toBeDisabled();
+  });
 });
