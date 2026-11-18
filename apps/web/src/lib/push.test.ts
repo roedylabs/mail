@@ -251,6 +251,49 @@ describe('silent subscription', () => {
     expect(push.status).toBe('active');
   });
 
+  it('a new key whose replacement fails: the old entry no longer counts', async () => {
+    const browser = fakeBrowser({ permission: 'granted', key: OTHER_KEY });
+    push.env = browser.env;
+    channelOn();
+    push.current = entry();
+    mockApi({
+      'GET push/vapid-public-key': [{ body: { key: KEY } }],
+      'POST push/subscriptions': [{ status: 500, body: { error: 'internal' } }],
+    });
+    // The old subscription is gone, the new one is not registered either.
+    browser.subscribe.mockImplementationOnce(() => Promise.reject(new Error('no subscription')));
+    await push.refresh();
+    expect(browser.unsubscribe).toHaveBeenCalledOnce();
+    expect(push.current).toBeNull();
+    expect(push.missing).toBe(true);
+    expect(push.status).toBe('ask');
+  });
+
+  it('turning off waits for a running silent registration and removes what it created', async () => {
+    const browser = fakeBrowser({ permission: 'granted' });
+    push.env = browser.env;
+    channelOn();
+    let key: ((value: { body: unknown }) => void) | undefined;
+    const { calls } = mockApi({
+      'GET push/vapid-public-key': [() => new Promise((resolve) => (key = resolve))],
+      'POST push/subscriptions': [{ status: 201, body: entry() }],
+      'DELETE push/subscriptions/s1': [{ status: 204 }],
+    });
+    const silent = push.resume();
+    await vi.waitFor(() => expect(key).toBeDefined());
+    const off = push.off();
+    key?.({ body: { key: KEY } });
+    await Promise.all([silent, off]);
+    expect(calls.filter((c) => c.path.startsWith('push/')).map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET push/vapid-public-key',
+      'POST push/subscriptions',
+      'DELETE push/subscriptions/s1',
+    ]);
+    expect(browser.current()).toBeNull();
+    expect(push.current).toBeNull();
+    expect(prefs.values.nCh.push).toBe(false);
+  });
+
   it('settings not loaded yet: no new subscription', async () => {
     const browser = fakeBrowser({ permission: 'granted' });
     push.env = browser.env;

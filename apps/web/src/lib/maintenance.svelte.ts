@@ -494,9 +494,11 @@ export class MaintenancePage {
     if (!session.authed) return;
     // Without the role in the backup the layout shows "Access denied", the page then loads nothing more.
     const page = session.isAdmin ? this.load() : undefined;
-    await Promise.all([prefs.load().catch(() => {}), accounts.load().catch(() => {}), page]);
+    const settings = prefs.load().catch(() => {});
     // With the settings it is known whether the push channel is on (silent subscription).
-    void push.resume().then(() => mailPush.resume());
+    void settings.then(() => push.resume());
+    await Promise.all([settings, accounts.load().catch(() => {}), page]);
+    void mailPush.resume();
   }
 
   /** Trash can: with undo, `DELETE` only after the toast expires. */

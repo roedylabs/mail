@@ -382,15 +382,18 @@
     const returning = session.fromCopy;
     await session.load(restoreCopy);
     if (session.authed && !session.fromCopy) {
+      // Without settings the defaults apply; saving tries again.
+      const settings = prefs.load().catch(() => {});
+      // Push subscriptions end with the session: once the channel is known, this browser registers again
+      // (with the channel on it subscribes silently).
+      void settings.then(() => push.resume());
       await Promise.all([
-        // Without settings the defaults apply; saving tries again.
-        prefs.load().catch(() => {}),
+        settings,
         // The effect below reports the error.
         (returning ? accounts.load() : accounts.ensure()).catch(() => {}),
       ]);
-      // Only now is it known whether the push channel is on. Push subscriptions end with the session:
-      // this browser registers again (silently subscribes with the channel on) before the mail accounts check it.
-      void push.resume().then(() => mailPush.resume());
+      // Only now is it known whether the push channel is on.
+      void mailPush.resume();
       if (returning) {
         live.reconnect();
         void tags.load().catch(() => {});

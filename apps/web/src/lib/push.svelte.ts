@@ -105,6 +105,9 @@ export class Push {
   /** Counts `reset()`; responses from an earlier session expire. */
   #generation = 0;
 
+  /** Running silent registration; turning off waits for it so that it cannot subscribe again afterwards. */
+  #silentRun: Promise<void> = Promise.resolve();
+
   /** Re-read support and permission (without the server). */
   readEnv(): void {
     this.support = this.env.support();
@@ -187,6 +190,7 @@ export class Push {
   async off(): Promise<void> {
     const generation = this.#generation;
     try {
+      await this.#silentRun;
       const current = this.current;
       if (current) {
         try {
@@ -221,7 +225,13 @@ export class Push {
    * and the browser has no registration for this session, this device
    * counts as off (`missing`); errors stay silent.
    */
-  async #silent(): Promise<void> {
+  #silent(): Promise<void> {
+    const run = this.#silentRun.then(() => this.#silentOnce());
+    this.#silentRun = run;
+    return run;
+  }
+
+  async #silentOnce(): Promise<void> {
     const generation = this.#generation;
     try {
       const existing = await this.#subscription();
@@ -235,7 +245,12 @@ export class Push {
       if (generation === this.#generation) this.missing = false;
     } catch {
       // Without registration no push arrives; the page offers to turn push on again.
-      if (generation === this.#generation && this.current === null) this.missing = true;
+      if (generation !== this.#generation) return;
+      // A new key replaces the subscription: if the old one is already gone, the entry of this session no longer counts.
+      const still = await this.#subscription().catch(() => null);
+      if (generation !== this.#generation) return;
+      if (!still) this.current = null;
+      if (this.current === null) this.missing = true;
     }
   }
 
