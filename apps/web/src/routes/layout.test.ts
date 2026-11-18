@@ -1348,10 +1348,11 @@ describe('Shell layout', () => {
       });
       return renderAt(path);
     };
-    /** Navigation to the settings list (`More › Settings`). */
-    const toSettings = async () => {
+    /** Navigation to the settings list (`More › Settings`); `loading` runs while the target loads. */
+    const toSettings = async (loading?: () => void) => {
       const to = '/settings/appearance';
       nav.before!({ to: { url: new URL(`http://localhost${to}`) } });
+      loading?.();
       nav.onNavigate!();
       ui.panelList = to;
       page.url = new URL(`http://localhost${to}`);
@@ -1366,10 +1367,8 @@ describe('Shell layout', () => {
       await findByText('Page content');
       search.q = 'invoice';
       search.set({ st: ['u'] });
-      nav.before!({ to: { url: new URL('http://localhost/settings/appearance') } });
       // Typed while the settings load: counts.
-      search.q = 'receipts';
-      await toSettings();
+      await toSettings(() => (search.q = 'receipts'));
       // Leaving the search page resets its filters.
       search.leave();
       expect(search.sf.st).toEqual([]);
