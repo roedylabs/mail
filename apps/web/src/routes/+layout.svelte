@@ -145,7 +145,7 @@
   import { QUEUE_POLL_MS } from '#lib/state/edit-queue.svelte.ts';
   import { edits } from '#lib/state/edits.svelte.ts';
   import { network, pollVisible } from '#lib/state/network.svelte.ts';
-  import { scopeOf, search } from '#lib/state/search.svelte.ts';
+  import { scopeOf, search, type SearchSnapshot } from '#lib/state/search.svelte.ts';
   import { returnable, returnBackLabel, returnLabel, searchReturn } from '#lib/search-return.ts';
   import { swipeBack, TOAST_BACK_MS, type BackSwipe, type SheetPull, type ToastSwipe } from '#lib/swipe.ts';
   import { ago } from '#lib/ago.ts';
@@ -342,6 +342,8 @@
   // Return path to the search: the navigation of an opened hit sets it, leaving its target ends it.
   beforeNavigate(({ to }) => {
     if (to) search.navigating(to.url.pathname, returnable(to.url.pathname));
+    // Leaving the search resets its filters: the mobile settings list's "Back" brings them again.
+    if (appView && appView.path === SEARCH && path === SEARCH) appView.search = search.snapshot();
   });
 
   // History within the app for the error page's "Back". The app's start does not count: in the SPA
@@ -1649,11 +1651,34 @@
    * Last view of the app (mailbox, folder or tag with the open message, the search): on mobile the list of
    * settings, account and administration goes back there (`mBack` keeps the main view), otherwise to the start.
    */
-  let appView = $state<string | null>(null);
+  interface AppView {
+    /** Signed-in user the view belongs to. */
+    user: string;
+    path: string;
+    href: string;
+    /** The search as it was left (`/search` only). */
+    search: SearchSnapshot | null;
+  }
+  let appView = $state<AppView | null>(null);
   $effect(() => {
+    const user = session.user?.id;
     if (ready && !session.authed) appView = null;
-    else if (ready && !target && chrome === 'main' && !forbidden) appView = page.url.pathname + page.url.search;
+    else if (ready && !target && chrome === 'main' && !forbidden && user) {
+      appView = { user, path: page.url.pathname, href: page.url.pathname + page.url.search, search: null };
+    }
   });
+  /**
+   * Target of the last view: only for the same user and while its account still exists (otherwise the
+   * start); the search with its filters as it was left.
+   */
+  function appViewHref(): string {
+    const view = appView;
+    if (!view || view.user !== session.user?.id) return HOME;
+    const at = parseMailboxPath(view.path);
+    if (at && at.account !== ALL_ACCOUNTS && accounts.list && !accounts.get(at.account)) return HOME;
+    if (view.search) search.restore(view.search);
+    return view.href;
+  }
 
   /**
    * "Back" of the mobile header: back to the search, from the page to the list, from the list to the
@@ -1666,7 +1691,7 @@
       ui.panelList = path;
       return tick();
     }
-    return navigate(maRoute ? hrefOf('/account/mail-accounts') : ui.isMobile ? (appView ?? HOME) : HOME);
+    return navigate(maRoute ? hrefOf('/account/mail-accounts') : ui.isMobile ? appViewHref() : HOME);
   }
 
   /** Mobile: the panel starts at the top after every switch between the list and a page and between two pages. */
