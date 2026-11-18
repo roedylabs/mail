@@ -636,7 +636,7 @@ describe('Search', () => {
         pointer('pointerup', 100, 300 + dy);
       };
       field.focus();
-      // A tap on a recent search runs it, the field keeps the focus.
+      // A move of 2 px stays below the threshold: the field keeps the focus.
       drag(view.getByRole('button', { name: 'Invoice' }), 2);
       expect(field).toHaveFocus();
       drag(view.getByText('Quick access'), 20);
@@ -644,6 +644,12 @@ describe('Search', () => {
       field.focus();
       drag(view.getByRole('button', { name: 'Invoice' }), -20);
       expect(field).not.toHaveFocus();
+      // A tap (short move, then the click) still runs the recent search, the focus stays.
+      field.focus();
+      drag(view.getByRole('button', { name: 'Invoice' }), 2);
+      await fireEvent.click(view.getByRole('button', { name: 'Invoice' }));
+      expect(search.q).toBe('Invoice');
+      expect(field).toHaveFocus();
       // Quick filters: vertical closes, horizontal (scrolling the row) not.
       search.set({ st: ['u'] });
       const quick = await view.findByRole('group', { name: 'Quick filters' });

@@ -1157,7 +1157,7 @@ describe('blurOnDrag', () => {
     expect(field).toHaveFocus();
   });
 
-  it('takes no gesture: the click after the drag arrives, a cancelled pointer blurs nothing', () => {
+  it('takes no gesture: the click after the drag arrives, a pointer cancelled before 8 px blurs nothing', () => {
     const { field, row } = area();
     const click = vi.fn();
     row.addEventListener('click', click);
@@ -1169,6 +1169,15 @@ describe('blurOnDrag', () => {
     pointer('pointercancel', 100, 300);
     pointer('pointermove', 100, 340);
     expect(field).toHaveFocus();
+  });
+
+  it('blurs at the decision: a pointer cancelled after 8 px does not bring the focus back', () => {
+    const { field, row } = area();
+    pointer('pointerdown', 100, 300, row);
+    pointer('pointermove', 100, 312);
+    expect(field).not.toHaveFocus();
+    pointer('pointercancel', 100, 312);
+    expect(field).not.toHaveFocus();
   });
 
   it('starts nothing on the field itself, only blurs a text field and stops when detached', () => {
