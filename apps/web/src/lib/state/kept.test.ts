@@ -22,4 +22,28 @@ describe('Kept', () => {
     kept.keeper()('new');
     expect(kept.value).toBe('new');
   });
+
+  it('waits for calls of left pages, also failed ones, until the session ends', async () => {
+    const kept = new Kept<string>();
+    let done = () => {};
+    let failed = () => {};
+    kept.track(new Promise<void>((resolve) => (done = resolve)));
+    kept.track(new Promise<void>((_, reject) => (failed = () => reject(new Error('x')))));
+    let through = false;
+    const load = kept.after(() => {
+      through = true;
+      return Promise.resolve(1);
+    });
+    done();
+    await Promise.resolve();
+    expect(through).toBe(false);
+    failed();
+    expect(await load).toBe(1);
+    kept.track(new Promise(() => {}));
+    kept.forget();
+    // Without calls right away.
+    let now = false;
+    void kept.after(() => Promise.resolve((now = true)));
+    expect(now).toBe(true);
+  });
 });

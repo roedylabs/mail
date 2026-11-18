@@ -1043,6 +1043,26 @@ describe('Actions per row', () => {
     expect(ui.toast?.text).toBe('Elsewhere');
   });
 
+  it('keeps a row opened in the meantime when a removal fails', async () => {
+    const { p, v } = await loaded({ 'DELETE users/u2': [{ status: 500, body: { error: 'internal' } }] });
+    p.toggleOpen('u2');
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    p.toggleOpen('u1');
+    await ui.toasts.flush();
+    expect(listed(p, 'u2')).toBeDefined();
+    expect(p.open).toBe('u1');
+  });
+
+  it('sends a removal on leaving with `keepalive`', async () => {
+    const { p, v } = await loaded({ 'DELETE users/u2': [{ status: 204 }] });
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    p.dispose();
+    expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]).toMatchObject({ method: 'DELETE', keepalive: true });
+    await ui.toasts.flush();
+  });
+
   it('reports a removal that fails after leaving the page, without loading again', async () => {
     const { p, v, calls } = await loaded({ 'DELETE users/u2': [{ status: 500, body: { error: 'internal' } }] });
     row(v(), 'Luke Walker').remove();
@@ -1306,7 +1326,8 @@ describe('Reopening', () => {
     if (!u3) throw new Error('no u3');
     p.remove(u3);
     ui.confirmOk();
-    // Leaving the page sends the removal right away.
+    // Sent before leaving (toast expired), still on its way.
+    const sending = ui.toasts.flush();
     p.dispose();
     mockApi({ 'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: later } }] });
     const q = new UsersPage();
@@ -1316,7 +1337,26 @@ describe('Reopening', () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
     answer({ body: { users: USERS } });
     await load;
+    await sending;
     await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
+  });
+
+  it('a reopened page loads only after the removal sent on leaving', async () => {
+    let removed: (reply: { status: number }) => void = () => {};
+    const later = USERS.filter((u) => u.id !== 'u3');
+    const { p, v } = await loaded({ 'DELETE users/u3': [() => new Promise((resolve) => (removed = resolve))] });
+    row(v(), 'Sophie Hamilton').remove();
+    ui.confirmOk();
+    p.dispose();
+    const { calls } = mockApi({ 'GET users': [{ body: { users: later } }] });
+    const q = new UsersPage();
+    const load = q.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls)).not.toContain('GET users');
+    removed({ status: 204 });
+    await load;
+    expect(sent(calls)).toEqual(['GET users']);
+    expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id));
   });
 
   it('an extension the left page confirms later makes the reopened page load again', async () => {

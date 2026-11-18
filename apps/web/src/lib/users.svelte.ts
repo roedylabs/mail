@@ -287,9 +287,15 @@ export class UsersPage {
     const seq = ++this.#seq;
     const reopened = this.#reopened;
     this.#reopened = false;
-    const changes = keptUsers.changes;
+    let changes = keptUsers.changes;
     try {
-      const { users } = await this.loading.run(api<{ users: ListedUser[] }>('GET', 'users'));
+      // After a removal the left page sent on leaving: otherwise the response could still contain the user.
+      const { users } = await this.loading.run(
+        keptUsers.after(() => {
+          changes = keptUsers.changes;
+          return api<{ users: ListedUser[] }>('GET', 'users');
+        }),
+      );
       if (seq !== this.#seq || this.#disposed) return;
       // Confirmed in the meantime (e.g. removed): the list is older, so reload.
       if (changes !== keptUsers.changes) {
@@ -366,7 +372,8 @@ export class UsersPage {
     }
     this.#disposed = true;
     this.inviteLock.stop();
-    if (ui.toasts.waiting(this.#final)) void ui.toasts.flush();
+    // With `keepalive`: the tab may be closed right after.
+    if (ui.toasts.waiting(this.#final)) void ui.toasts.flush(true);
     this.#final = null;
   }
 
@@ -639,7 +646,9 @@ export class UsersPage {
       text,
       revert: change.revert,
       commit: async (keepalive) => {
-        await call(keepalive);
+        const sending = call(keepalive);
+        if (this.#disposed) keptUsers.track(sending);
+        await sending;
         change.settle();
       },
       onError: (error) => {
@@ -651,14 +660,14 @@ export class UsersPage {
     ui.toasts.defer(action);
   }
 
-  /** Selection and expanded row before a removal, for a failed call. */
+  /** Selection and expanded row before a removal, for a failed call (the row only if no other one was opened since). */
   #restorer(ids: readonly string[]): () => void {
     const selected = this.selected.filter((id) => ids.includes(id));
     const open = this.open !== null && ids.includes(this.open) ? this.open : null;
     return () => {
       const known = this.rows.map((u) => u.id);
       this.selected = [...this.selected, ...selected.filter((id) => known.includes(id) && !this.selected.includes(id))];
-      if (open !== null && known.includes(open)) this.open = open;
+      if (open !== null && this.open === null && known.includes(open)) this.open = open;
     };
   }
 

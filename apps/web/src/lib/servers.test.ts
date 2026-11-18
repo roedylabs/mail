@@ -641,6 +641,35 @@ describe('Remove', () => {
     expect(new ServersPage().rows.map((s) => s.id)).toEqual(['s1', 's2']);
   });
 
+  it('clears the system mail server only if it still is the removed one', async () => {
+    const { p, v, calls } = await loaded({ 'DELETE admin/servers/s1': [{ status: 204 }] });
+    rowOf(v(), 's1').remove();
+    ui.confirmOk();
+    // Reloaded in the meantime with another server for the system mail.
+    p.systemServer = 's2';
+    await ui.toasts.flush();
+    expect(p.systemServer).toBe('s2');
+    expect(sent(calls)).not.toContain('GET auth/me');
+  });
+
+  it('a reopened page loads only after the removal sent on leaving, with `keepalive`', async () => {
+    const del = later({ status: 204 });
+    const { p, v } = await loaded({ 'DELETE admin/servers/s2': [del.reply] });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    p.dispose();
+    expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]).toMatchObject({ method: 'DELETE', keepalive: true });
+    const { calls } = mockApi({ 'GET admin/servers': [list([S1])], 'GET admin/servers/policy': [POLICY] });
+    const q = new ServersPage();
+    const load = q.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls)).toEqual([]);
+    del.release();
+    await load;
+    expect(sent(calls)).toEqual(['GET admin/servers', 'GET admin/servers/policy']);
+    expect(q.rows.map((s) => s.id)).toEqual(['s1']);
+  });
+
   it('leaves an action of another page waiting when leaving', async () => {
     const { p } = await loaded();
     const other = { text: 'Elsewhere', revert: vi.fn(), commit: vi.fn(() => Promise.resolve()) };

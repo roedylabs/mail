@@ -255,18 +255,22 @@ export class ServersPage {
   async load(): Promise<void> {
     const seq = ++this.#seq;
     const policySeq = this.#policySeq;
-    const changes = keptServers.changes;
+    let changes = keptServers.changes;
     const reopened = this.#reopened;
     this.#reopened = false;
     try {
       const [list, policy] = await this.loading.run(
-        Promise.all([
-          api<ServerList>('GET', 'admin/servers'),
-          // After toggles still on their way: otherwise the response could be older than a confirmed one.
-          policyWrites
-            .catch(() => {})
-            .then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
-        ]),
+        // After a removal the left page sent on leaving: otherwise the response could still contain the server.
+        keptServers.after(() => {
+          changes = keptServers.changes;
+          return Promise.all([
+            api<ServerList>('GET', 'admin/servers'),
+            // After toggles still on their way: otherwise the response could be older than a confirmed one.
+            policyWrites
+              .catch(() => {})
+              .then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
+          ]);
+        }),
       );
       if (seq !== this.#seq || this.#disposed) return;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
@@ -326,7 +330,8 @@ export class ServersPage {
     this.#regSeq++;
     this.regLock.stop();
     this.testWait.stop();
-    if (ui.toasts.waiting(this.#final)) void ui.toasts.flush();
+    // With `keepalive`: the tab may be closed right after.
+    if (ui.toasts.waiting(this.#final)) void ui.toasts.flush(true);
     this.#final = null;
   }
 
@@ -459,12 +464,14 @@ export class ServersPage {
           },
           commit: async (keepalive) => {
             try {
-              await api('DELETE', `admin/servers/${server.id}`, undefined, { keepalive });
+              const sending = api('DELETE', `admin/servers/${server.id}`, undefined, { keepalive });
+              if (this.#disposed) keptServers.track(sending);
+              await sending;
             } catch (error) {
               // Already gone (e.g. removed by another person): treat as removed.
               if (!isApiError(error, 404)) throw error;
             }
-            this.#removed(server.id, sys);
+            this.#removed(server.id);
           },
           onError: (error) => this.#failed(error, true),
         };
@@ -474,11 +481,12 @@ export class ServersPage {
     });
   }
 
-  #removed(id: string, sys: boolean): void {
+  /** Removal confirmed; the system mail server as it is now (it may have changed while the toast ran). */
+  #removed(id: string): void {
     keptServers.changed();
     this.#removing = this.#removing.filter((x) => x !== id);
     this.#removingRows = this.#removingRows.filter((s) => s.id !== id);
-    if (sys) {
+    if (this.systemServer === id) {
       this.systemServer = null;
       // System mail without a server: banner and notice of the users page follow from `auth/me`.
       void session.refreshUser().catch(() => {});

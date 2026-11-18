@@ -10,6 +10,8 @@ export class Kept<T> {
   #value: T | null = null;
   #gen = 0;
   #changes = 0;
+  /** Calls of pages already left that a reopened page waits for (`settled()`). */
+  readonly #sending = new Set<Promise<void>>();
 
   constructor() {
     onForget(() => this.forget());
@@ -40,8 +42,25 @@ export class Kept<T> {
     this.#changes++;
   }
 
+  /** Call sent by a page that was left (e.g. a removal on leaving); a reopened page loads only after it. */
+  track(call: Promise<unknown>): void {
+    const done = call.then(
+      () => {},
+      () => {},
+    );
+    this.#sending.add(done);
+    void done.then(() => this.#sending.delete(done));
+  }
+
+  /** Runs `load` once all calls of left pages are through (also failed ones); without any right away. */
+  after<R>(load: () => Promise<R>): Promise<R> {
+    if (!this.#sending.size) return load();
+    return Promise.all(this.#sending).then(load);
+  }
+
   forget(): void {
     this.#value = null;
     this.#gen++;
+    this.#sending.clear();
   }
 }
