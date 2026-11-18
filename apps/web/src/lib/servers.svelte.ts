@@ -451,25 +451,28 @@ export class ServersPage {
       danger: true,
       run: () => {
         const before = this.rows;
+        // The row as it is now (a reload may have changed it since the dialog opened); gone already: nothing to bring back.
+        const shown = before.find((s) => s.id === server.id) ?? null;
         keptServers.changed();
         this.#removing.push(server.id);
-        this.#removingRows.push(server);
+        if (shown) this.#removingRows.push(shown);
         this.rows = before.filter((s) => s.id !== server.id);
         this.diag.delete(server.id);
         this.#edited(server.id);
+        const alive = keptServers.alive();
         const action: DeferredAction = {
-          text: m.server_removed({ label: server.label }),
+          text: m.server_removed({ label: (shown ?? server).label }),
           // After "Undo" or a failed call: back at its place.
           revert: () => {
             this.#removing = this.#removing.filter((x) => x !== server.id);
             this.#removingRows = this.#removingRows.filter((s) => s.id !== server.id);
             keptServers.changed();
-            if (this.rows.some((s) => s.id === server.id)) return;
+            if (!shown || this.rows.some((s) => s.id === server.id)) return;
             const at = before.findIndex((s) => s.id === server.id);
             const after = before.slice(at + 1).map((s) => s.id);
             const next = this.rows.findIndex((s) => after.includes(s.id));
             const rows = [...this.rows];
-            rows.splice(next < 0 ? rows.length : next, 0, server);
+            rows.splice(next < 0 ? rows.length : next, 0, shown);
             this.rows = rows;
           },
           commit: async (keepalive) => {
@@ -484,7 +487,10 @@ export class ServersPage {
             }
             this.#removed(server.id);
           },
-          onError: (error) => this.#failed(error, true),
+          onError: (error) => {
+            // Errors of an earlier session (signed out meanwhile) are no longer reported.
+            if (alive()) this.#failed(error, true);
+          },
         };
         this.#final = action;
         ui.toasts.defer(action);

@@ -109,6 +109,8 @@ interface Overlay {
   patch?: RowPatch;
   /** The rows without this change (as the server still knows them). */
   undo: (rows: ListedUser[]) => ListedUser[];
+  /** A newer list from the server: the base for `undo`. */
+  rebase?: (users: ListedUser[]) => void;
 }
 
 /** Lifting a local change: revert it or, if the server knows it, settle it. */
@@ -200,6 +202,8 @@ export class UsersPage {
   #disposed = false;
   /** Counts opening and closing rows by the admin (`#restorer`). */
   #openRev = 0;
+  /** Counts changes of the selection by the admin (`#restorer`). */
+  #selRev = 0;
   /** Last removal or multi-factor reset with undo: leaving the page sends it immediately. */
   #final: DeferredAction | null = null;
   /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
@@ -339,6 +343,7 @@ export class UsersPage {
   #overlaid(users: ListedUser[]): ListedUser[] {
     let rows = users;
     for (const o of this.#overlays) {
+      o.rebase?.(users);
       const { patch } = o;
       rows = patch
         ? rows.map((u) => (o.ids.includes(u.id) ? { ...u, ...patch } : u))
@@ -420,16 +425,19 @@ export class UsersPage {
 
   toggleSelect(id: string): void {
     if (id === this.me) return;
+    this.#selRev++;
     this.selected = this.selected.includes(id) ? this.selected.filter((x) => x !== id) : [...this.selected, id];
   }
 
   /** Select all visible ones or, if all are already selected, none. */
   toggleAll(): void {
     const all = this.chosen.length > 0 && this.chosen.length === this.pickable.length;
+    this.#selRev++;
     this.selected = all ? [] : this.pickable.map((u) => u.id);
   }
 
   clearSelection(): void {
+    this.#selRev++;
     this.selected = [];
     ui.closeMenu();
   }
@@ -444,6 +452,7 @@ export class UsersPage {
     this.#invalid.clear();
     this.#openRev++;
     this.open = null;
+    this.#selRev++;
     this.selected = [];
     this.result = null;
   }
@@ -633,7 +642,8 @@ export class UsersPage {
 
   /** Remove rows (remove, withdraw) until the response; `revert` after undo or if the server rejects. */
   #drop(ids: readonly string[]): Change {
-    const rows = this.rows;
+    // A newer list replaces it: what the server no longer has does not come back with undo.
+    let rows = this.rows;
     this.rows = rows.filter((u) => !ids.includes(u.id));
     this.selected = this.selected.filter((id) => !ids.includes(id));
     if (this.open && ids.includes(this.open)) this.open = null;
@@ -641,7 +651,10 @@ export class UsersPage {
       const known = now.map((u) => u.id);
       return [...now, ...rows.filter((u) => ids.includes(u.id) && !known.includes(u.id))];
     };
-    return this.#change({ ids, undo });
+    const rebase = (users: ListedUser[]) => {
+      rows = users;
+    };
+    return this.#change({ ids, undo, rebase });
   }
 
   /**
@@ -656,6 +669,8 @@ export class UsersPage {
     call: (keepalive: boolean) => Promise<unknown>,
     restore?: () => void,
   ): void {
+    // Errors of an earlier session (signed out meanwhile) are no longer reported.
+    const alive = keptUsers.alive();
     const action: DeferredAction = {
       text,
       revert: change.revert,
@@ -667,6 +682,7 @@ export class UsersPage {
         change.settle();
       },
       onError: (error) => {
+        if (!alive()) return;
         if (!this.#disposed) restore?.();
         this.#failed(error, m.error_act(), true);
       },
@@ -676,16 +692,22 @@ export class UsersPage {
   }
 
   /**
-   * Selection and expanded row before a removal, for a failed call (the row
-   * only if the admin has not opened or closed a row since).
+   * Selection and expanded row before a removal, for a failed call (each
+   * only if the admin has not changed it since).
    */
   #restorer(ids: readonly string[]): () => void {
     const selected = this.selected.filter((id) => ids.includes(id));
     const open = this.open !== null && ids.includes(this.open) ? this.open : null;
     const rev = this.#openRev;
+    const selRev = this.#selRev;
     return () => {
       const known = this.rows.map((u) => u.id);
-      this.selected = [...this.selected, ...selected.filter((id) => known.includes(id) && !this.selected.includes(id))];
+      if (selRev === this.#selRev) {
+        this.selected = [
+          ...this.selected,
+          ...selected.filter((id) => known.includes(id) && !this.selected.includes(id)),
+        ];
+      }
       if (open !== null && rev === this.#openRev && known.includes(open)) this.open = open;
     };
   }

@@ -59,8 +59,9 @@ export class Kept<T> {
    * Runs `load` of `page` once the calls of other pages are through (also
    * failed ones), at most `KEPT_WAIT_MS`; without any right away. If the
    * wait ran out, `late` follows once they are through after all (load again).
+   * `null` without `load` if the session ended while waiting.
    */
-  after<R>(page: object, load: () => Promise<R>, late: () => void): Promise<R> {
+  after<R>(page: object, load: () => Promise<R | null>, late: () => void): Promise<R | null> {
     const others = [...this.#sending].filter(([, p]) => p !== page).map(([call]) => call);
     if (!others.length) return load();
     const gen = this.#gen;
@@ -79,8 +80,14 @@ export class Kept<T> {
     });
     return Promise.race([through, deadline]).then(() => {
       clearTimeout(timer);
-      return load();
+      return gen === this.#gen ? load() : null;
     });
+  }
+
+  /** Whether the session of now still runs (no `forget()` since), e.g. before reporting a late error. */
+  alive(): () => boolean {
+    const gen = this.#gen;
+    return () => gen === this.#gen;
   }
 
   forget(): void {

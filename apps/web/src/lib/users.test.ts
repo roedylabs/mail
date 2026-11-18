@@ -1044,6 +1044,44 @@ describe('Actions per row', () => {
     expect(ui.toast?.text).toBe('Elsewhere');
   });
 
+  it('keeps a selection changed in the meantime when a removal fails', async () => {
+    const { p, v } = await loaded({ 'POST users/bulk': [{ status: 500, body: { error: 'internal' } }] });
+    p.selected = ['u1', 'u2'];
+    p.toggleSelect('u2');
+    v().uBulkRemove();
+    ui.confirmOk();
+    p.toggleSelect('u3');
+    await ui.toasts.flush();
+    expect(listed(p, 'u1')).toBeDefined();
+    expect(p.selected).toEqual(['u3']);
+  });
+
+  it('does not bring back with undo what a newer list no longer has', async () => {
+    const gone = USERS.filter((u) => u.id !== 'i2');
+    const { p, v, calls } = await loaded({ 'GET users': [{ body: { users: USERS } }, { body: { users: gone } }] });
+    row(v(), 'paul.long@example.com').remove();
+    ui.confirmOk();
+    // Revoked by another administrator in the meantime.
+    await p.load();
+    ui.toasts.undo();
+    expect(listed(p, 'i2')).toBeUndefined();
+    expect(sent(calls)).not.toContain('DELETE invites/i2');
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    ui.toasts.undo();
+    expect(listed(p, 'u2')).toBeDefined();
+  });
+
+  it('reports no error of a removal after signing out', async () => {
+    const { v } = await loaded({ 'DELETE users/u2': [{ status: 500, body: { error: 'internal' } }] });
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    const sending = ui.toasts.flush();
+    forgetAccount();
+    await sending;
+    expect(ui.toast?.error ?? false).toBe(false);
+  });
+
   it('keeps a row opened or closed in the meantime when a removal fails', async () => {
     const { p, v } = await loaded({
       'DELETE users/u2': [

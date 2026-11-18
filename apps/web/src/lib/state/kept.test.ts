@@ -60,6 +60,21 @@ describe('Kept', () => {
     expect(late).not.toHaveBeenCalled();
   });
 
+  it('loads nothing if the session ended while waiting', async () => {
+    const kept = new Kept<string>();
+    let done = () => {};
+    kept.track(new Promise<void>((resolve) => (done = resolve)), {});
+    const alive = kept.alive();
+    const load = vi.fn(() => Promise.resolve(1));
+    const waiting = kept.after({}, load, () => {});
+    kept.forget();
+    done();
+    expect(await waiting).toBeNull();
+    expect(load).not.toHaveBeenCalled();
+    expect(alive()).toBe(false);
+    expect(kept.alive()()).toBe(true);
+  });
+
   it('loads anyway after `KEPT_WAIT_MS` and again once the call is through after all', async () => {
     vi.useFakeTimers();
     try {

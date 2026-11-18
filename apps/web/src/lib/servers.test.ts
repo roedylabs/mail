@@ -642,6 +642,18 @@ describe('Remove', () => {
     expect(new ServersPage().rows.map((s) => s.id)).toEqual(['s1', 's2']);
   });
 
+  it('brings back the row as it was shown at the confirmation', async () => {
+    const { p } = await loaded();
+    const old = p.rows[1] as AdminServer;
+    // A reload changed the label while the dialog was open.
+    p.rows = [p.rows[0] as AdminServer, { ...old, label: 'VPS 2 new' }];
+    p.remove(old);
+    ui.confirmOk();
+    expect(ui.toast?.text).toBe('“VPS 2 new” removed');
+    ui.toasts.undo();
+    expect(p.rows.map((s) => s.label)).toEqual(['VPS 1', 'VPS 2 new']);
+  });
+
   it('clears the system mail server only if it still is the removed one', async () => {
     const { p, v, calls } = await loaded({ 'DELETE admin/servers/s1': [{ status: 204 }] });
     rowOf(v(), 's1').remove();
