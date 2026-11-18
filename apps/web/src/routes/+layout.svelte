@@ -13,7 +13,7 @@
   import '@fontsource/young-serif/400.css';
   import '../app.css';
   import { onMount, tick, untrack } from 'svelte';
-  import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+  import { afterNavigate, beforeNavigate, goto, onNavigate } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import type { TipState } from '#lib/actions/tooltip.ts';
@@ -97,6 +97,7 @@
     isSettingsPath,
     mailboxParams,
     mailboxPath,
+    locationAccounts,
     parseMailboxPath,
     redactPath,
     redirectFor,
@@ -107,6 +108,7 @@
   } from '#lib/routes.ts';
   import { rememberPage } from '#lib/last-page.ts';
   import { adminHome, advancedOff, rememberPanelPage, settingsHome } from '#lib/panel-memory.ts';
+  import { panelScrollKey } from '#lib/panel-scroll.ts';
   import { setInMain } from '#lib/landmark.ts';
   import { pageTitle } from '#lib/page-title.ts';
   import {
@@ -144,7 +146,7 @@
   import { QUEUE_POLL_MS } from '#lib/state/edit-queue.svelte.ts';
   import { edits } from '#lib/state/edits.svelte.ts';
   import { network, pollVisible } from '#lib/state/network.svelte.ts';
-  import { scopeOf, search } from '#lib/state/search.svelte.ts';
+  import { scopeOf, search, type SearchSnapshot } from '#lib/state/search.svelte.ts';
   import { returnable, returnBackLabel, returnLabel, searchReturn } from '#lib/search-return.ts';
   import { swipeBack, TOAST_BACK_MS, type BackSwipe, type SheetPull, type ToastSwipe } from '#lib/swipe.ts';
   import { ago } from '#lib/ago.ts';
@@ -341,6 +343,11 @@
   // Return path to the search: the navigation of an opened hit sets it, leaving its target ends it.
   beforeNavigate(({ to }) => {
     if (to) search.navigating(to.url.pathname, returnable(to.url.pathname));
+  });
+  // Leaving the search resets its filters: the mobile settings list's "Back" brings them again. Taken once the
+  // target has loaded, right before the search page goes (what was typed meanwhile counts).
+  onNavigate(() => {
+    if (appView && appView.path === SEARCH && path === SEARCH) appView.search = search.snapshot();
   });
 
   // History within the app for the error page's "Back". The app's start does not count: in the SPA
@@ -1645,8 +1652,43 @@
   }
 
   /**
-   * "Back" of the mobile header: back to the search, from the page to the list, from the list to the app (`mBack`);
-   * resolves once the target is shown.
+   * Last view of the app (mailbox, folder or tag with the open message, the search): on mobile the list of
+   * settings, account and administration goes back there (`mBack` keeps the main view), otherwise to the start.
+   */
+  interface AppView {
+    /** Signed-in user the view belongs to. */
+    user: string;
+    path: string;
+    href: string;
+    /** The search as it was left (`/search` only). */
+    search: SearchSnapshot | null;
+  }
+  let appView = $state<AppView | null>(null);
+  $effect(() => {
+    const user = session.user?.id;
+    // Another user (also signing in again as the first one later) starts without it.
+    if (untrack(() => appView && appView.user !== user)) appView = null;
+    if (ready && !session.authed) appView = null;
+    else if (ready && !target && chrome === 'main' && !forbidden && user) {
+      appView = { user, path: page.url.pathname, href: page.url.pathname + page.url.search, search: null };
+    }
+  });
+  /**
+   * Target of the last view: only for the same user and while its account still exists (otherwise the
+   * start); the search with its filters as it was left.
+   */
+  function appViewHref(): string {
+    const view = appView;
+    if (!view || view.user !== session.user?.id) return HOME;
+    const at = parseMailboxPath(view.path);
+    if (at && accounts.list && locationAccounts(at).some((id) => !accounts.get(id))) return HOME;
+    if (view.search) search.restore(view.search);
+    return view.href;
+  }
+
+  /**
+   * "Back" of the mobile header: back to the search, from the page to the list, from the list to the
+   * last view of the app (`mBack`); resolves once the target is shown.
    */
   function panelBack(): Promise<void> {
     const toSearch = maRoute ? null : searchReturn(path);
@@ -1655,8 +1697,16 @@
       ui.panelList = path;
       return tick();
     }
-    return navigate(maRoute ? hrefOf('/account/mail-accounts') : HOME);
+    return navigate(maRoute ? hrefOf('/account/mail-accounts') : ui.isMobile ? appViewHref() : HOME);
   }
+
+  /** Mobile: the panel starts at the top after every switch between the list and a page and between two pages. */
+  let mPanel = $state<HTMLElement | null>(null);
+  const mPanelShows = $derived(panelScrollKey(path, panelList));
+  $effect(() => {
+    void mPanelShows;
+    if (mPanel) mPanel.scrollTop = 0;
+  });
 
   /**
    * "Back" of the settings navigation (desktop and tablet): back to the search, to the app, from a
@@ -1971,7 +2021,7 @@
               <span class="m-back-label">{mBackLabel}</span>
             </button>
           </header>
-          <main class="m-panel no-scrollbar">
+          <main class="m-panel no-scrollbar" bind:this={mPanel}>
             {#if panelList && maNav}
               <MailAccountNav {...maNav} />
             {:else if panelList}

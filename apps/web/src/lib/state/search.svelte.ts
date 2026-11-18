@@ -878,7 +878,15 @@ export class Search {
     const r = this.returnAt(path);
     this.ret = null;
     if (!r) return false;
-    const { snap } = r;
+    this.restore(r.snap);
+    return true;
+  }
+
+  /**
+   * Restores the search of `snap` (`navBack()`; on mobile also "Back" from the
+   * settings list, which keeps the search): the hits come again with the same query.
+   */
+  restore(snap: SearchSnapshot): void {
     this.q = snap.q;
     this.sf = snap.sf;
     this.scope = snap.scope;
@@ -886,7 +894,6 @@ export class Search {
     this.#anchor = snap.anchor;
     this.panelOver = false;
     this.#now = true;
-    return true;
   }
 
   remember(q: string): void {
