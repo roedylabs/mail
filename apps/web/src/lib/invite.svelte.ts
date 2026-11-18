@@ -173,12 +173,12 @@ export class InviteFlow {
   private linkLeft = $derived(this.locks.left('link'));
 
   /** Inviter for "Invitation from …" and "Request a new one from …." (`inviteFrom`). */
-  inviteFrom = $derived(this.info?.inviter ?? m.invite_from_fallback());
+  inviteFrom = $derived(this.info?.inviter || m.invite_from_fallback());
   /** The same as the subject ("… invited you", "… has been notified"). */
-  inviteFromSubject = $derived(this.info?.inviter ?? m.invite_from_fallback_subject());
+  inviteFromSubject = $derived(this.info?.inviter || m.invite_from_fallback_subject());
   /** Tile next to the inviter; without one the first letter of the app name, without that "A". */
   fromInitials = $derived(
-    this.info?.inviter ? initials(this.info.inviter) : (session.appName.trim()[0] ?? 'A').toUpperCase(),
+    this.info?.inviter ? initials(this.info.inviter) : ([...session.appName.trim()][0] ?? 'A').toUpperCase(),
   );
   inviteEmail = $derived(this.info?.email ?? '');
   untilLabel = $derived(this.info ? untilText(this.info.expires_at) : '');

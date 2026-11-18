@@ -93,6 +93,13 @@ describe('loading', () => {
     expect(flow.name).toBe('');
   });
 
+  it('treats an empty inviter like a missing one', async () => {
+    const { flow } = await opened({}, { ...INFO, inviter: '' });
+    expect(flow.inviteFrom).toBe('your administrator');
+    expect(flow.inviteFromSubject).toBe('Your administrator');
+    expect(flow.fromInitials).toBe('R');
+  });
+
   it('shows the first letter of the app name in the tile without an inviter', async () => {
     const none = { ...INFO, inviter: null };
     // Default app name "Roedy Mail".
@@ -104,6 +111,9 @@ describe('loading', () => {
     expect(flow.inviteFrom).toBe('your administrator');
     session.config = { ...CONFIG, name: '  post' };
     expect(flow.fromInitials).toBe('P');
+    // The whole first character, also outside the Basic Multilingual Plane.
+    session.config = { ...CONFIG, name: ' \u{10428} Mail' };
+    expect(flow.fromInitials).toBe('\u{10400}');
     // Without an app name "A".
     session.config = { ...CONFIG, name: '   ' };
     expect(flow.fromInitials).toBe('A');
