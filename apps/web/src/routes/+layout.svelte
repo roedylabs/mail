@@ -107,6 +107,7 @@
   } from '#lib/routes.ts';
   import { rememberPage } from '#lib/last-page.ts';
   import { adminHome, advancedOff, rememberPanelPage, settingsHome } from '#lib/panel-memory.ts';
+  import { panelScrollKey } from '#lib/panel-scroll.ts';
   import { setInMain } from '#lib/landmark.ts';
   import { pageTitle } from '#lib/page-title.ts';
   import {
@@ -1645,8 +1646,18 @@
   }
 
   /**
-   * "Back" of the mobile header: back to the search, from the page to the list, from the list to the app (`mBack`);
-   * resolves once the target is shown.
+   * Last view of the app (mailbox, folder or tag with the open message, the search): on mobile the list of
+   * settings, account and administration goes back there (`mBack` keeps the main view), otherwise to the start.
+   */
+  let appView = $state<string | null>(null);
+  $effect(() => {
+    if (ready && !session.authed) appView = null;
+    else if (ready && !target && chrome === 'main' && !forbidden) appView = page.url.pathname + page.url.search;
+  });
+
+  /**
+   * "Back" of the mobile header: back to the search, from the page to the list, from the list to the
+   * last view of the app (`mBack`); resolves once the target is shown.
    */
   function panelBack(): Promise<void> {
     const toSearch = maRoute ? null : searchReturn(path);
@@ -1655,8 +1666,16 @@
       ui.panelList = path;
       return tick();
     }
-    return navigate(maRoute ? hrefOf('/account/mail-accounts') : HOME);
+    return navigate(maRoute ? hrefOf('/account/mail-accounts') : ui.isMobile ? (appView ?? HOME) : HOME);
   }
+
+  /** Mobile: the panel starts at the top after every switch between the list and a page and between two pages. */
+  let mPanel = $state<HTMLElement | null>(null);
+  const mPanelShows = $derived(panelScrollKey(path, panelList));
+  $effect(() => {
+    void mPanelShows;
+    if (mPanel) mPanel.scrollTop = 0;
+  });
 
   /**
    * "Back" of the settings navigation (desktop and tablet): back to the search, to the app, from a
@@ -1971,7 +1990,7 @@
               <span class="m-back-label">{mBackLabel}</span>
             </button>
           </header>
-          <main class="m-panel no-scrollbar">
+          <main class="m-panel no-scrollbar" bind:this={mPanel}>
             {#if panelList && maNav}
               <MailAccountNav {...maNav} />
             {:else if panelList}

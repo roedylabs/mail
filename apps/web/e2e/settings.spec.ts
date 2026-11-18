@@ -3,6 +3,7 @@
 // Stalwart, rules paused), push dialog without browser permission, license list
 // from the build, remove an account with undo. Own instance like mail.spec.ts
 // (setup via API, setup.ts); axe checks every visited page.
+import { devices, type Page } from '@playwright/test';
 import { expect, test, type Stalwart } from './fixtures.ts';
 import {
   apiGet,
@@ -10,11 +11,15 @@ import {
   blobText,
   closeAll,
   createMailbox,
+  erika,
+  mailboxId,
   need,
   newPage,
   openAs,
   password,
+  putMail,
   resetDelivery,
+  row,
   sendMail,
   settled,
   sieveScripts,
@@ -166,6 +171,75 @@ test('vacation response: reply arrives, rules paused', async ({ browser, instanc
   expect((await vacation(stalwart, user)).isEnabled).toBe(false);
   await expect.poll(() => activeScript(stalwart), 'rules active again').toBe('roedy-mail');
 });
+
+test('mobile settings: back to the last view, panel at the top after every switch', async ({
+  browser,
+  instance,
+  stalwart,
+}) => {
+  const subject = word('Back');
+  await putMail(stalwart, stalwart.user, {
+    from: erika,
+    subject,
+    text: 'Back to this folder.',
+    mailboxId: await mailboxId(stalwart, stalwart.user, 'sent'),
+  });
+  const context = await browser.newContext({
+    ...devices['Pixel 7'],
+    viewport: { width: 390, height: 600 },
+    storageState: need(session, 'session'),
+  });
+  const page = await newPage(context);
+  const folder = `${instance.url}/mailbox/${need(accountId, 'account')}/sent`;
+  await page.goto(folder);
+  await settled(page);
+  await expect(row(page, subject)).toBeVisible({ timeout: 30_000 });
+
+  const back = page.getByRole('button', { name: 'Back to Roedy Mail' });
+  /** More › Settings: the area's list. */
+  const openSettings = async () => {
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('dialog', { name: 'More' }).getByRole('button', { name: 'Settings', exact: true }).click();
+    await expect(back).toBeVisible();
+  };
+  // "Back to Roedy Mail" returns to the folder, not to the inbox.
+  await openSettings();
+  await back.click();
+  await expect(page).toHaveURL(folder);
+  await expect(row(page, subject)).toBeVisible();
+
+  // Swiping back from the list leads to the same folder.
+  await openSettings();
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 40, y: 400 }] });
+  for (let i = 1; i <= 100; i++)
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: 40 + 2 * i, y: 400 }] });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(page).toHaveURL(folder);
+  await expect(row(page, subject)).toBeVisible();
+
+  // The panel starts at the top: list → page and page → list.
+  await openSettings();
+  const scrollDown = async () => {
+    await page.locator('main.m-panel').evaluate((el) => (el.scrollTop = el.scrollHeight));
+    expect(await top(page)).toBeGreaterThan(0);
+  };
+  await scrollDown();
+  await page.getByRole('button', { name: 'Notifications', exact: true }).click();
+  await expect(back).toBeHidden();
+  await expect.poll(() => top(page)).toBe(0);
+  await scrollDown();
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(back).toBeVisible();
+  await expect.poll(() => top(page)).toBe(0);
+  expect(await axeViolations(page), 'axe: mobile settings list').toEqual([]);
+  await context.close();
+});
+
+/** Scroll position of the mobile panel. */
+function top(page: Page): Promise<number> {
+  return page.locator('main.m-panel').evaluate((el) => el.scrollTop);
+}
 
 test('push dialog without browser permission', async ({ browser, instance }) => {
   // Headless Chromium refuses notifications (even with `grantPermissions`);

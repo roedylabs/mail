@@ -1295,6 +1295,83 @@ describe('Shell layout', () => {
     expect(ui.panelList).toBeNull();
   });
 
+  it('returns from the mobile area list to the last view of the app, on the desktop to the start', async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: { accounts: [ACCOUNT] } }],
+      'GET tags': [{ body: { tags: [] } }],
+    });
+    const { findByText, getByRole, goto } = renderAt('/mailbox/a1/t/t2/x1');
+    await findByText('Page content');
+    // More › Settings from the open message of a tag.
+    ui.menu = 'nav';
+    await vi.waitFor(() => expect(getByRole('dialog', { name: 'More' })).toBeInTheDocument());
+    await fireEvent.click(getByRole('button', { name: 'Settings' }));
+    expect(goto).toHaveBeenLastCalledWith('/settings/appearance');
+    const at = async (path: string) => {
+      page.url = new URL(`http://localhost${path}`);
+      history.replaceState(null, '', path);
+      await tick();
+    };
+    await at('/settings/appearance');
+    await fireEvent.click(getByRole('button', { name: 'Appearance' }));
+    await at('/settings/general');
+    await fireEvent.click(getByRole('button', { name: 'Settings' }));
+    await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+    expect(goto).toHaveBeenLastCalledWith('/mailbox/a1/t/t2/x1');
+    // On the desktop the settings navigation goes to the start mailbox.
+    vi.stubGlobal('innerWidth', 1024);
+    window.dispatchEvent(new Event('resize'));
+    await vi.waitFor(() => expect(getByRole('navigation', { name: 'Settings' })).toBeInTheDocument());
+    await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+    expect(goto).toHaveBeenLastCalledWith('/start');
+  });
+
+  it('scrolls the mobile panel to the top between the area list and a page and between two pages', async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('admin') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+    });
+    const { findByText, getByRole, container } = renderAt('/admin/users');
+    await findByText('Page content');
+    const panel = container.querySelector<HTMLElement>('main.m-panel')!;
+    const top = () => panel.scrollTop;
+    const scrolled = async (change: () => unknown) => {
+      panel.scrollTop = 300;
+      await change();
+      await tick();
+      return top();
+    };
+    // jsdom does not scroll: keep the value that was set.
+    let value = 0;
+    Object.defineProperty(panel, 'scrollTop', {
+      get: () => value,
+      set: (v: number) => (value = v),
+      configurable: true,
+    });
+    expect(await scrolled(() => fireEvent.click(getByRole('button', { name: 'Administration' })))).toBe(0);
+    expect(await scrolled(() => fireEvent.click(getByRole('button', { name: 'Users' })))).toBe(0);
+    expect(
+      await scrolled(() => {
+        page.url = new URL('http://localhost/admin/organization');
+      }),
+    ).toBe(0);
+    // A change of the query on the same page keeps the position.
+    expect(
+      await scrolled(() => {
+        page.url = new URL('http://localhost/admin/organization?tab=1');
+      }),
+    ).toBe(300);
+  });
+
   it('reopens the last settings and administration page without a page of their own', async () => {
     mockApi({
       'GET public/config': [{ body: CONFIG }],
