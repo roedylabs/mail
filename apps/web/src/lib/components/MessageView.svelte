@@ -688,6 +688,7 @@
           class="ib star"
           style:color={rd.starC}
           onclick={onStar}
+          disabled={rd.starOff}
           aria-label={rd.starTip}
           aria-pressed={rd.starOn}
           use:tooltip={rd.starTip}><Icon name={rd.starIcon} /></button
@@ -947,6 +948,7 @@
         class="m-ib m-star"
         style:color={rd.starC}
         onclick={onStar}
+        disabled={rd.starOff}
         aria-label={rd.starTip}
         aria-pressed={rd.starOn}><Icon name={rd.starIcon} /></button
       >

@@ -694,7 +694,7 @@ describe('reading view', () => {
       // A resize of the content reaches only observers registered on it.
       const grow = (to: number) => {
         height = to;
-        for (const o of observers) if (o.targets.some((t) => t.contains(article))) o.cb();
+        for (const o of observers) if (o.targets.includes(article)) o.cb();
       };
       toEnd();
       expect(top).toBe(1800);

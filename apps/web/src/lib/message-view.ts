@@ -301,6 +301,8 @@ export interface ReadValues {
   starC: string;
   starTip: string;
   starOn: 'true' | 'false';
+  /** No server email represents the conversation (only a reply just sent): star disabled. */
+  starOff: boolean;
   isTrash: boolean;
   notTrash: boolean;
   /**
@@ -725,8 +727,9 @@ export function readValues(input: ReadInput): ReadValues {
   // Also per the mailbox of the email (e.g. a scheduled message in a tag view).
   const rmIn = (box: string | null) => !!box && rm.mailboxIds.includes(box);
   const sched = scheduled || rmIn(roles.scheduled);
-  // Not to a reply just sent while no server email represents the conversation.
-  const canReply = !(drafts || sched || isTrash || rmIn(roles.drafts) || !!input.pending?.(rm.id));
+  // No server email represents the conversation (only a reply just sent): no reply, star or "unread".
+  const lone = !!input.pending?.(rm.id);
+  const canReply = !(drafts || sched || isTrash || rmIn(roles.drafts) || lone);
   // "Move" and "Report spam" by the view's role; in folder and tag views, which do not
   // name the mailbox, per the mailbox of the shown email (like `outboxOf` in the list).
   const perBox = !('role' in kind);
@@ -769,10 +772,11 @@ export function readValues(input: ReadInput): ReadValues {
     starC: flagged ? '#e3a93a' : 'var(--mfg)',
     starTip: flagged ? m.list_unstar() : m.list_star(),
     starOn: flagged ? 'true' : 'false',
+    starOff: lone,
     isTrash,
     notTrash: !isTrash,
     sched,
-    canUnread: !isTrash && !sched,
+    canUnread: !isTrash && !sched && !lone,
     noReplyGap: !canReply && !sched,
     schedPill: sched && !canReply,
     schedIcon: sched && canReply,

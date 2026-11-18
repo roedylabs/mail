@@ -118,7 +118,8 @@ describe('readValues', () => {
     expect(back.msgs.map((x) => x.key)).toEqual(['e1', 'sent-local:1']);
     // No server email at all: the reply shows, but cannot be replied to.
     const alone = readValues(input({ emails: [emails[1]!], pending }));
-    expect(alone).toMatchObject({ id: 'sent-local:1', canReply: false });
+    expect(alone).toMatchObject({ id: 'sent-local:1', canReply: false, canUnread: false, starOff: true });
+    expect(back).toMatchObject({ canUnread: true, starOff: false });
   });
 
   it('shows a simple email with its attachment', () => {
