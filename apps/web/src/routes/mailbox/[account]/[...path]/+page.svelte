@@ -470,7 +470,7 @@
   });
 
   /** Email the server has not returned yet (a reply just sent): no actions on it, never the representative. */
-  const pending = (id: string) => sentReplies.pending(id);
+  const pending = (id: string) => !!opened && sentReplies.pending(opened.account, id);
   const confirmed = (e: { id: string }) => !pending(e.id);
 
   /** The view's list is not there yet: it may still bring the conversation's row. */

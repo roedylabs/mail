@@ -4447,7 +4447,7 @@ describe('Reply and forward', () => {
       ]);
       const local = shown()[0]!.id;
       expect(local.startsWith(SENT_LOCAL)).toBe(true);
-      expect(sentReplies.pending(local)).toBe(true);
+      expect(sentReplies.pending('k1', local)).toBe(true);
       expect(sentReplies.scrolls).toMatchObject([{ ...thread, delay: 0 }]);
       await settle();
       // Submitted: the email that went out, with sender and signature; still no actions until the server returns it.
@@ -4459,11 +4459,11 @@ describe('Reply and forward', () => {
           bodyValues: { body: { value: `Ja\n\n-- \nBest regards\nAnna${QUOTE}` } },
         },
       ]);
-      expect(sentReplies.pending('d1')).toBe(true);
+      expect(sentReplies.pending('k1', 'd1')).toBe(true);
       ui.toasts.undo();
       await settle();
       expect(shown()).toEqual([]);
-      expect(sentReplies.pending('d1')).toBe(false);
+      expect(sentReplies.pending('k1', 'd1')).toBe(false);
     });
 
     it('appears once and ends when the server returns it in the thread, at the latest after a while', async () => {
@@ -4480,7 +4480,7 @@ describe('Reply and forward', () => {
       expect(shown()).toHaveLength(2);
       sentReplies.settle(thread, (ids) => ids.has('d1'));
       expect(shown().map((e) => e.id)).toEqual(['d2']);
-      expect(sentReplies.pending('d1')).toBe(false);
+      expect(sentReplies.pending('k1', 'd1')).toBe(false);
       await vi.advanceTimersByTimeAsync(CONFIRMED_KEEP_MS);
       expect(shown()).toEqual([]);
     });

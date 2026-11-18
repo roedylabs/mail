@@ -42,14 +42,16 @@ afterEach(() => {
 });
 
 describe('sentReplies', () => {
-  it('puts a sent reply into its conversation by date, only there', () => {
+  it('puts sent replies after the server emails in send order, only into their conversation', () => {
     const key = sentReplies.add(T1, sent(300), 0);
+    // An earlier browser clock does not move the second reply in front.
+    const next = sentReplies.add(T1, sent(50), 0);
     const list = [email('e1', 100), email('e2', 400)];
     const merged = sentReplies.merge(T1, list);
-    expect(merged.map((e) => e.id)).toEqual(['e1', SENT_LOCAL + key, 'e2']);
-    expect(merged[1]).toMatchObject({ threadId: 't1', subject: 'Re: Plan' });
-    expect(sentReplies.pending(merged[1]!.id)).toBe(true);
-    expect(sentReplies.pending('e1')).toBe(false);
+    expect(merged.map((e) => e.id)).toEqual(['e1', 'e2', SENT_LOCAL + key, SENT_LOCAL + next]);
+    expect(merged[2]).toMatchObject({ threadId: 't1', subject: 'Re: Plan' });
+    expect(sentReplies.pending('k1', merged[2]!.id)).toBe(true);
+    expect(sentReplies.pending('k1', 'e1')).toBe(false);
     // Another conversation, and without entries the same array.
     expect(sentReplies.merge(T2, list)).toBe(list);
   });
@@ -59,14 +61,16 @@ describe('sentReplies', () => {
     sentReplies.confirm(key, 'd9', { ...sent(999), subject: 'Re: Plan (sent)' });
     // The content that went out; the time it appeared stays.
     expect(sentReplies.merge(T1, [])).toMatchObject([{ id: 'd9', subject: 'Re: Plan (sent)', receivedAt: 300 }]);
-    expect(sentReplies.pending('d9')).toBe(true);
+    expect(sentReplies.pending('k1', 'd9')).toBe(true);
+    // The same id in another account is another email.
+    expect(sentReplies.pending('k2', 'd9')).toBe(false);
     // The server already returns it: not twice.
     const server = email('d9', 310);
     expect(sentReplies.merge(T1, [server])).toEqual([server]);
     // An entry that is not submitted yet does not end on settling.
     const other = sentReplies.add(T1, sent(500), 0);
     sentReplies.settle(T1, (ids) => ids.has('d9'));
-    expect(sentReplies.pending('d9')).toBe(false);
+    expect(sentReplies.pending('k1', 'd9')).toBe(false);
     expect(sentReplies.merge(T1, []).map((e) => e.id)).toEqual([SENT_LOCAL + other]);
   });
 

@@ -122,18 +122,18 @@ export class SentReplies {
   }
 
   /** Whether the email is (still) shown from an entry: no actions on it until the server returns it. */
-  pending(id: Id): boolean {
-    return id.startsWith(SENT_LOCAL) || this.#entries.some((e) => e.email.id === id);
+  pending(account: string, id: Id): boolean {
+    return id.startsWith(SENT_LOCAL) || this.#entries.some((e) => e.account === account && e.email.id === id);
   }
 
   /**
-   * Emails of a conversation with its sent replies, by `receivedAt`; an entry whose
-   * email is already among them does not appear twice.
+   * Emails of a conversation in the server's order, then its sent replies in the order they
+   * were sent (not by the browser's clock); an entry whose email is already among them does not appear twice.
    */
   merge(thread: ThreadRef, emails: MessageEmail[]): MessageEmail[] {
     const extra = this.#entries.filter((e) => sameThread(e, thread) && !emails.some((x) => x.id === e.email.id));
     if (!extra.length) return emails;
-    return [...emails, ...extra.map((e) => e.email)].sort((a, b) => a.receivedAt - b.receivedAt);
+    return [...emails, ...extra.map((e) => e.email)];
   }
 
   /**

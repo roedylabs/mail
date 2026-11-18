@@ -597,7 +597,9 @@ export function shownEmails(input: Pick<ReadInput, 'emails' | 'repId' | 'kind' |
   const shown = input.emails.filter((e) => e.id === input.repId || !e.mailboxIds.some((b) => hidden.has(b)));
   const seq = shown.length ? shown : [...input.emails];
   const rm =
-    seq.find((e) => e.id === input.repId) ?? seq.findLast((e) => !input.pending?.(e.id)) ?? seq[seq.length - 1]!;
+    seq.find((e) => e.id === input.repId && !input.pending?.(e.id)) ??
+    seq.findLast((e) => !input.pending?.(e.id)) ??
+    seq[seq.length - 1]!;
   return { seq, rm };
 }
 

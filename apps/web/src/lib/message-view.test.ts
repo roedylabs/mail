@@ -106,6 +106,8 @@ describe('readValues', () => {
     const rd = readValues(input({ emails, pending }));
     expect(rd.id).toBe('e1');
     expect(rd.msgs.map((x) => x.key)).toEqual(['e1', 'sent-local:1']);
+    // Also if the list already names it (the list synced before the conversation).
+    expect(readValues(input({ emails, pending, repId: 'sent-local:1' })).id).toBe('e1');
     // Without the check the newest one, as before.
     expect(readValues(input({ emails })).id).toBe('sent-local:1');
   });
