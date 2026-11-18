@@ -100,6 +100,28 @@ const att = (patch: Partial<MessagePart>): MessagePart => ({
 });
 
 describe('readValues', () => {
+  it('never takes a reply just sent as the representative, but shows it last', () => {
+    const emails = [email('e1'), email('sent-local:1', { mailboxIds: ['sent'], receivedAt: NOW })];
+    const pending = (id: string) => id.startsWith('sent-local:');
+    const rd = readValues(input({ emails, pending }));
+    expect(rd.id).toBe('e1');
+    expect(rd.msgs.map((x) => x.key)).toEqual(['e1', 'sent-local:1']);
+    // Also if the list already names it (the list synced before the conversation).
+    expect(readValues(input({ emails, pending, repId: 'sent-local:1' })).id).toBe('e1');
+    // Without the check the newest one, as before.
+    expect(readValues(input({ emails })).id).toBe('sent-local:1');
+    // Only the reply visible (the original in Trash): a server email still represents.
+    const trashed = [email('e0', { mailboxIds: ['spam'] }), email('e1', { mailboxIds: ['trash'] }), emails[1]!];
+    const back = readValues(input({ emails: trashed, pending }));
+    expect(back.id).toBe('e1');
+    // Only the representative joins: other hidden emails stay hidden.
+    expect(back.msgs.map((x) => x.key)).toEqual(['e1', 'sent-local:1']);
+    // No server email at all: the reply shows, but cannot be replied to.
+    const alone = readValues(input({ emails: [emails[1]!], pending }));
+    expect(alone).toMatchObject({ id: 'sent-local:1', canReply: false, canUnread: false, starOff: true });
+    expect(back).toMatchObject({ canUnread: true, starOff: false });
+  });
+
   it('shows a simple email with its attachment', () => {
     const rd = readValues(input({ emails: [email('e1', { attachments: [att({})] })] }));
     expect(rd).toMatchObject({

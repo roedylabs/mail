@@ -113,6 +113,7 @@
   import { scheduled } from '#lib/state/scheduled.svelte.ts';
   import { TagFixError, tags } from '#lib/state/tags.svelte.ts';
   import { tagFixError } from '#lib/tag-fix.ts';
+  import { sameThread, sentReplies } from '#lib/state/sent-replies.svelte.ts';
   import { threads, type ThreadList } from '#lib/state/threads.svelte.ts';
   import { listView } from '#lib/state/list-view.svelte.ts';
   import { Loading, ui } from '#lib/state/ui.svelte.ts';
@@ -453,11 +454,24 @@
   /** Representative email of the conversation in the list. */
   const repId = $derived(listRow?.id ?? null);
 
-  /** Emails of the reading view: from the server or from storage, otherwise the list row without text. */
+  /**
+   * Emails of the reading view: from the server or from storage with the replies sent
+   * from here that the server does not return yet (`sentReplies`), otherwise the list row without text.
+   */
   const readEmails = $derived.by(() => {
-    if (conversation?.status === 'ready') return conversation.emails;
+    if (conversation?.status === 'ready') return sentReplies.merge(conversation, conversation.emails);
     return conversation?.unreachable && listRow ? [listEmail(listRow)] : null;
   });
+
+  // Once the server returns a sent reply in the thread, its own entry is done.
+  $effect(() => {
+    const c = conversation;
+    if (c?.status === 'ready') sentReplies.settle(c, (ids) => c.holds(ids));
+  });
+
+  /** Email the server has not returned yet (a reply just sent): no actions on it, never the representative. */
+  const pending = (id: string) => !!opened && sentReplies.pending(opened.account, id);
+  const confirmed = (e: { id: string }) => !pending(e.id);
 
   /** The view's list is not there yet: it may still bring the conversation's row. */
   const listPending = $derived(!view || (!view.unavailable && (!list || list.status === 'loading')));
@@ -494,6 +508,7 @@
     return readValues({
       emails: readEmails,
       repId,
+      pending,
       kind: view.kind,
       // Opened from the search: its way back instead of the folder (`navRet.label`).
       title: searchBack ? returnLabel(searchBack.kind) : view.title,
@@ -628,7 +643,7 @@
   function expandReply(files: readonly File[] = []) {
     if (!rd || !opened) return;
     const state = reply ?? { mode: 'reply' as const, text: '', to: '' };
-    if (!compose.start(replyInit(rd.reply, state, opened.account), replyRet())) return;
+    if (!compose.start({ ...replyInit(rd.reply, state, opened.account), thread: opened }, replyRet())) return;
     if (files.length) void compose.addFiles(files);
     reply = null;
     void goto(resolve('/compose/[draft]', { draft: NEW_DRAFT }));
@@ -649,8 +664,44 @@
       reopen: () => void goto(resolve('/compose/[draft]', { draft: encodeURIComponent(compose.ref ?? NEW_DRAFT) })),
     };
     const sent = state.mode === 'fwd' ? m.read_forward_sent() : m.read_reply_sent();
-    if (compose.sendNow(replyInit(rd.reply, state, opened.account), replyRet(), nav, sent)) reply = null;
+    const init = { ...replyInit(rd.reply, state, opened.account), thread: opened };
+    if (compose.sendNow(init, replyRet(), nav, sent)) reply = null;
   }
+
+  /** Reading view, for the jump to the end of the conversation after sending a reply. */
+  let messageView: { toEnd: () => void } | undefined = $state();
+  /** Waiting jumps (timer, frame), cancelled when leaving the page. */
+  let jumps: (() => void)[] = [];
+  /**
+   * After sending a reply the reading view jumps to the end of its conversation (`rdScrollRef`):
+   * from the reply bar in the next frame, once the reply stands in it; from compose 160 ms after
+   * it shows the conversation again. Instantly, also without reduced motion (`scrollTop = scrollHeight`).
+   * Only if the conversation is still the open one and the reply was not undone or failed meanwhile.
+   */
+  $effect(() => {
+    const thread = opened;
+    if (!sentReplies.scrolls.length || !messageView || !rd || !thread) return;
+    const req = untrack(() => sentReplies.takeScroll(thread));
+    if (!req) return;
+    // A newer reply replaces a jump still waiting (e.g. from compose); it must not pull back later.
+    for (const cancel of jumps) cancel();
+    jumps = [];
+    const end = () => {
+      jumps = jumps.filter((c) => c !== cancel);
+      if (opened && sameThread(opened, req) && sentReplies.live(req.key)) messageView?.toEnd();
+    };
+    const id = req.delay > 0 ? setTimeout(end, req.delay) : requestAnimationFrame(end);
+    const cancel = () => (req.delay > 0 ? clearTimeout(id) : cancelAnimationFrame(id as number));
+    jumps.push(cancel);
+  });
+  // Another conversation (also A → B → A) or leaving the page cancels waiting jumps (pre: before the new one is taken).
+  $effect.pre(() => {
+    void replyKey;
+    return () => {
+      for (const cancel of jumps) cancel();
+      jumps = [];
+    };
+  });
 
   // --- Actions: star, read, delete, spam, restore ---
 
@@ -1113,8 +1164,8 @@
     if (!source || !conversation) return [];
     // Card from the row (`listEmail`): only the list knows the conversation's other emails.
     if (conversation.status !== 'ready' && listRow)
-      return listRow.members.filter((e) => inSource(e.mailboxIds, source));
-    return (readEmails ?? []).filter((e) => inSource(e.mailboxIds, source)).map(actionEmail);
+      return listRow.members.filter((e) => confirmed(e) && inSource(e.mailboxIds, source));
+    return (readEmails ?? []).filter((e) => confirmed(e) && inSource(e.mailboxIds, source)).map(actionEmail);
   });
 
   /**
@@ -1126,16 +1177,19 @@
     const { seq, rm } = shownEmails({
       emails: readEmails,
       repId,
+      pending,
       kind: view.kind,
       roles: rolesOf(opened.account),
     });
+    // No server email represents the conversation (only a reply just sent): no actions.
+    if (pending(rm.id)) return null;
     const card = conversation?.status !== 'ready' && viewEmails.length > 0;
     return {
       account: opened.account,
-      seq: card ? viewEmails : seq.map(actionEmail),
+      seq: card ? viewEmails : seq.filter(confirmed).map(actionEmail),
       rm: actionEmail(rm),
       scope: viewEmails,
-      read: seq.filter((e) => !e.miss).map(actionEmail),
+      read: seq.filter((e) => !e.miss && confirmed(e)).map(actionEmail),
     };
   });
 
@@ -1343,9 +1397,10 @@
     if (fresh.length) untrack(() => edits.run({ account: r.account, edits: seenEdits(fresh, true), quiet: true }));
   });
 
-  // All emails of the conversation deleted (permanently, from the reading view): back to the list.
+  // All emails of the conversation deleted (permanently, from the reading view): back to the list; not while
+  // a reply just sent still stands in it (`readEmails`).
   $effect(() => {
-    if (opened && conversation?.status === 'ready' && !conversation.emails.length) untrack(() => toList(true));
+    if (opened && conversation?.status === 'ready' && !readEmails?.length) untrack(() => toList(true));
   });
 
   /** "Load once" (`hb.once`). */
@@ -1679,6 +1734,7 @@
 {:else if opened}
   {#if shownRd && rp}
     <MessageView
+      bind:this={messageView}
       rd={shownRd}
       conversationKey={shownKey}
       {focusNav}
