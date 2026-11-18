@@ -28,12 +28,14 @@ const nav = vi.hoisted(() => ({
   goto: vi.fn(() => Promise.resolve()),
   after: null as ((navigation: { from: { url: URL | null } | null; to?: { url: URL } }) => void) | null,
   before: null as ((navigation: { to: { url: URL } | null }) => void) | null,
+  onNavigate: null as (() => void) | null,
   updated: { current: false, check: vi.fn(() => Promise.resolve(false)) },
 }));
 vi.mock('$app/navigation', () => ({
   goto: nav.goto,
   afterNavigate: (fn: typeof nav.after) => (nav.after = fn),
   beforeNavigate: (fn: typeof nav.before) => (nav.before = fn),
+  onNavigate: (fn: typeof nav.onNavigate) => (nav.onNavigate = fn),
 }));
 vi.mock('$app/state', async () => ({ page: (await import('#lib/test/page.svelte.ts')).page, updated: nav.updated }));
 // The live sync has its own tests (`live.test.ts`); what counts here is for which accounts the layout starts it.
@@ -1333,6 +1335,7 @@ describe('Shell layout', () => {
   });
 
   describe('mobile area list: back to the last view of the app', () => {
+    const OTHER = { ...ACCOUNT, id: 'a9', email: 'other@example.com' };
     const mobileUser = (path: string) => {
       vi.stubGlobal('innerWidth', 400);
       window.dispatchEvent(new Event('resize'));
@@ -1340,7 +1343,7 @@ describe('Shell layout', () => {
         'GET public/config': [{ body: CONFIG }],
         'GET auth/me': [{ body: me('user') }],
         'GET settings': [{ body: SETTINGS }],
-        'GET mail-accounts': [{ body: { accounts: [ACCOUNT] } }],
+        'GET mail-accounts': [{ body: { accounts: [ACCOUNT, OTHER] } }],
         'GET tags': [{ body: { tags: [] } }],
       });
       return renderAt(path);
@@ -1349,6 +1352,7 @@ describe('Shell layout', () => {
     const toSettings = async () => {
       const to = '/settings/appearance';
       nav.before!({ to: { url: new URL(`http://localhost${to}`) } });
+      nav.onNavigate!();
       ui.panelList = to;
       page.url = new URL(`http://localhost${to}`);
       history.replaceState(null, '', to);
@@ -1362,28 +1366,38 @@ describe('Shell layout', () => {
       await findByText('Page content');
       search.q = 'invoice';
       search.set({ st: ['u'] });
+      nav.before!({ to: { url: new URL('http://localhost/settings/appearance') } });
+      // Typed while the settings load: counts.
+      search.q = 'receipts';
       await toSettings();
       // Leaving the search page resets its filters.
       search.leave();
       expect(search.sf.st).toEqual([]);
       await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
       expect(goto).toHaveBeenLastCalledWith('/search');
-      expect([search.q, search.sf.st]).toEqual(['invoice', ['u']]);
+      expect([search.q, search.sf.st]).toEqual(['receipts', ['u']]);
     });
 
-    it('goes to the start for a removed account', async () => {
+    it('goes to the start for an account removed in the settings', async () => {
       const { findByText, getByRole, goto } = mobileUser('/mailbox/a9/sent');
       await findByText('Page content');
+      await vi.waitFor(() => expect(accounts.list).toHaveLength(2));
       await toSettings();
+      accounts.list = accounts.list!.filter((a) => a.id !== OTHER.id);
       await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
       expect(goto).toHaveBeenLastCalledWith('/start');
     });
 
-    it('goes to the start after another user signed in', async () => {
+    it('goes to the start after another user signed in meanwhile', async () => {
       const { findByText, getByRole, goto } = mobileUser('/mailbox/a1/sent');
       await findByText('Page content');
       await toSettings();
-      session.user = { ...session.user!, id: '01K' };
+      // Another user signs in, then the first one again (other tabs).
+      const first = session.user!;
+      session.user = { ...first, id: '01K' };
+      await tick();
+      session.user = first;
+      await tick();
       await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
       expect(goto).toHaveBeenLastCalledWith('/start');
     });

@@ -135,6 +135,18 @@ export function parseMailboxPath(path: string): MailboxLocation | null {
 }
 
 /**
+ * Mail accounts a mailbox address needs: its own; in "All accounts" the folder's account and that of the
+ * open message (`<account>/<thread>`), roles and tags there need none.
+ */
+export function locationAccounts(location: MailboxLocation): string[] {
+  if (location.account !== ALL_ACCOUNTS) return [location.account];
+  const ids = 'folder' in location && location.owner ? [location.owner] : [];
+  const cut = location.thread?.indexOf('/') ?? -1;
+  if (location.thread && cut > 0) ids.push(location.thread.slice(0, cut));
+  return ids;
+}
+
+/**
  * Pages of the route tree (`src/routes`) apart from the mailboxes;
  * `routes.test.ts` checks them against the tree.
  */

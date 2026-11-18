@@ -13,7 +13,7 @@
   import '@fontsource/young-serif/400.css';
   import '../app.css';
   import { onMount, tick, untrack } from 'svelte';
-  import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
+  import { afterNavigate, beforeNavigate, goto, onNavigate } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { page } from '$app/state';
   import type { TipState } from '#lib/actions/tooltip.ts';
@@ -97,6 +97,7 @@
     isSettingsPath,
     mailboxParams,
     mailboxPath,
+    locationAccounts,
     parseMailboxPath,
     redactPath,
     redirectFor,
@@ -342,7 +343,10 @@
   // Return path to the search: the navigation of an opened hit sets it, leaving its target ends it.
   beforeNavigate(({ to }) => {
     if (to) search.navigating(to.url.pathname, returnable(to.url.pathname));
-    // Leaving the search resets its filters: the mobile settings list's "Back" brings them again.
+  });
+  // Leaving the search resets its filters: the mobile settings list's "Back" brings them again. Taken once the
+  // target has loaded, right before the search page goes (what was typed meanwhile counts).
+  onNavigate(() => {
     if (appView && appView.path === SEARCH && path === SEARCH) appView.search = search.snapshot();
   });
 
@@ -1662,6 +1666,8 @@
   let appView = $state<AppView | null>(null);
   $effect(() => {
     const user = session.user?.id;
+    // Another user (also signing in again as the first one later) starts without it.
+    if (untrack(() => appView && appView.user !== user)) appView = null;
     if (ready && !session.authed) appView = null;
     else if (ready && !target && chrome === 'main' && !forbidden && user) {
       appView = { user, path: page.url.pathname, href: page.url.pathname + page.url.search, search: null };
@@ -1675,7 +1681,7 @@
     const view = appView;
     if (!view || view.user !== session.user?.id) return HOME;
     const at = parseMailboxPath(view.path);
-    if (at && at.account !== ALL_ACCOUNTS && accounts.list && !accounts.get(at.account)) return HOME;
+    if (at && accounts.list && locationAccounts(at).some((id) => !accounts.get(id))) return HOME;
     if (view.search) search.restore(view.search);
     return view.href;
   }
