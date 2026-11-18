@@ -210,3 +210,44 @@ test('rejected recipient', async ({ browser, instance, stalwart }) => {
     return found.length === 1 && found[0]!.keywords.includes('$draft') && found[0]!.mailboxIds.join() === drafts;
   }, `one draft "${subject}" in drafts`);
 });
+
+test('reopened draft keeps heading and header fields in view', async ({ browser, instance, stalwart }) => {
+  const page = await openAs(browser, need(session, 'session'), `${instance.url}/start`);
+  const subject = word('Draft');
+  await page.getByRole('navigation').getByRole('button', { name: 'New email' }).click();
+  const to = page.getByRole('combobox', { name: 'To' });
+  await to.fill(erika.email);
+  await to.press('Enter');
+  await page.getByRole('button', { name: 'Cc/Bcc', exact: true }).click();
+  const bcc = page.getByRole('combobox', { name: 'Bcc' });
+  await bcc.fill(stalwart.admin.email);
+  await bcc.press('Enter');
+  await page.getByRole('textbox', { name: 'Subject' }).fill(subject);
+  const lines = Array.from({ length: 8 }, (_, i) => `Line ${String(i + 1)}`);
+  await page.getByRole('textbox', { name: 'Message' }).fill(lines.join('\n'));
+  await page.getByRole('main').locator('button.back').click();
+  const drafts = await mailboxId(stalwart, stalwart.user, 'drafts');
+  await eventually(async () => {
+    const found = await findMails(stalwart, stalwart.user, { subject });
+    return found.length === 1 && found[0]!.mailboxIds.join() === drafts;
+  }, `draft "${subject}" saved`);
+
+  await folder(page, /^Drafts/).click();
+  // Scroll area as at 900 × 760 with the offline bar: shorter than the header fields plus the text.
+  await page.setViewportSize({ width: 900, height: 724 });
+  await openRow(page, subject);
+  // The caret is in the text, the page stays at the top.
+  const text = page.getByRole('textbox', { name: 'Message' });
+  await expect(text).toBeFocused();
+  await expect(text).toHaveValue(lines.join('\n'));
+  expect(
+    await page
+      .getByRole('main')
+      .locator('.scroll')
+      .evaluate((el) => el.scrollTop),
+  ).toBe(0);
+  await expect(page.getByRole('heading', { level: 1 })).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole('main').getByText('From', { exact: true })).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole('combobox', { name: 'To' })).toBeInViewport({ ratio: 1 });
+  await expect(page.getByRole('combobox', { name: 'Bcc' })).toBeInViewport({ ratio: 1 });
+});
