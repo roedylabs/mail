@@ -465,6 +465,37 @@ describe('Shell layout', () => {
     ui.collapsed = false;
   });
 
+  it('keeps the sidebar in place while the mail accounts load and slides it out only without any', async () => {
+    let answer: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [() => new Promise((resolve) => (answer = resolve))],
+      'GET tags': [{ body: { tags: [] } }],
+    });
+    const { queryByRole, queryByText, findByText, container, goto } = renderAt('/start');
+    await vi.waitFor(() => expect(calls.some((c) => c.path === 'mail-accounts')).toBe(true));
+    const sidebar = () => container.querySelector<HTMLElement>('nav.sidebar');
+    const slot = () => sidebar()?.parentElement;
+    const toggle = () => queryByRole('button', { name: 'Show or hide sidebar' });
+    // Unknown list: the sidebar does not slide in later and push the page aside.
+    await vi.waitFor(() => expect(sidebar()).not.toBeNull());
+    expect(sidebar()).not.toHaveClass('hidden');
+    expect(slot()?.style.width).toBe('270px');
+    expect(toggle()).not.toBeNull();
+    // "New email" before the list is there waits for it instead of reporting a missing account right away.
+    await fireEvent.click(within(sidebar()!).getByRole('button', { name: /New email/ }));
+    expect(queryByText('Connect an email account first')).toBeNull();
+    answer({ body: NO_ACCOUNTS });
+    await vi.waitFor(() => expect(goto).toHaveBeenCalledWith('/no-account', { replace: true }));
+    page.url = new URL('http://localhost/no-account');
+    expect(await findByText('Connect an email account first')).toBeInTheDocument();
+    await vi.waitFor(() => expect(slot()?.style.width).toBe('16px'));
+    expect(sidebar()).toHaveClass('hidden');
+    expect(toggle()).toBeNull();
+  });
+
   it('opens “New email” with C, from the palette and the sidebar with the view account', async () => {
     mockApi({
       'GET public/config': [{ body: CONFIG }],
@@ -793,7 +824,8 @@ describe('Shell layout', () => {
     const { findByText, getByText } = renderAt('/no-account');
     await findByText('Page content');
     await fireEvent.keyDown(window, { key: 'c' });
-    expect(getByText('Connect an email account first')).toBeInTheDocument();
+    // Pressed while the mail accounts may still load: the notice follows once the empty list is there.
+    expect(await findByText('Connect an email account first')).toBeInTheDocument();
     await vi.waitFor(() => expect(prefs.remote).toBe(true));
     await fireEvent.keyDown(window, { key: 'k', metaKey: true });
     expect(getByText('Manage mail servers')).toBeInTheDocument();
@@ -2086,6 +2118,7 @@ describe('Mailboxes in the shell', () => {
     window.dispatchEvent(new Event('resize'));
     mockBoth();
     const { findByRole, getByRole, queryByRole, goto } = renderAt('/mailbox/a1/sent');
+    await vi.waitFor(() => expect(accounts.list).not.toBeNull());
     const tab = await findByRole('button', { name: 'Inbox' });
     await fireEvent.click(tab);
     const sheet = getByRole('dialog', { name: 'Mailboxes' });
@@ -2122,6 +2155,7 @@ describe('Mailboxes in the shell', () => {
     window.dispatchEvent(new Event('resize'));
     mockBoth({ defaultAccount: 'all' });
     const { findByRole, goto } = renderAt('/start');
+    await vi.waitFor(() => expect(accounts.list).not.toBeNull());
     await fireEvent.click(await findByRole('button', { name: 'Inbox' }));
     expect(goto).toHaveBeenCalledWith('/mailbox/all/inbox');
     vi.stubGlobal('innerWidth', 1024);
@@ -2346,6 +2380,7 @@ describe('Mailboxes in the shell', () => {
       window.dispatchEvent(new Event('resize'));
       mockFix([[IMPORTANT, INVOICES, privateTag()]]);
       const { findByRole, getByRole, queryByRole } = renderAt('/mailbox/a1/inbox');
+      await vi.waitFor(() => expect(accounts.list).not.toBeNull());
       await fireEvent.click(await findByRole('button', { name: 'Inbox' }));
       const sheet = getByRole('dialog', { name: 'Mailboxes' });
       await fireEvent.click(within(sheet).getByRole('tab', { name: /Tags/ }));
