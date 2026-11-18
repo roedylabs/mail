@@ -193,7 +193,7 @@ describe('Invitation page', () => {
     expect(input.closest<HTMLElement>('.code-ctl')?.style.opacity).toBe('1');
   });
 
-  it('shows maintenance mode as a status between the code alerts', async () => {
+  it('shows maintenance mode as a status rather than an alert', async () => {
     mockApi({
       'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],
       'POST invites/tok/totp': [{ body: { secret: SECRET, uri: `otpauth://totp/x?secret=${SECRET}` } }],
