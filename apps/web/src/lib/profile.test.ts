@@ -515,6 +515,73 @@ describe('confirmation pending', () => {
     expect(ui.toast).toBeNull();
   });
 
+  it('"Resend link" applies its answer only to the account and change it was sent for', async () => {
+    const other = { ...ME, id: 'u1', email: 'eva@example.com', email_change: { ...OPEN, email: 'eva2@example.com' } };
+    const newer = { ...OPEN, email: 'two@example.com' };
+    let release: (a: { status: number; body: unknown }) => void = () => {};
+    const { calls } = mockApi({
+      'POST auth/me/email/resend': [
+        () => new Promise((resolve) => (release = resolve)),
+        () => new Promise((resolve) => (release = resolve)),
+        { status: 409, body: { error: 'email_change_discarded' } },
+      ],
+      'GET auth/me': [{ status: 500, body: {} }, { status: 500, body: {} }, { body: { ...ME, email: OPEN.email } }],
+    });
+    const p = new ProfilePage();
+    // Another tab switched the account in the meantime.
+    let resending = p.resend();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    session.user = other;
+    release({ status: 404, body: { error: 'not_found' } });
+    await resending;
+    expect(session.user).toEqual(other);
+    expect(ui.toast).toBeNull();
+
+    // A new link went out in the meantime; the failed reload must not drop it.
+    session.user = { ...ME, email_change: OPEN };
+    resending = p.resend();
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    session.user = { ...ME, email_change: newer };
+    release({ status: 404, body: { error: 'not_found' } });
+    await resending;
+    expect(session.user?.email_change).toEqual(newer);
+    expect(ui.toast).toBeNull();
+
+    // 409 while sending, then confirmed elsewhere: the new address, no "discarded".
+    session.user = { ...ME, email_change: OPEN };
+    await p.resend();
+    expect(session.user?.email).toBe(OPEN.email);
+    expect(ui.toast).toBeNull();
+  });
+
+  it('"Discard change" does not discard a change that replaced the clicked one', async () => {
+    const newer = { ...OPEN, email: 'two@example.com' };
+    const { calls } = mockApi({ 'GET auth/me': [{ body: { ...ME, email_change: newer } }] });
+    const p = new ProfilePage();
+    await p.discardChange();
+    expect(rowOf(profileValues(p), 'Email')).toMatchObject({ pend: true, pendEmail: 'two@example.com' });
+    expect(ui.toast).toBeNull();
+    await ui.toasts.flush();
+    expect(sent(calls).map((c) => c.call)).toEqual(['GET auth/me']);
+  });
+
+  it('"Discard change" keeps a link sent while `auth/me` loads', async () => {
+    const newer = { ...OPEN, email: 'two@example.com' };
+    let release: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({ 'GET auth/me': [() => new Promise((resolve) => (release = resolve))] });
+    const p = new ProfilePage();
+    const discarding = p.discardChange();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    session.user = { ...ME, email_change: newer };
+    // The older read still shows the clicked change.
+    release({ body: { ...ME, email_change: OPEN } });
+    await discarding;
+    expect(session.user?.email_change).toEqual(newer);
+    expect(ui.toast).toBeNull();
+    await ui.toasts.flush();
+    expect(calls).toHaveLength(1);
+  });
+
   it('discards with undo only after the toast expires', async () => {
     const pending = { body: { ...ME, email_change: OPEN } };
     const { calls } = mockApi({
