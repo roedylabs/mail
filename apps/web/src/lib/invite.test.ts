@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { normalizeName } from '#lib/name.ts';
+import { BRAND0, session, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { DONE_MS, InviteFlow, type InviteField, type InviteInfo } from './invite.svelte.ts';
 
 const TOKEN = 'b'.repeat(43);
@@ -17,9 +18,22 @@ const ENROLL = { secret: SECRET, uri: `otpauth://totp/Roedy%20Mail:jordan.hale%4
 const USER = { id: '01K', username: 'jordan.hale', email: INFO.email, display_name: 'Jordan Hale', role: 'user' };
 const CODES = Array.from({ length: 10 }, (_, i) => `ABCD-EF${String(i).padStart(2, '2')}`);
 
+const CONFIG: PublicConfig = {
+  name: 'Acme Mail',
+  branding: BRAND0,
+  org: { name: null, website: null, help: null, email: null, imprint: null, privacy: null, terms: null, source: null },
+  banner: null,
+  maintenance: { on: false, message: null },
+  version: '0.1.0',
+  update: null,
+  setup_required: false,
+  client_cache_version: 0,
+};
+
 afterEach(() => {
   vi.unstubAllGlobals();
   vi.useRealTimers();
+  session.config = null;
 });
 
 function hooks() {
@@ -77,6 +91,35 @@ describe('loading', () => {
     expect(flow.inviteFromSubject).toBe('Your administrator');
     expect(flow.roleName).toBe('Administrator');
     expect(flow.name).toBe('');
+  });
+
+  it('treats an empty inviter like a missing one', async () => {
+    const { flow } = await opened({}, { ...INFO, inviter: '' });
+    expect(flow.inviteFrom).toBe('your administrator');
+    expect(flow.inviteFromSubject).toBe('Your administrator');
+    expect(flow.fromInitials).toBe('R');
+  });
+
+  it('shows the first letter of the app name in the tile without an inviter', async () => {
+    const none = { ...INFO, inviter: null };
+    // Default app name "Roedy Mail".
+    expect((await opened({}, none)).flow.fromInitials).toBe('R');
+    session.config = { ...CONFIG, name: 'mira mail' };
+    const { flow } = await opened({}, none);
+    expect(flow.fromInitials).toBe('M');
+    // The fallback text of the pill stays.
+    expect(flow.inviteFrom).toBe('your administrator');
+    session.config = { ...CONFIG, name: '  post' };
+    expect(flow.fromInitials).toBe('P');
+    // The whole first character, also outside the Basic Multilingual Plane.
+    session.config = { ...CONFIG, name: ' \u{10428} Mail' };
+    expect(flow.fromInitials).toBe('\u{10400}');
+    // Without an app name "A".
+    session.config = { ...CONFIG, name: '   ' };
+    expect(flow.fromInitials).toBe('A');
+    // With an inviter the initials of the name, whatever the app is called.
+    session.config = { ...CONFIG, name: 'Zeta' };
+    expect((await opened()).flow.fromInitials).toBe('AB');
   });
 
   it('shows expired invitations without steps', async () => {

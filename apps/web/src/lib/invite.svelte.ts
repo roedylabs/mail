@@ -19,6 +19,7 @@ import { m } from '#lib/paraglide/messages.js';
 import { qrSymbol, type QrSymbol } from '#lib/qr.ts';
 import { clockText, waitText } from '#lib/wait.ts';
 import { intlLocale } from '#lib/locale.ts';
+import { session } from '#lib/state/session.svelte.ts';
 
 /** Duration from "Welcome, ‹first name›" to the start page (bar `inBar` 2.6 s). */
 export const DONE_MS = 2700;
@@ -172,10 +173,13 @@ export class InviteFlow {
   private linkLeft = $derived(this.locks.left('link'));
 
   /** Inviter for "Invitation from …" and "Request a new one from …." (`inviteFrom`). */
-  inviteFrom = $derived(this.info?.inviter ?? m.invite_from_fallback());
+  inviteFrom = $derived(this.info?.inviter || m.invite_from_fallback());
   /** The same as the subject ("… invited you", "… has been notified"). */
-  inviteFromSubject = $derived(this.info?.inviter ?? m.invite_from_fallback_subject());
-  fromInitials = $derived(initials(this.inviteFrom));
+  inviteFromSubject = $derived(this.info?.inviter || m.invite_from_fallback_subject());
+  /** Tile next to the inviter; without one the first letter of the app name, without that "A". */
+  fromInitials = $derived(
+    this.info?.inviter ? initials(this.info.inviter) : ([...session.appName.trim()][0] ?? 'A').toUpperCase(),
+  );
   inviteEmail = $derived(this.info?.email ?? '');
   untilLabel = $derived(this.info ? untilText(this.info.expires_at) : '');
   roleName = $derived(this.info?.role === 'admin' ? m.invite_role_admin() : m.invite_role_user());
