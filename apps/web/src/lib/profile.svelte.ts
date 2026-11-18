@@ -67,6 +67,13 @@ export class ProfilePage {
   resending = $state(false);
   /** "Discard change" reloads `auth/me` first. */
   checking = $state(false);
+  /** The page is gone: late answers of its reads change nothing anymore. */
+  #disposed = false;
+
+  /** Leaving the page (`onDestroy`). */
+  dispose(): void {
+    this.#disposed = true;
+  }
 
   get mfa(): boolean {
     return session.user?.mfa_enabled ?? false;
@@ -265,7 +272,8 @@ export class ProfilePage {
   /** "Send confirmation link": the server checks password and code, then both mails go out. */
   async sendLink(): Promise<void> {
     const ea = this.ea;
-    if (!ea || this.sending || !this.eaReady) return;
+    // During "Resend link" both would replace the link: one after the other.
+    if (!ea || this.sending || this.resending || !this.eaReady) return;
     const mfa = this.mfa;
     if (mfa && this.eaOtp.length !== CODE_LENGTH) {
       this.eaErr = m.reauth_code_short();
@@ -329,7 +337,7 @@ export class ProfilePage {
   async resend(): Promise<void> {
     // The account and change the request is for; the answer applies only to them.
     const before = session.user;
-    if (!before?.email_change || this.resending || this.checking) return;
+    if (!before?.email_change || this.resending || this.checking || this.sending) return;
     this.resending = true;
     this.pendErr = null;
     try {
@@ -446,10 +454,10 @@ export class ProfilePage {
       me = await api<Me>('GET', 'auth/me', undefined, { signal: AbortSignal.timeout(CONFIG_TIMEOUT_MS) });
     } catch (error) {
       if (isApiError(error, 401)) void session.refreshUser().catch(() => {});
-      return this.#unchanged(before) ? { error } : null;
+      return !this.#disposed && this.#unchanged(before) ? { error } : null;
     }
     const now = session.user;
-    if (!now || !this.#unchanged(before)) return null;
+    if (this.#disposed || !now || !this.#unchanged(before)) return null;
     if (me.id !== before.id) {
       void session.refreshUser().catch(() => {});
       return null;
@@ -561,7 +569,7 @@ export interface AcctRowValues {
   pendEmail: string;
   pendErr: string;
   hasPendErr: boolean;
-  /** Response pending ("Resend link", or "Discard change" reading `auth/me`). */
+  /** Response pending ("Resend link", "Discard change" reading `auth/me`, or a new link). */
   busy: boolean;
   edit: () => void;
   onChange: (value: string) => void;
@@ -701,7 +709,7 @@ export function profileValues(p: ProfilePage, mailAccounts = 0): ProfileValues {
         pendEmail: pend && pending ? pending.email : '',
         pendErr,
         hasPendErr: !!pendErr,
-        busy: pend && (p.resending || p.checking),
+        busy: pend && (p.resending || p.checking || p.sending),
         edit: () => id && p.edit(id),
         onChange: (value: string) => id && p.setField(id, value),
         onBlur: () => id && p.blurField(id),
@@ -716,7 +724,7 @@ export function profileValues(p: ProfilePage, mailAccounts = 0): ProfileValues {
     eaMsg: p.eaErr ?? '',
     hasEaMsg: !!p.eaErr,
     eaDis: !p.eaReady,
-    eaBusy: p.sending,
+    eaBusy: p.sending || p.resending,
     eaGo: () => void p.sendLink(),
     eaCancel: () => p.cancelAuth(),
     nameDirty: p.dirty,

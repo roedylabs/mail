@@ -640,6 +640,43 @@ describe('confirmation pending', () => {
     expect(ui.toast).toBeNull();
   });
 
+  it('"Resend link" and a new link wait for each other', async () => {
+    let release: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({
+      'PATCH auth/me': [
+        { body: { status: 'reauth_required', user: USER } },
+        () => new Promise((resolve) => (release = resolve)),
+      ],
+    });
+    const p = new ProfilePage();
+    p.edit('email');
+    p.setField('email', 'two@example.com');
+    await p.save();
+    p.setEaPw('Secret-123');
+    const sending = p.sendLink();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    // Prompt closed while sending: the box is back, but its buttons wait.
+    p.cancelAuth();
+    expect(rowOf(profileValues(p), 'Email')).toMatchObject({ pend: true, busy: true });
+    await p.resend();
+    expect(calls).toHaveLength(2);
+    release({ body: { status: 'email_sent', user: USER, email_change: { ...OPEN, email: 'two@example.com' } } });
+    await sending;
+  });
+
+  it('a discard check of a page that was left changes nothing', async () => {
+    let release: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({ 'GET auth/me': [() => new Promise((resolve) => (release = resolve))] });
+    const p = new ProfilePage();
+    const discarding = p.discardChange();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    p.dispose();
+    release({ body: { ...ME, email_change: OPEN } });
+    await discarding;
+    expect(session.user?.email_change).toEqual(OPEN);
+    expect(ui.toast).toBeNull();
+  });
+
   it('discards with undo only after the toast expires', async () => {
     const pending = { body: { ...ME, email_change: OPEN } };
     const { calls } = mockApi({
