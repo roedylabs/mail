@@ -28,7 +28,7 @@ function entry(id: string, over: Partial<AppNotification> = {}): AppNotification
 }
 
 function actions(): NotifMenuActions {
-  return { open: vi.fn(), dismiss: vi.fn(), markAll: vi.fn(), enable: vi.fn(), settings: vi.fn() };
+  return { open: vi.fn(), dismiss: vi.fn(), markAll: vi.fn(), enable: vi.fn(), retry: vi.fn(), settings: vi.fn() };
 }
 
 function input(over: Partial<NotifMenuInput> = {}): NotifMenuInput {
@@ -36,6 +36,7 @@ function input(over: Partial<NotifMenuInput> = {}): NotifMenuInput {
     isMobile: false,
     list: [],
     loading: false,
+    failure: null,
     channels: ON,
     topics: {},
     tz: 'Europe/Berlin',
@@ -159,6 +160,33 @@ describe('notifMenuValues', () => {
     expect(
       notifMenuValues(input({ list: null, loading: true, channels: { ...ON, app: false } }), actions()),
     ).toMatchObject({ notifBusy: false, notifBusyAttr: false, notifOff: true });
+  });
+
+  it('shows the card of a failed first load instead of the placeholder rows, placeholders again while reloading', () => {
+    const act = actions();
+    const failed = notifMenuValues(input({ list: null, failure: 'No connection. Please try again.' }), act);
+    expect(failed).toMatchObject({
+      notifFail: true,
+      notifFailText: 'No connection. Please try again.',
+      notifBusy: false,
+      notifHas: false,
+      notifEmpty: false,
+      notifOff: false,
+      hasUnread: false,
+    });
+    failed.notifRetry();
+    expect(act.retry).toHaveBeenCalledOnce();
+    expect(notifMenuValues(input({ list: null, failure: 'x', loading: true }), act)).toMatchObject({
+      notifFail: false,
+      notifBusy: true,
+    });
+    // Turned off in the app: only that state.
+    expect(notifMenuValues(input({ list: null, failure: 'x', channels: { ...ON, app: false } }), act)).toMatchObject({
+      notifFail: false,
+      notifBusy: false,
+      notifOff: true,
+    });
+    expect(notifMenuValues(input({ list: null }), act).notifFail).toBe(false);
   });
 
   it('passes actions through; Enter and space open, "Dismiss" does not open', () => {
