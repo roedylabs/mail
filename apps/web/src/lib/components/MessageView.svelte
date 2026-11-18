@@ -198,17 +198,18 @@
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => (el.scrollTop = el.scrollHeight));
     for (const child of el.children) observer.observe(child);
-    // Input on the scroll area and on the overlay scrollbar, its sibling (`scrollbar`).
+    // Input on the scroll area and on the overlay scrollbar, its sibling (`scrollbar`); in the capture phase,
+    // because the overlay stops its pointer events.
     const area = el.parentElement ?? el;
     const own = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
     const timer = setTimeout(() => unfollow(), END_FOLLOW_MS);
     unfollow = () => {
       observer.disconnect();
       clearTimeout(timer);
-      for (const type of own) area.removeEventListener(type, unfollow);
+      for (const type of own) area.removeEventListener(type, unfollow, { capture: true });
       unfollow = () => {};
     };
-    for (const type of own) area.addEventListener(type, unfollow, { passive: true });
+    for (const type of own) area.addEventListener(type, unfollow, { passive: true, capture: true });
   }
 
   /** Root of the view; mounted again after the skeleton while paging, `focusNav` gets focus back. */

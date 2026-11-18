@@ -706,7 +706,9 @@ describe('reading view', () => {
       grow(6000);
       expect(top).toBe(5000);
       // Also when dragging the overlay scrollbar, the scroll area's sibling.
+      // Like `OverlayScrollbar`, it stops its pointer events.
       const overlay = document.createElement('div');
+      overlay.addEventListener('pointerdown', (e) => e.stopPropagation());
       scroller.after(overlay);
       toEnd();
       overlay.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
