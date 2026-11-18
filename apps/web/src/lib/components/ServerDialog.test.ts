@@ -184,12 +184,15 @@ describe('ServerDialog', () => {
     expect(adm.querySelector('svg')).toBeNull();
     p.setAdminUser('admin');
     p.setAdminPassword('app-password');
-    await p.register();
-    await sync();
-    const box = view.getByRole('alert');
-    expect(box.querySelector('.locked-text')).toHaveTextContent(/^Too many requests\. /);
-    expect(view.getByRole('button', { name: /^Register client automatically in/ })).toHaveClass('off');
-    p.regLock.stop();
+    try {
+      await p.register();
+      await sync();
+      const box = view.getByRole('alert');
+      expect(box.querySelector('.locked-text')).toHaveTextContent(/^Too many requests\. /);
+      expect(view.getByRole('button', { name: /^Register client automatically in/ })).toHaveClass('off');
+    } finally {
+      p.regLock.stop();
+    }
   });
 
   it('styles the rate limit box and the disabled register button', () => {
