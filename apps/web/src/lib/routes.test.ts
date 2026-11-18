@@ -4,6 +4,7 @@ import {
   isAdminPath,
   isSettingsPath,
   isAppPath,
+  locationAccounts,
   mailboxParams,
   mailboxPath,
   parseMailboxPath,
@@ -137,6 +138,23 @@ describe('mailbox addresses', () => {
     expect(parseMailboxPath('/mailbox/a1/f')).toBeNull();
     expect(parseMailboxPath('/mailbox/all/f/k')).toBeNull();
     expect(parseMailboxPath('/mailbox/a1/f/%E0')).toBeNull();
+  });
+});
+
+describe('locationAccounts', () => {
+  const of = (path: string) => locationAccounts(parseMailboxPath(path)!);
+
+  it('names the account of a mailbox', () => {
+    expect(of('/mailbox/a1/sent/x1')).toEqual(['a1']);
+    expect(of('/mailbox/a1/t/t2')).toEqual(['a1']);
+  });
+
+  it('names the folder and message accounts in "All accounts"', () => {
+    expect(of('/mailbox/all/inbox')).toEqual([]);
+    expect(of('/mailbox/all/t/t2')).toEqual([]);
+    expect(of('/mailbox/all/sent/a1%2Fx1')).toEqual(['a1']);
+    expect(of('/mailbox/all/f/a1/f9')).toEqual(['a1']);
+    expect(of('/mailbox/all/f/a1/f9/a2%2Fx1')).toEqual(['a1', 'a2']);
   });
 });
 

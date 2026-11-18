@@ -27,12 +27,15 @@ import { resetPanelMemory } from '#lib/panel-memory.ts';
 const nav = vi.hoisted(() => ({
   goto: vi.fn(() => Promise.resolve()),
   after: null as ((navigation: { from: { url: URL | null } | null; to?: { url: URL } }) => void) | null,
+  before: null as ((navigation: { to: { url: URL } | null }) => void) | null,
+  onNavigate: null as (() => void) | null,
   updated: { current: false, check: vi.fn(() => Promise.resolve(false)) },
 }));
 vi.mock('$app/navigation', () => ({
   goto: nav.goto,
   afterNavigate: (fn: typeof nav.after) => (nav.after = fn),
-  beforeNavigate: () => {},
+  beforeNavigate: (fn: typeof nav.before) => (nav.before = fn),
+  onNavigate: (fn: typeof nav.onNavigate) => (nav.onNavigate = fn),
 }));
 vi.mock('$app/state', async () => ({ page: (await import('#lib/test/page.svelte.ts')).page, updated: nav.updated }));
 // The live sync has its own tests (`live.test.ts`); what counts here is for which accounts the layout starts it.
@@ -1325,6 +1328,151 @@ describe('Shell layout', () => {
     page.url = new URL('http://localhost/start');
     await tick();
     expect(ui.panelList).toBeNull();
+  });
+
+  it('returns from the mobile area list to the last view of the app, on the desktop to the start', async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: { accounts: [ACCOUNT] } }],
+      'GET tags': [{ body: { tags: [] } }],
+    });
+    const { findByText, getByRole, goto } = renderAt('/mailbox/a1/t/t2/x1');
+    await findByText('Page content');
+    // More › Settings from the open message of a tag.
+    ui.menu = 'nav';
+    await vi.waitFor(() => expect(getByRole('dialog', { name: 'More' })).toBeInTheDocument());
+    await fireEvent.click(getByRole('button', { name: 'Settings' }));
+    expect(goto).toHaveBeenLastCalledWith('/settings/appearance');
+    const at = async (path: string) => {
+      page.url = new URL(`http://localhost${path}`);
+      history.replaceState(null, '', path);
+      await tick();
+    };
+    await at('/settings/appearance');
+    await fireEvent.click(getByRole('button', { name: 'Appearance' }));
+    await at('/settings/general');
+    await fireEvent.click(getByRole('button', { name: 'Settings' }));
+    await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+    expect(goto).toHaveBeenLastCalledWith('/mailbox/a1/t/t2/x1');
+    // On the desktop the settings navigation goes to the start mailbox.
+    vi.stubGlobal('innerWidth', 1024);
+    window.dispatchEvent(new Event('resize'));
+    await vi.waitFor(() => expect(getByRole('navigation', { name: 'Settings' })).toBeInTheDocument());
+    await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+    expect(goto).toHaveBeenLastCalledWith('/start');
+  });
+
+  describe('mobile area list: back to the last view of the app', () => {
+    const OTHER = { ...ACCOUNT, id: 'a9', email: 'other@example.com' };
+    const mobileUser = (path: string) => {
+      vi.stubGlobal('innerWidth', 400);
+      window.dispatchEvent(new Event('resize'));
+      mockApi({
+        'GET public/config': [{ body: CONFIG }],
+        'GET auth/me': [{ body: me('user') }],
+        'GET settings': [{ body: SETTINGS }],
+        'GET mail-accounts': [{ body: { accounts: [ACCOUNT, OTHER] } }],
+        'GET tags': [{ body: { tags: [] } }],
+      });
+      return renderAt(path);
+    };
+    /** Navigation to the settings list (`More › Settings`); `loading` runs while the target loads. */
+    const toSettings = async (loading?: () => void) => {
+      const to = '/settings/appearance';
+      nav.before!({ to: { url: new URL(`http://localhost${to}`) } });
+      loading?.();
+      nav.onNavigate!();
+      ui.panelList = to;
+      page.url = new URL(`http://localhost${to}`);
+      history.replaceState(null, '', to);
+      await tick();
+    };
+
+    afterEach(() => search.reset());
+
+    it('brings the search back with its filters', async () => {
+      const { findByText, getByRole, goto } = mobileUser('/search');
+      await findByText('Page content');
+      search.q = 'invoice';
+      search.set({ st: ['u'] });
+      // Typed while the settings load: counts.
+      await toSettings(() => (search.q = 'receipts'));
+      // Leaving the search page resets its filters.
+      search.leave();
+      expect(search.sf.st).toEqual([]);
+      await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+      expect(goto).toHaveBeenLastCalledWith('/search');
+      expect([search.q, search.sf.st]).toEqual(['receipts', ['u']]);
+    });
+
+    it('goes to the start for an account removed in the settings', async () => {
+      const { findByText, getByRole, goto } = mobileUser('/mailbox/a9/sent');
+      await findByText('Page content');
+      await vi.waitFor(() => expect(accounts.list).toHaveLength(2));
+      await toSettings();
+      accounts.list = accounts.list!.filter((a) => a.id !== OTHER.id);
+      await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+      expect(goto).toHaveBeenLastCalledWith('/start');
+    });
+
+    it('goes to the start after another user signed in meanwhile', async () => {
+      const { findByText, getByRole, goto } = mobileUser('/mailbox/a1/sent');
+      await findByText('Page content');
+      await toSettings();
+      // Another user signs in, then the first one again (other tabs).
+      const first = session.user!;
+      session.user = { ...first, id: '01K' };
+      await tick();
+      session.user = first;
+      await tick();
+      await fireEvent.click(getByRole('button', { name: 'Back to Roedy Mail' }));
+      expect(goto).toHaveBeenLastCalledWith('/start');
+    });
+  });
+
+  it('scrolls the mobile panel to the top between the area list and a page and between two pages', async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('admin') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+    });
+    const { findByText, getByRole, container } = renderAt('/admin/users');
+    await findByText('Page content');
+    const panel = container.querySelector<HTMLElement>('main.m-panel')!;
+    const top = () => panel.scrollTop;
+    const scrolled = async (change: () => unknown) => {
+      panel.scrollTop = 300;
+      await change();
+      await tick();
+      return top();
+    };
+    // jsdom does not scroll: keep the value that was set.
+    let value = 0;
+    Object.defineProperty(panel, 'scrollTop', {
+      get: () => value,
+      set: (v: number) => (value = v),
+      configurable: true,
+    });
+    expect(await scrolled(() => fireEvent.click(getByRole('button', { name: 'Administration' })))).toBe(0);
+    expect(await scrolled(() => fireEvent.click(getByRole('button', { name: 'Users' })))).toBe(0);
+    expect(
+      await scrolled(() => {
+        page.url = new URL('http://localhost/admin/organization');
+      }),
+    ).toBe(0);
+    // A change of the query on the same page keeps the position.
+    expect(
+      await scrolled(() => {
+        page.url = new URL('http://localhost/admin/organization?tab=1');
+      }),
+    ).toBe(300);
   });
 
   it('reopens the last settings and administration page without a page of their own', async () => {
