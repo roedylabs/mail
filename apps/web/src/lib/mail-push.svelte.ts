@@ -22,8 +22,10 @@
  *   It names the app user; `resume` and `share` remove the copy of another
  *   user who signed in before in this browser.
  *
- * The device remembers selection and confirmation (`PushSubscription/get`
- * does not show them) in local storage.
+ * The device remembers selection and confirmation in local storage.
+ * `PushSubscription/get` shows the confirmation from Stalwart v1.1.0 on
+ * (`verificationCode` of a confirmed entry, otherwise `null`); up to v1.0.x
+ * it is always `null`, so there only the local record tells.
  */
 import { dev } from '$app/env';
 import { destroyPushSubscriptions } from '@roedy/jmap';
@@ -133,16 +135,35 @@ const browserEnv: MailPushEnv = {
   user: () => session.user?.id ?? null,
 };
 
-function readChoices(): Record<string, string | null> {
+/** `null` if the storage cannot be read right now. */
+function storedChoices(): Record<string, string | null> | null {
+  let text: string | null;
   try {
-    const value: unknown = JSON.parse(localStore()?.getItem(MAIL_PUSH_KEY) ?? '{}');
+    const store = localStore();
+    if (!store) return null;
+    text = store.getItem(MAIL_PUSH_KEY);
+  } catch {
+    return null;
+  }
+  try {
+    const value: unknown = JSON.parse(text ?? '{}');
     return value && typeof value === 'object' ? (value as Record<string, string | null>) : {};
   } catch {
     return {};
   }
 }
 
-/** Locked storage counts like a missing record: the next start replaces the entry. */
+function readChoices(): Record<string, string | null> {
+  return storedChoices() ?? {};
+}
+
+/** Only what the storage shows counts as deselected; an unreadable storage says nothing. */
+function deselected(accountId: string): boolean {
+  const choices = storedChoices();
+  return choices !== null && !(accountId in choices);
+}
+
+/** Locked storage counts like a missing record: up to Stalwart v1.0.x the next start replaces the entry. */
 function writeChoices(next: Record<string, string | null>): void {
   try {
     if (Object.keys(next).length > 0) localStore()?.setItem(MAIL_PUSH_KEY, JSON.stringify(next));
@@ -480,8 +501,10 @@ export class MailPush {
     const generation = this.#generation;
     const waiter = newWaiter();
     this.#waiters.set(accountId, waiter);
+    // Selected before every call (`enable`, `#check`), taken before waiting for the lock; without working storage it never is.
+    const chosen = accountId in readChoices();
     const task = this.env
-      .exclusive(mailPushScope(accountId), () => this.#build(accountId, generation, waiter))
+      .exclusive(mailPushScope(accountId), () => this.#build(accountId, generation, waiter, chosen))
       .catch((): MailPushStatus => 'failed')
       .then((status) => {
         this.#set(accountId, status, generation);
@@ -496,7 +519,7 @@ export class MailPush {
     return task;
   }
 
-  async #build(accountId: string, generation: number, waiter: Waiter): Promise<MailPushStatus> {
+  async #build(accountId: string, generation: number, waiter: Waiter, chosen: boolean): Promise<MailPushStatus> {
     if (!this.env.allowed()) return 'off';
     const client = await accounts.client(accountId);
     const key = await serverKey(client);
@@ -506,14 +529,28 @@ export class MailPush {
     const registration = await this.env.register(mailPushScope(accountId));
     const subscription = await browserSubscription(registration.pushManager, key);
     const entries = await ownEntries(client, subscription.endpoint);
-    const verified = readChoices()[accountId];
+    const recorded = readChoices()[accountId];
     // `get` shows expired entries once more, `set` no longer knows them.
-    const current = entries.find((entry) => entry.id === verified && !isExpired(entry));
+    const usable = entries.filter((entry) => !isExpired(entry));
+    // Confirmed per record or, from Stalwart v1.1.0 on, per `verificationCode`; up to v1.0.x it is always `null`.
+    const current =
+      usable.find((entry) => entry.id === recorded) ?? usable.find((entry) => entry.verificationCode !== null);
     if (current) {
-      await renewIfDue(client, current);
-      return 'on';
+      // Accounts deselected in the meantime stay deselected; an earlier session writes nothing.
+      if (current.id !== recorded && generation === this.#generation && !deselected(accountId)) {
+        markChosen(accountId, current.id);
+      }
+      // Deselected meanwhile, for example in another tab, also while renewing: off, even if renewing failed.
+      const dropped = () => chosen && deselected(accountId);
+      try {
+        await renewIfDue(client, current);
+      } catch (error) {
+        if (dropped()) return 'off';
+        throw error;
+      }
+      return dropped() ? 'off' : 'on';
     }
-    // Without a record it is unclear whether the entry was ever confirmed: replace it. Stalwart only confirms the newest.
+    // Neither record nor code: unclear whether the entry was ever confirmed, replace it. Stalwart only confirms the newest.
     await destroyPushSubscriptions(
       client,
       entries.map((entry) => entry.id),

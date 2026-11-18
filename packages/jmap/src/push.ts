@@ -37,7 +37,7 @@ export interface JmapPushSubscription {
   /** Not readable: the server only accepts the URL on create. */
   url: string;
   keys: PushKeys | null;
-  /** Stalwart v1.0.2 always returns `null` here, even after verification. */
+  /** `null` until verified; Stalwart up to v1.0.x always returns `null`, even after verification. */
   verificationCode: string | null;
   expires: string | null;
   types: string[] | null;

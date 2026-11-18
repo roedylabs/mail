@@ -929,9 +929,12 @@ export const CHECKS = [
     name: 'Push subscriptions',
     expected:
       'capabilities webpush-vapid with key and emailpush; create with token (scope Mail), expiry cut to 7 days; ' +
-      'emailPush with filter stored; wrong code rejected; url not changeable; http and private host rejected; remove',
+      'emailPush with filter stored; verificationCode null before verification, also without properties (as the ' +
+      'app reads it); wrong code rejected; url not changeable; http and private host rejected; remove',
     run: async (ctx) => {
-      // The same calls as the app; nothing is delivered locally, Stalwart only sends to public hosts.
+      // The same calls as the app; nothing is delivered locally, Stalwart only sends to public hosts. Hence the
+      // verified case stays unchecked: the code only arrives with the `PushVerification`. From v1.1.0 `get` returns
+      // it for a verified subscription (up to v1.0.x always `null`); the app counts that as confirmed.
       const {
         JmapClient,
         createPushSubscription,
@@ -975,6 +978,7 @@ export const CHECKS = [
           () => 'accepted',
           (err) => err.details?.detail ?? err.message,
         );
+      const listed = (await listPushSubscriptions(client)).find((item) => item.id === created.id);
       const wrong = await refusal(verifyPushSubscription(client, created.id, 'wrong'));
       await renewPushSubscription(client, created.id, far);
       const urlUpdate = await client.call('PushSubscription/set', {
@@ -990,6 +994,7 @@ export const CHECKS = [
         [`${JMAP}emailpush` in sess.capabilities, 'emailpush in the session'],
         [days > 6.9 && days <= 7.01, `expiry ${days.toFixed(1)} days`],
         [stored.list[0]?.verificationCode === null, 'verificationCode null'],
+        [listed?.verificationCode === null, 'verificationCode without properties'],
         [config?.filter?.inMailbox === inbox && config?.properties?.join() === 'id,threadId', 'emailPush stored'],
         [wrong === 'Verification code does not match.', `wrong code: ${wrong}`],
         [!!urlUpdate.notUpdated?.[created.id], 'url immutable'],
