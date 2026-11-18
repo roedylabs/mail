@@ -149,9 +149,23 @@ test('reply quoting a long HTML mail', async ({ browser, instance, stalwart }) =
   await page.getByPlaceholder(/^Reply to /).fill(reply);
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(page.getByText('Reply sent', { exact: true })).toBeVisible();
+  // Right away, before the sync, the reply stands in the conversation and the reading view is at its end.
+  await expect(page.getByRole('article').getByText(reply).first()).toBeVisible();
+  await expect.poll(() => scrollGap(page)).toBeLessThan(2);
+
+  // From compose ("Open in editor") the reading view is at the end again on return.
+  await page.locator('.rd .scroll').evaluate((el) => (el.scrollTop = 0));
+  await page.getByRole('article').getByRole('button', { name: 'Reply', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Open in editor', exact: true }).click();
+  const second = `Also, ${word('reply')}`;
+  await page.getByPlaceholder('Write a message …').fill(second);
+  await page.getByRole('button', { name: 'Send', exact: true }).first().click();
+  await expect(page.getByRole('article').getByText(second).first()).toBeVisible();
+  await expect.poll(() => scrollGap(page)).toBeLessThan(2);
 
   // At the admin: text, header line and the whole original as a "> " quote, in the same thread.
-  const [answer] = await waitForMails(stalwart, stalwart.admin, `Re: ${subject}`, 1);
+  const answers = await waitForMails(stalwart, stalwart.admin, `Re: ${subject}`, 2);
+  const answer = answers.find((a) => a.text.startsWith(reply));
   const lines = need(answer, 'reply').text.split(/\r?\n/);
   expect(lines[0]).toBe(reply);
   expect(lines.some((line) => /^On .+, .+ wrote:$/.test(line))).toBe(true);
@@ -161,6 +175,11 @@ test('reply quoting a long HTML mail', async ({ browser, instance, stalwart }) =
   expect(answer?.inReplyTo).toEqual([messageId]);
   expect(answer?.references).toContain(messageId);
 });
+
+/** Distance of the reading view's scroll area from its end. */
+function scrollGap(page: Page): Promise<number> {
+  return page.locator('.rd .scroll').evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight);
+}
 
 test('rejected recipient', async ({ browser, instance, stalwart }) => {
   const page = await openAs(browser, need(session, 'session'), `${instance.url}/start`);

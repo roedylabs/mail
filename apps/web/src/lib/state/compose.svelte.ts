@@ -61,6 +61,7 @@ import { network } from '#lib/state/network.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import type { MessageEmail, MessagePart } from '#lib/state/message.svelte.ts';
 import { verdictPatch } from '#lib/state/scheduled.svelte.ts';
+import { COMPOSE_SCROLL_DELAY, sentReplies, type ThreadRef } from '#lib/state/sent-replies.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import {
   replyRecipients,
@@ -138,6 +139,8 @@ export interface ComposeInit {
   references?: string[] | null;
   /** Attachments of the original when forwarding: blobs in account `account`, without upload. */
   attachments?: EmailBodyPart[];
+  /** Conversation of the reading view the reply comes from: a sent reply joins it (`sentReplies`). */
+  thread?: ThreadRef | null;
 }
 
 /** What compose does not show (yet) but keeps on saving, e.g. on a draft from another program. */
@@ -455,6 +458,8 @@ export interface Draft {
   quote: Quote | null;
   /** Quote expanded (`quoteOpen`). */
   quoteOpen: boolean;
+  /** Conversation the reply comes from (`ref`); only from the reading view, not for a saved draft. */
+  thread: ThreadRef | null;
   menu: 'from' | 'later' | null;
   /** Field "date and time" in the "send later" popover (`later`, `datetime-local` in `tz`). */
   later: string;
@@ -954,6 +959,7 @@ function blank(account: string, init: ComposeInit, ret: ComposeReturn | null): D
     mode: init.mode ?? null,
     quote: init.quote ?? null,
     quoteOpen: false,
+    thread: init.thread ?? null,
     menu: null,
     later: '',
     laterErr: null,
@@ -1089,8 +1095,8 @@ export class Compose {
       return false;
     }
     if (!this.start(init, ret)) return false;
-    // Without asking about the subject: the bar always has one ("Re:", "Fwd:").
-    if (this.send(nav, sent, false)) return true;
+    // Without asking about the subject: the bar always has one ("Re:", "Fwd:"). A reply jumps to the end in the next frame.
+    if (this.#send(nav, sent, false, null, 0)) return true;
     clearTimeout(this.#timer);
     this.#set(null);
     return false;
@@ -1314,6 +1320,11 @@ export class Compose {
    * with `when` it is scheduled for this time (`plan()`).
    */
   send(nav: ComposeNav, sent: string = m.compose_sent(), ask = true, when: number | null = null): boolean {
+    return this.#send(nav, sent, ask, when, COMPOSE_SCROLL_DELAY);
+  }
+
+  /** `send()`; `delay` of the jump to the end of the conversation for a reply (`sentReplies`). */
+  #send(nav: ComposeNav, sent: string, ask: boolean, when: number | null, delay: number): boolean {
     const d = this.current;
     if (!d || this.#closing?.s === d.session) return false;
     if (this.#sendOff(d)) {
@@ -1356,9 +1367,10 @@ export class Compose {
     }
     const s = d.session;
     const go = () => {
-      if (this.current?.session !== s) return;
+      const cur = this.current;
+      if (cur?.session !== s) return;
       contacts.remember(all);
-      void this.#deliver(s, nav, sent, when);
+      void this.#deliver(s, nav, sent, when, this.#joinThread(cur, when, delay));
     };
     if (d.subject.trim() || !ask) go();
     else
@@ -1370,6 +1382,47 @@ export class Compose {
         run: go,
       });
     return true;
+  }
+
+  /**
+   * A reply from the reading view ("Reply", "Reply all") stands in its conversation
+   * right away, until the server returns it (`sentReplies`); a forward or a scheduled
+   * email does not. Its key, otherwise `null`.
+   */
+  #joinThread(d: Draft, when: number | null, delay: number): number | null {
+    const thread = d.thread;
+    if (!thread || when !== null || (d.mode !== 'reply' && d.mode !== 'all')) return null;
+    const choice = this.#choiceOf(d, this.#choices());
+    if (!choice) return null;
+    const email = this.#emailOf(d, choice);
+    const sent = mailboxes.role(choice.account.id, 'sent')?.id;
+    const attachments: MessagePart[] = [...email.attachments];
+    return sentReplies.add(
+      thread,
+      {
+        blobId: '',
+        mailboxIds: sent ? [sent] : [],
+        keywords: { $seen: true },
+        receivedAt: Date.now(),
+        from: [email.from],
+        to: email.to,
+        cc: email.cc,
+        bcc: email.bcc,
+        replyTo: [],
+        messageId: [],
+        inReplyTo: email.inReplyTo ?? [],
+        references: email.references ?? [],
+        subject: email.subject,
+        // As the server's `preview` (RFC 8621, 4.1.4: at most 256 characters).
+        preview: email.text.replace(/\s+/g, ' ').trim().slice(0, 256),
+        hasAttachment: attachments.length > 0,
+        textBody: [{ partId: 'body', type: 'text/plain' } as MessagePart],
+        htmlBody: [{ partId: 'body', type: 'text/plain' } as MessagePart],
+        attachments,
+        bodyValues: { body: { value: email.text, isEncodingProblem: false, isTruncated: false } },
+      },
+      delay,
+    );
   }
 
   /** Leaves compose without closing (e.g. a mailbox opened): save with a notice. */
@@ -2342,8 +2395,18 @@ export class Compose {
    * Scheduled with `when` (`HOLDUNTIL`): toast "Scheduled: …"; a
    * rejected time is reported by `#planRefused`.
    */
-  async #deliver(s: ComposeSession, nav: ComposeNav, sentText: string, when: number | null): Promise<void> {
+  async #deliver(
+    s: ComposeSession,
+    nav: ComposeNav,
+    sentText: string,
+    when: number | null,
+    reply: number | null = null,
+  ): Promise<void> {
     const d = s.latest;
+    // The reply leaves its conversation again (undo, failed send).
+    const unjoin = () => {
+      if (reply !== null) sentReplies.remove(reply);
+    };
     clearTimeout(this.#timer);
     this.#set(null);
     // Replace: "back" does not lead to a draft that no longer exists after sending.
@@ -2352,6 +2415,7 @@ export class Compose {
     const live = () => gen === this.#gen;
     const planned = when !== null;
     const fail = (error: unknown) => {
+      unjoin();
       if (!live()) return;
       this.#reopen(s, nav);
       // Scheduling has no error text of its own: the general one.
@@ -2369,6 +2433,9 @@ export class Compose {
     const { account, sub, res } = sent;
     if (!live()) return;
     const ref = draftRef({ account, id: res.email });
+    // From now on the reply stands for the email; sent from another account it is not part of the conversation.
+    if (reply !== null && d.thread?.account === account) sentReplies.confirm(reply, res.email);
+    else unjoin();
     if (!res.ok && planned) {
       const why = planRefusal(res.error);
       if (why) this.#planRefused(s, nav, account, why, when);
@@ -2377,7 +2444,7 @@ export class Compose {
     }
     if (!res.ok) {
       if (holdRefused(res.error))
-        this.#sendDeferred(s, nav, { account, ref, email: res.email, sub, live, fail, sent: sentText });
+        this.#sendDeferred(s, nav, { account, ref, email: res.email, sub, live, fail, unjoin, sent: sentText });
       else fail(new ComposeError('EmailSubmission/set', [res.error]));
       return;
     }
@@ -2403,6 +2470,7 @@ export class Compose {
         back = await this.#api.unsend(account, res.submission, res.email, planned);
       },
       onUndone: () => {
+        unjoin();
         if (!live()) return;
         this.#sent.delete(ref);
         // If the email still lies in "Sent", the next save replaces it with a draft.
@@ -2464,16 +2532,19 @@ export class Compose {
       sub: Submission;
       live: () => boolean;
       fail: (error: unknown) => void;
+      /** The reply leaves its conversation (`sentReplies`). */
+      unjoin: () => void;
       /** Text of the toast (`send()`). */
       sent: string;
     },
   ): void {
-    const { account, ref, email, sub, live, fail } = at;
+    const { account, ref, email, sub, live, fail, unjoin } = at;
     ui.toasts.defer({
       text: at.sent,
       // The draft still lies in "Drafts"; undo only opens it again.
       revert: () => {},
       onUndo: () => {
+        unjoin();
         this.#sent.delete(ref);
         if (live()) this.#reopen(s, nav);
       },

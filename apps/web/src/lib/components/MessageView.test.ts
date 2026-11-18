@@ -636,6 +636,28 @@ describe('reading view', () => {
     }
   });
 
+  it('jumps to the end of the conversation without animation (`toEnd`, after sending a reply)', () => {
+    for (const isMobile of [false, true]) {
+      const { view } = setup({ isMobile, rd: values({ isMobile }) });
+      const scroller = view.container.querySelector<HTMLElement>(isMobile ? '.m-card' : '.scroll')!;
+      const scrollTo = vi.fn();
+      scroller.scrollTo = scrollTo;
+      scroller.scrollBy = scrollTo;
+      Object.defineProperty(scroller, 'scrollHeight', { configurable: true, value: 1800 });
+      let top = 0;
+      Object.defineProperty(scroller, 'scrollTop', {
+        configurable: true,
+        get: () => top,
+        set: (v: number) => (top = v),
+      });
+      (view.component as unknown as { toEnd: () => void }).toEnd();
+      expect(top).toBe(1800);
+      // Set directly (`scrollTop = scrollHeight`), never smooth.
+      expect(scrollTo).not.toHaveBeenCalled();
+      view.unmount();
+    }
+  });
+
   it('gives the paging button focus again when the view returns after the skeleton', async () => {
     for (const isMobile of [false, true]) {
       // The route passes the button that had focus when the skeleton replaced the view.

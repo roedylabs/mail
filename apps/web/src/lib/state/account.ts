@@ -22,6 +22,7 @@ import { network } from '#lib/state/network.svelte.ts';
 import { notifications } from '#lib/state/notifications.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { scheduled } from '#lib/state/scheduled.svelte.ts';
+import { sentReplies } from '#lib/state/sent-replies.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { tagEdit } from '#lib/state/tag-edit.svelte.ts';
 import { tags } from '#lib/state/tags.svelte.ts';
@@ -81,6 +82,7 @@ export function forgetAccount(): void {
   tags.reset();
   folders.reset();
   compose.reset();
+  sentReplies.reset();
   // Identities, vacation notices, rules, banner and branding register on load (`onForget`):
   // their pages load them only when needed, the mailbox not at all.
   forgetRegistered();

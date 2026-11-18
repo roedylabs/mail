@@ -34,6 +34,7 @@ import { DRAFT_PAUSE_MS, EditQueue, unanswered, type ReplayedDraft } from '#lib/
 import { network } from '#lib/state/network.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
+import { sentReplies, SENT_LOCAL } from '#lib/state/sent-replies.svelte.ts';
 import type { ReplyContext } from '#lib/reply.ts';
 import { m } from '#lib/paraglide/messages.js';
 
@@ -4417,6 +4418,98 @@ describe('Reply and forward', () => {
     expect(saves).toHaveLength(0);
     expect(sends).toHaveLength(0);
     expect(n.reopen).not.toHaveBeenCalled();
+  });
+
+  describe('Sent reply in its conversation', () => {
+    const thread = { account: 'k1', threadId: 't1' };
+    const shown = () => sentReplies.merge(thread, []);
+    afterEach(() => sentReplies.reset());
+
+    it('from the bar it joins the conversation at once, stands for the sent email and leaves it on undo', async () => {
+      const { api } = fakeApi();
+      const c = new Compose(api);
+      const init = { ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread };
+      expect(c.sendNow(init, ret, nav(), 'Reply sent')).toBe(true);
+      // Before the server answers: provisional, without actions, jump in the next frame.
+      expect(shown()).toMatchObject([
+        {
+          threadId: 't1',
+          subject: 'Re: Plan',
+          from: [{ email: 'k1@example.com' }],
+          to: [{ name: 'Ben Weber', email: 'ben@example.com' }],
+          receivedAt: NOW,
+          keywords: { $seen: true },
+          inReplyTo: ['m1@example.com'],
+          bodyValues: { body: { value: 'Ja\n\nOn Sunday Ben Weber wrote:\n> Hello,\n>\n> how are you?' } },
+        },
+      ]);
+      expect(sentReplies.pending(shown()[0]!.id)).toBe(true);
+      expect(sentReplies.scroll).toMatchObject({ ...thread, delay: 0 });
+      await settle();
+      expect(shown()).toMatchObject([{ id: 'd1' }]);
+      expect(sentReplies.pending('d1')).toBe(false);
+      ui.toasts.undo();
+      await settle();
+      expect(shown()).toEqual([]);
+    });
+
+    it('appears once and ends when the server returns it in the thread', async () => {
+      const { api } = fakeApi();
+      const c = new Compose(api);
+      c.sendNow({ ...replyInit(ctx, { mode: 'all', text: 'Ja', to: '' }, 'k1'), thread }, ret, nav(), 'Reply sent');
+      await settle();
+      const server = { ...shown()[0]!, receivedAt: NOW - 1 };
+      expect(sentReplies.merge(thread, [server])).toEqual([server]);
+      // Not yet held: it stays.
+      sentReplies.settle(thread, () => false);
+      expect(shown()).toHaveLength(1);
+      sentReplies.settle(thread, (ids) => ids.has('d1'));
+      expect(shown()).toEqual([]);
+    });
+
+    it('from compose the jump waits 160 ms; a failed send takes the reply back out', async () => {
+      const { api } = fakeApi({ send: () => Promise.reject(new Error('down')) });
+      const c = new Compose(api);
+      const n = nav();
+      c.start({ ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread }, ret);
+      expect(c.send(n)).toBe(true);
+      expect(shown()).toHaveLength(1);
+      expect(shown()[0]!.id.startsWith(SENT_LOCAL)).toBe(true);
+      expect(sentReplies.scroll).toMatchObject({ ...thread, delay: 160 });
+      await settle();
+      expect(n.reopen).toHaveBeenCalled();
+      expect(shown()).toEqual([]);
+      expect(sentReplies.scroll).toBeNull();
+    });
+
+    it('a forward, a scheduled reply and a reply without a conversation do not join', async () => {
+      const { api } = fakeApi();
+      const c = new Compose(api);
+      c.sendNow(
+        { ...replyInit(ctx, { mode: 'fwd', text: '', to: 'dora@example.com' }, 'k1'), thread },
+        ret,
+        nav(),
+        'Message forwarded',
+      );
+      c.sendNow(replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), ret, nav(), 'Reply sent');
+      c.start({ ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread }, ret);
+      c.setLater('2026-11-02T08:00');
+      c.plan(nav());
+      await settle();
+      expect(shown()).toEqual([]);
+      expect(sentReplies.scroll).toBeNull();
+    });
+
+    it('sent from another account it leaves the conversation', async () => {
+      const { api } = fakeApi();
+      const c = new Compose(api);
+      c.start({ ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread }, ret);
+      c.pickFrom('k2/');
+      c.send(nav());
+      expect(shown()).toHaveLength(1);
+      await settle();
+      expect(shown()).toEqual([]);
+    });
   });
 });
 

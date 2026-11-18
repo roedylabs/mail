@@ -177,6 +177,11 @@
     });
   });
 
+  /** To the end of the conversation, without animation (after sending a reply: `scrollTop = scrollHeight`). */
+  export function toEnd(): void {
+    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+  }
+
   /** Root of the view; mounted again after the skeleton while paging, `focusNav` gets focus back. */
   let root: HTMLElement | undefined = $state();
   const restoreNav = untrack(() => focusNav);

@@ -113,6 +113,7 @@
   import { scheduled } from '#lib/state/scheduled.svelte.ts';
   import { TagFixError, tags } from '#lib/state/tags.svelte.ts';
   import { tagFixError } from '#lib/tag-fix.ts';
+  import { sentReplies } from '#lib/state/sent-replies.svelte.ts';
   import { threads, type ThreadList } from '#lib/state/threads.svelte.ts';
   import { listView } from '#lib/state/list-view.svelte.ts';
   import { Loading, ui } from '#lib/state/ui.svelte.ts';
@@ -453,11 +454,23 @@
   /** Representative email of the conversation in the list. */
   const repId = $derived(listRow?.id ?? null);
 
-  /** Emails of the reading view: from the server or from storage, otherwise the list row without text. */
+  /**
+   * Emails of the reading view: from the server or from storage with the replies sent
+   * from here that the server does not return yet (`sentReplies`), otherwise the list row without text.
+   */
   const readEmails = $derived.by(() => {
-    if (conversation?.status === 'ready') return conversation.emails;
+    if (conversation?.status === 'ready') return sentReplies.merge(conversation, conversation.emails);
     return conversation?.unreachable && listRow ? [listEmail(listRow)] : null;
   });
+
+  // Once the server returns a sent reply in the thread, its own entry is done.
+  $effect(() => {
+    const c = conversation;
+    if (c?.status === 'ready') sentReplies.settle(c, (ids) => c.holds(ids));
+  });
+
+  /** Email the server has not confirmed yet (a reply just sent): no actions on it. */
+  const confirmed = (e: { id: string }) => !sentReplies.pending(e.id);
 
   /** The view's list is not there yet: it may still bring the conversation's row. */
   const listPending = $derived(!view || (!view.unavailable && (!list || list.status === 'loading')));
@@ -628,7 +641,7 @@
   function expandReply(files: readonly File[] = []) {
     if (!rd || !opened) return;
     const state = reply ?? { mode: 'reply' as const, text: '', to: '' };
-    if (!compose.start(replyInit(rd.reply, state, opened.account), replyRet())) return;
+    if (!compose.start({ ...replyInit(rd.reply, state, opened.account), thread: opened }, replyRet())) return;
     if (files.length) void compose.addFiles(files);
     reply = null;
     void goto(resolve('/compose/[draft]', { draft: NEW_DRAFT }));
@@ -649,8 +662,34 @@
       reopen: () => void goto(resolve('/compose/[draft]', { draft: encodeURIComponent(compose.ref ?? NEW_DRAFT) })),
     };
     const sent = state.mode === 'fwd' ? m.read_forward_sent() : m.read_reply_sent();
-    if (compose.sendNow(replyInit(rd.reply, state, opened.account), replyRet(), nav, sent)) reply = null;
+    const init = { ...replyInit(rd.reply, state, opened.account), thread: opened };
+    if (compose.sendNow(init, replyRet(), nav, sent)) reply = null;
   }
+
+  /** Reading view, for the jump to the end of the conversation after sending a reply. */
+  let messageView: { toEnd: () => void } | undefined = $state();
+  let endTimer: ReturnType<typeof setTimeout> | undefined;
+  let endFrame = 0;
+  /**
+   * After sending a reply the reading view jumps to the end of its conversation (`rdScrollRef`):
+   * from the reply bar in the next frame, once the reply stands in it; from compose 160 ms after
+   * it shows the conversation again. Instantly, also without reduced motion (`scrollTop = scrollHeight`).
+   */
+  $effect(() => {
+    const view = messageView;
+    if (!sentReplies.scroll || !view || !rd || !opened) return;
+    const thread = opened;
+    untrack(() => {
+      const delay = sentReplies.takeScroll(thread);
+      if (delay === null) return;
+      if (delay > 0) endTimer = setTimeout(() => messageView?.toEnd(), delay);
+      else endFrame = requestAnimationFrame(() => messageView?.toEnd());
+    });
+  });
+  $effect(() => () => {
+    clearTimeout(endTimer);
+    cancelAnimationFrame(endFrame);
+  });
 
   // --- Actions: star, read, delete, spam, restore ---
 
@@ -1114,7 +1153,7 @@
     // Card from the row (`listEmail`): only the list knows the conversation's other emails.
     if (conversation.status !== 'ready' && listRow)
       return listRow.members.filter((e) => inSource(e.mailboxIds, source));
-    return (readEmails ?? []).filter((e) => inSource(e.mailboxIds, source)).map(actionEmail);
+    return (readEmails ?? []).filter((e) => confirmed(e) && inSource(e.mailboxIds, source)).map(actionEmail);
   });
 
   /**
@@ -1132,10 +1171,10 @@
     const card = conversation?.status !== 'ready' && viewEmails.length > 0;
     return {
       account: opened.account,
-      seq: card ? viewEmails : seq.map(actionEmail),
+      seq: card ? viewEmails : seq.filter(confirmed).map(actionEmail),
       rm: actionEmail(rm),
       scope: viewEmails,
-      read: seq.filter((e) => !e.miss).map(actionEmail),
+      read: seq.filter((e) => !e.miss && confirmed(e)).map(actionEmail),
     };
   });
 
@@ -1679,6 +1718,7 @@
 {:else if opened}
   {#if shownRd && rp}
     <MessageView
+      bind:this={messageView}
       rd={shownRd}
       conversationKey={shownKey}
       {focusNav}
