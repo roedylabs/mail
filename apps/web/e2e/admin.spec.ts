@@ -1,6 +1,7 @@
 // Administration: create, download and delete a backup (with undo), switch
 // the banner on, dismiss it and see it again after a change, revoke an
-// invitation (with undo, sent when leaving the page). Own instance
+// invitation (with undo, sent when leaving the page), the "Add server" sheet
+// on its own layer at mobile width. Own instance
 // without mail account (setup via API, setup.ts); the state in the backend is
 // checked too, axe checks every visited page.
 import { expect, test } from './fixtures.ts';
@@ -10,6 +11,7 @@ import {
   axeViolations,
   closeAll,
   need,
+  newPage,
   openAs,
   password,
   settled,
@@ -53,6 +55,41 @@ test('setup via API', async ({ browser, instance, stalwart }) => {
   });
   expect(schedule.status(), 'backup schedule').toBe(200);
   session = await context.storageState();
+});
+
+test('mail server sheet on its own layer at mobile width', async ({ browser, instance }) => {
+  const context = await browser.newContext({
+    storageState: need(session, 'session'),
+    viewport: { width: 390, height: 600 },
+  });
+  const page = await newPage(context);
+  await page.goto(`${instance.url}/admin/mail-servers`);
+  await settled(page);
+  const add = page.getByRole('main').getByRole('button', { name: 'Add server' });
+  await add.click();
+  const sheet = page.getByRole('dialog', { name: 'Add server' });
+  await expect(sheet).toBeVisible();
+  // Scrim 94 and sheet 95 above level 1 (90/91) and level 2 (92/93), at most 64px shorter than the app.
+  const layer = await sheet.evaluate(async (el: HTMLElement) => {
+    // Measured after the opening animation (`snSheet`).
+    await Promise.all(el.getAnimations().map((a) => a.finished));
+    const scrim = el.previousElementSibling as HTMLElement;
+    const app = (el.offsetParent as HTMLElement).getBoundingClientRect();
+    const box = el.getBoundingClientRect();
+    return {
+      scrim: getComputedStyle(scrim).zIndex,
+      sheet: getComputedStyle(el).zIndex,
+      gap: Math.round(box.top - app.top),
+      bottom: Math.round(app.bottom - box.bottom),
+    };
+  });
+  // The form is taller than the screen: 8px at the bottom, 56px left free at the top.
+  expect(layer).toEqual({ scrim: '94', sheet: '95', gap: 56, bottom: 8 });
+  expect(await axeViolations(page), 'axe: mail server sheet').toEqual([]);
+  // Escape closes only the sheet; the focus returns to "Add server".
+  await page.keyboard.press('Escape');
+  await expect(sheet).toBeHidden();
+  await expect(add).toBeFocused();
 });
 
 test('create and delete a backup', async ({ browser, instance }) => {

@@ -201,6 +201,8 @@ describe('Notifications page', () => {
     expect(prefs.values.nCh.push).toBe(false);
     expect(request).not.toHaveBeenCalled();
     expect(ui.pageDialog?.()?.title).toBe('Push notifications');
+    // On mobile on its own sheet layer above the others.
+    expect(ui.pageDialog?.()?.own).toBe(true);
     ui.pageDialog?.()?.close();
     expect(ui.pageDialog?.()).toBeNull();
 
@@ -512,6 +514,8 @@ describe('Notifications page', () => {
     expect(view.queryByRole('dialog')).toBeNull();
     expect(ui.menu).toBeNull();
     expect(ui.pageDialog?.()?.title).toBe('Quiet hours start');
+    // The time picker stays in the level 1 sheet.
+    expect(ui.pageDialog?.()?.own).toBeFalsy();
     ui.pageDialog?.()?.close();
     expect(ui.pageDialog?.()).toBeNull();
     // Sound without tooltip.

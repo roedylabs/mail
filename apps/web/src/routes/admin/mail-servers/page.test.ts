@@ -144,6 +144,8 @@ describe('Mail servers page', () => {
     await view.findByText('VPS 1');
     expect(ui.serverAdd).toBe(false);
     expect(ui.pageDialog?.()?.title).toBe('Add server');
+    // On mobile on its own sheet layer above the others.
+    expect(ui.pageDialog?.()?.own).toBe(true);
     ui.pageDialog?.()?.close();
     expect(ui.pageDialog?.()).toBeNull();
     await fireEvent.click(view.getByRole('button', { name: 'Edit VPS 1' }));

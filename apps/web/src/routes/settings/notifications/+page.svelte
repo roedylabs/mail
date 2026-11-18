@@ -131,7 +131,7 @@
     push.refresh().catch(() => {});
     ui.pageDialog = () => {
       // Label of the mobile sheet, independent of the state.
-      if (pushOpen) return { title: m.notif_ch_push(), close: closePush, content: pushDialog };
+      if (pushOpen) return { title: m.notif_ch_push(), close: closePush, content: pushDialog, own: true };
       if (sheetTime) return { title: sheetTime.title, close: sheetTime.close, content: timeSheet };
       return null;
     };

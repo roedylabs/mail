@@ -4,7 +4,9 @@
   the backdrop, with Escape and when dragged down (`dragSheet`); the tab bar
   finds it via `data-sheet` when pulling "More" up (`pullSheet`). A second sheet
   (`level` 2, e.g. "Switch account" above "Mailboxes") lies above it; the first
-  then moves back (`behind`, `mSh1T`) and leaves Escape to it.
+  then moves back (`behind`, `mSh1T`) and leaves Escape to it. Dialogs on a
+  layer of their own (`level` 3: "Fix tags", "Mail server", "Push
+  notifications") lie above both and are at most 64px shorter than the screen.
 -->
 <script lang="ts">
   import { focustrap } from '#lib/actions/focustrap.ts';
@@ -17,8 +19,8 @@
     label: string;
     onclose: () => void;
     children: Snippet;
-    /** 2 = above another sheet (`mSwSheet`). */
-    level?: 1 | 2;
+    /** 2 = above another sheet (`mSwSheet`), 3 = own layer above levels 1 and 2 (`tsMob`, `srvMob`, `pushMob`). */
+    level?: 1 | 2 | 3;
     /** A level 2 sheet lies above. */
     behind?: boolean;
   }
@@ -47,11 +49,20 @@
 <svelte:window {onkeydown} />
 
 <!-- Next to the panel, hence `data-scrim`: the focus trap keeps it clickable. -->
-<div bind:this={scrim} class="scrim" class:top={level === 2} role="presentation" data-scrim onmousedown={onclose}></div>
+<div
+  bind:this={scrim}
+  class="scrim"
+  class:top={level === 2}
+  class:own={level === 3}
+  role="presentation"
+  data-scrim
+  onmousedown={onclose}
+></div>
 <!-- Behind a level 2 sheet neither operable nor visible to screen readers. -->
 <div
   class="sheet"
   class:top={level === 2}
+  class:own={level === 3}
   class:behind
   inert={behind}
   role="dialog"
@@ -82,6 +93,10 @@
     z-index: 92;
   }
 
+  .scrim.own {
+    z-index: 94;
+  }
+
   .sheet {
     position: absolute;
     left: 8px;
@@ -105,6 +120,11 @@
   .sheet.top {
     z-index: 93;
     max-height: calc(100% - 120px);
+  }
+
+  .sheet.own {
+    z-index: 95;
+    max-height: calc(100% - 64px);
   }
 
   .sheet.behind {
