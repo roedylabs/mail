@@ -292,11 +292,18 @@
   /** Header or "Back to …" visible: signed in on a page of the app. */
   const inShell = $derived(ready && !target && chrome !== 'bare' && session.authed);
 
-  // Without a mail account: no sidebar and no tab bar (`noAcctV`). Only once the list is known to be empty:
-  // while it loads, sidebar, sidebar toggle and tab bar keep their place, so nothing slides in and moves the page.
-  const noAccounts = $derived(mailAccountCount === 0 && chrome === 'main');
+  // Without a mail account: no sidebar and no tab bar (`noAcctV`); likewise while unknown.
+  const noAccounts = $derived(!mailAccountCount && chrome === 'main');
   // The search takes the full width: sidebar slid out and no sidebar toggle, as without a mail account.
   const sbHidden = $derived(noAccounts || path === SEARCH);
+  /**
+   * Mail accounts still loading: the sidebar stays slid out, but its slot already has the width it will have,
+   * so the sidebar slides into reserved space instead of pushing the page aside. Not on the search and on
+   * "No account", where it stays out.
+   */
+  const sbReserve = $derived(
+    mailAccountCount === null && chrome === 'main' && path !== SEARCH && path !== ENTRY['/no-account'],
+  );
   /** Tablet in portrait: the sidebar lies as a drawer over the mailbox (`drawerOpen`), with a scrim. */
   const drawerOpen = $derived(ui.isPortrait && ui.drawer && chrome === 'main' && !sbHidden);
   /** Sidebar shows labels (270 px): expanded, or as an open drawer. */
@@ -590,7 +597,6 @@
    * mail account the notice as for "New email".
    */
   function addFolder(account: string | null) {
-    if (afterAccounts(() => addFolder(account))) return;
     const usable = (accounts.list ?? []).filter((a) => a.state === 'ok' && !a.blocked);
     const fallback = defaultAccountOf(usable, prefs.values.defaultAccount);
     const target = usable.find((a) => a.id === account) ?? fallback;
@@ -612,7 +618,6 @@
 
   /** "New tag" (`addTag`): tags apply to all mailboxes; without a mail account the notice as for "New email". */
   function addTag() {
-    if (afterAccounts(addTag)) return;
     if (accounts.list?.length) tagEdit.add();
     else ui.toasts.show(m.compose_no_account());
   }
@@ -651,24 +656,8 @@
     return { href, label: m.compose_back() };
   }
 
-  /**
-   * While the mail accounts load, sidebar and tab bar are already there: an action waits for the list
-   * instead of reporting "no mail account" (`true` if it was postponed).
-   */
-  function afterAccounts(run: () => void): boolean {
-    if (accounts.list !== null) return false;
-    accounts.ensure().then(
-      () => {
-        if (accounts.list !== null) run();
-      },
-      () => {},
-    );
-    return true;
-  }
-
   /** "New email" (C, palette, sidebar, tab bar; `openCompose`): without a mail account only the notice. */
   function openCompose() {
-    if (afterAccounts(openCompose)) return;
     if (!mailAccountCount) {
       ui.toasts.show(m.compose_no_account());
       return;
@@ -967,7 +956,8 @@
     sbExpanded: chrome === 'main' ? sbWide : !ui.navCollapsed,
     appName: session.appName,
     logo: session.logo,
-    sbToggleOn: !sbHidden,
+    // While the accounts load, the toggle already holds its place (`sbReserve`).
+    sbToggleOn: !sbHidden || sbReserve,
     hdrQ: search.q,
     hdrHasQ: search.q.length > 0,
     searchPlaceholder: m.shell_search_placeholder({ app: session.appName }),
@@ -1552,15 +1542,14 @@
     onTab: (t: SidebarTab) => (sbTab = t),
     toggleMSw: () => {
       if (accountCount) mSwOpen = !mSwOpen;
-      else if (accounts.list) go(ADD_ACCOUNT);
+      else go(ADD_ACCOUNT);
     },
     closeSheet: () => ui.closeMenu(),
   });
 
   const tabsL = $derived([
     // In the view's mailbox "Inbox" opens the "Mailboxes" sheet, otherwise the inbox (`inboxId`).
-    navItem(m.tabbar_inbox(), 'ti-inbox', here !== null, function inbox() {
-      if (afterAccounts(inbox)) return;
+    navItem(m.tabbar_inbox(), 'ti-inbox', here !== null, () => {
       if (here) openMailboxMenu();
       else if (scope.key) openMailbox(scope.key, { role: 'inbox' });
       else go(HOME);
@@ -1951,6 +1940,7 @@
             drawer={drawerOpen}
             closeDrawer={() => closeDrawer()}
             hidden={sbHidden}
+            reserve={sbReserve}
             {sbTab}
             navRows={mailRows}
             inFolder={folderValues?.inFolder ?? false}
@@ -1964,10 +1954,7 @@
             addT={addTag}
             onCreate={openCompose}
             onTab={(t: SidebarTab) => (sbTab = t)}
-            toggleAcctSw={() => {
-              if (accountCount) ui.toggleMenu('acctsw');
-              else if (accounts.list) go(ADD_ACCOUNT);
-            }}
+            toggleAcctSw={() => (accountCount ? ui.toggleMenu('acctsw') : go(ADD_ACCOUNT))}
             tags={tagList}
           >
             {#snippet folders()}{@render folderTree()}{/snippet}
