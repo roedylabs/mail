@@ -213,19 +213,18 @@ describe('About page', () => {
   it('copies the system information and reports it', async () => {
     const view = render(Page);
     await fireEvent.click(view.getByRole('button', { name: 'Copy' }));
-    await vi.waitFor(() => expect(ui.toast?.text).toBe('System information copied'));
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'System information copied', error: false }));
     expect(writeText).toHaveBeenCalledWith(
       'Roedy Mail 0.6.0 (Build 7f3c2a1)\nBrowser: Firefox\nTime zone: Europe/Berlin',
     );
   });
 
-  it('reports nothing when copying fails', async () => {
+  it('shows the error toast “Couldn’t copy.” when copying fails', async () => {
     writeText.mockImplementation(() => Promise.reject(new Error('no')));
     const view = render(Page);
     await fireEvent.click(view.getByRole('button', { name: 'Copy' }));
-    await vi.waitFor(() => expect(writeText).toHaveBeenCalled());
-    await Promise.resolve();
-    expect(ui.toast).toBeNull();
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t copy.', error: true }));
+    expect(writeText).toHaveBeenCalled();
   });
 
   it('scrolls to the section via the tabs, instantly without animations', async () => {

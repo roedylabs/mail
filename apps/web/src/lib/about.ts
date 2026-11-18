@@ -79,6 +79,8 @@ export interface AboutContext {
   /** To the clipboard (`copyText`); `false` if it did not work. */
   copy: (text: string) => Promise<boolean>;
   notify: (text: string) => void;
+  /** Error toast, e.g. when copying fails. */
+  error: (text: string) => void;
   /** "All licenses": dialog on desktop, sheet on mobile (`LicenseDialogState.show`). */
   openLicenses: () => void;
 }
@@ -194,6 +196,7 @@ export function aboutValues(input: AboutInput, ctx: AboutContext): AboutValues {
     copySys: async () => {
       const text = m.about_sys_text({ app: input.appName, version: build.version, build: sha, browser, tz: input.tz });
       if (await ctx.copy(text)) ctx.notify(m.about_sys_copied());
+      else ctx.error(m.error_copy());
     },
     supportLinks,
     hasSupport: supportLinks.length > 0,

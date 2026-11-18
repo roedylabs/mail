@@ -30,6 +30,7 @@
     scrollTo: (section) => scrollToSection(root, section, prefs.motion),
     copy: copyText,
     notify: (text) => ui.toasts.show(text),
+    error: (text) => ui.toasts.error(text),
     openLicenses: licDialog.show,
   };
   const v = $derived(
