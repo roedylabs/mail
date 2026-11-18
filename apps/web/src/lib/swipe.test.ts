@@ -5,6 +5,7 @@ import {
   backFires,
   backProgress,
   backReady,
+  blurOnDrag,
   dragSheet,
   flingDecay,
   pullOffset,
@@ -1100,5 +1101,97 @@ describe('swipeBack', () => {
     expect(off.el.style.translate).toBe('');
     vi.advanceTimersByTime(0);
     expect(off.back).not.toHaveBeenCalled();
+  });
+});
+
+describe('blurOnDrag', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    document.body.innerHTML = '';
+  });
+
+  /** Search field and an area with a button; the field has the focus. */
+  function area() {
+    document.body.innerHTML = '<input><div class="area"><button type="button">Row</button></div>';
+    const field = document.querySelector('input')!;
+    const el = document.querySelector<HTMLElement>('.area')!;
+    const row = el.querySelector('button')!;
+    const off = blurOnDrag(el);
+    field.focus();
+    return { field, el, row, off };
+  }
+
+  /** Presses at (100, 300), moves by (`dx`, `dy`) and releases. */
+  function drag(target: Element, dx: number, dy: number, end = 'pointerup') {
+    pointer('pointerdown', 100, 300, target);
+    pointer('pointermove', 100 + dx, 300 + dy);
+    pointer(end, 100 + dx, 300 + dy);
+  }
+
+  it('blurs the field on a vertical drag from 8 px, up and down', () => {
+    const { field, row } = area();
+    drag(row, 0, 7);
+    expect(field).toHaveFocus();
+    drag(row, 0, -8);
+    expect(field).not.toHaveFocus();
+    field.focus();
+    drag(row, 3, 12);
+    expect(field).not.toHaveFocus();
+  });
+
+  it('counts a diagonal drag as vertical, a horizontal one not', () => {
+    const { field, row } = area();
+    drag(row, 9, 8);
+    expect(field).toHaveFocus();
+    drag(row, -8, 8);
+    expect(field).not.toHaveFocus();
+  });
+
+  it('leaves a tap alone: the click arrives and the focus stays', () => {
+    const { field, row } = area();
+    const click = vi.fn();
+    row.addEventListener('click', click);
+    drag(row, 2, 3);
+    row.click();
+    expect(click).toHaveBeenCalledOnce();
+    expect(field).toHaveFocus();
+  });
+
+  it('takes no gesture: the click after the drag arrives, a pointer cancelled before 8 px blurs nothing', () => {
+    const { field, row } = area();
+    const click = vi.fn();
+    row.addEventListener('click', click);
+    drag(row, 0, 30);
+    row.click();
+    expect(click).toHaveBeenCalledOnce();
+    field.focus();
+    pointer('pointerdown', 100, 300, row);
+    pointer('pointercancel', 100, 300);
+    pointer('pointermove', 100, 340);
+    expect(field).toHaveFocus();
+  });
+
+  it('blurs at the decision: a pointer cancelled after 8 px does not bring the focus back', () => {
+    const { field, row } = area();
+    pointer('pointerdown', 100, 300, row);
+    pointer('pointermove', 100, 312);
+    expect(field).not.toHaveFocus();
+    pointer('pointercancel', 100, 312);
+    expect(field).not.toHaveFocus();
+  });
+
+  it('starts nothing on the field itself, only blurs a text field and stops when detached', () => {
+    const { field, el, row, off } = area();
+    el.append(field);
+    field.focus();
+    drag(field, 0, 30);
+    expect(field).toHaveFocus();
+    row.focus();
+    drag(row, 0, 30);
+    expect(row).toHaveFocus();
+    field.focus();
+    off?.();
+    drag(row, 0, 30);
+    expect(field).toHaveFocus();
   });
 });

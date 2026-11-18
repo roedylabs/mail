@@ -1,8 +1,8 @@
 // Organizing and finding: create a folder and delete it with content, create,
-// set and delete a tag, empty the trash, search. Own instance like
+// set and delete a tag, empty the trash, search (on mobile too). Own instance like
 // mail.spec.ts (setup via API, setup.ts); what ends up in Stalwart afterwards
 // is checked too.
-import type { Page } from '@playwright/test';
+import { devices, type Page } from '@playwright/test';
 import { expect, test } from './fixtures.ts';
 import {
   axeViolations,
@@ -13,11 +13,13 @@ import {
   mailboxId,
   mailboxes,
   need,
+  newPage,
   openAs,
   openRow,
   password,
   putMail,
   row,
+  settled,
   word,
   type Mailbox,
   type Session,
@@ -195,4 +197,40 @@ test('search in the text', async ({ browser, instance, stalwart }) => {
   await row(page, subject).click();
   await expect(page.getByRole('heading', { name: subject, level: 1 })).toBeVisible();
   await expect(page.getByRole('article').getByText(term)).toBeVisible();
+});
+
+test('mobile search: a vertical drag closes the keyboard', async ({ browser, instance }) => {
+  const context = await browser.newContext({ ...devices['Pixel 7'], storageState: need(session, 'session') });
+  const page = await newPage(context);
+  await page.goto(`${instance.url}/search`);
+  await settled(page);
+  const field = page.getByRole('textbox', { name: 'Search' });
+  // Opening the search focuses the field, the keyboard opens.
+  await expect(field).toBeFocused();
+
+  // Touch drag in steps of 2 px, as a finger sends it (`Input.dispatchTouchEvent`).
+  const cdp = await context.newCDPSession(page);
+  const drag = async (x: number, y: number, dx: number, dy: number) => {
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+    const steps = Math.max(Math.abs(dx), Math.abs(dy)) / 2;
+    for (let i = 1; i <= steps; i++)
+      await cdp.send('Input.dispatchTouchEvent', {
+        type: 'touchMove',
+        touchPoints: [{ x: x + (dx * i) / steps, y: y + (dy * i) / steps }],
+      });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  };
+  const at = async (text: string) => {
+    const box = await page.getByText(text, { exact: true }).boundingBox();
+    if (!box) throw new Error(`${text} not visible`);
+    return [box.x + box.width / 2, box.y + box.height / 2] as const;
+  };
+
+  // Horizontal: no effect on the focus.
+  const [qx, qy] = await at('Quick access');
+  await drag(qx, qy, -40, 0);
+  await expect(field).toBeFocused();
+  // Vertical in "Quick access": the field loses the focus.
+  await drag(qx, qy, 0, -40);
+  await expect(field).not.toBeFocused();
 });

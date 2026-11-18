@@ -8,6 +8,7 @@ import { contacts } from '#lib/state/contacts.svelte.ts';
 import { network } from '#lib/state/network.svelte.ts';
 import { search } from '#lib/state/search.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
+import { pointer } from '#lib/test/pointer.ts';
 import Page from './+page.svelte';
 
 const nav = vi.hoisted(() => ({ goto: vi.fn(() => Promise.resolve()) }));
@@ -623,6 +624,52 @@ describe('Search', () => {
       await fireEvent.click(view.getByRole('button', { name: 'Clear search' }));
       expect(search.q).toBe('');
       expect(field).toHaveFocus();
+    });
+
+    it('a vertical drag in quick access, quick filters or the results closes the keyboard, a tap not', async () => {
+      search.recent = ['Invoice'];
+      const view = render(Page);
+      const field = view.getByRole('textbox', { name: 'Search' });
+      const drag = (target: Element, dy: number) => {
+        pointer('pointerdown', 100, 300, target);
+        pointer('pointermove', 100, 300 + dy);
+        pointer('pointerup', 100, 300 + dy);
+      };
+      field.focus();
+      // A move of 2 px stays below the threshold: the field keeps the focus.
+      drag(view.getByRole('button', { name: 'Invoice' }), 2);
+      expect(field).toHaveFocus();
+      drag(view.getByText('Quick access'), 20);
+      expect(field).not.toHaveFocus();
+      field.focus();
+      drag(view.getByRole('button', { name: 'Invoice' }), -20);
+      expect(field).not.toHaveFocus();
+      // A tap (short move, then the click) still runs the recent search, the focus stays.
+      field.focus();
+      drag(view.getByRole('button', { name: 'Invoice' }), 2);
+      await fireEvent.click(view.getByRole('button', { name: 'Invoice' }));
+      expect(search.q).toBe('Invoice');
+      expect(field).toHaveFocus();
+      // Quick filters: vertical closes, horizontal (scrolling the row) not.
+      search.set({ st: ['u'] });
+      const quick = await view.findByRole('group', { name: 'Quick filters' });
+      field.focus();
+      pointer('pointerdown', 100, 300, quick);
+      pointer('pointermove', 140, 302);
+      pointer('pointerup', 140, 302);
+      expect(field).toHaveFocus();
+      drag(quick, 12);
+      expect(field).not.toHaveFocus();
+      // The results and the field row (filter button).
+      answer([hit('m1', 'Meeting')]);
+      await fireEvent.input(field, { target: { value: 'Meeting' } });
+      const row = await view.findByRole('button', { name: /Meeting/ });
+      field.focus();
+      drag(row, 30);
+      expect(field).not.toHaveFocus();
+      field.focus();
+      drag(view.getByRole('button', { name: /^Filters/ }), 30);
+      expect(field).not.toHaveFocus();
     });
 
     it('filter button in the search field opens the “Search filters” sheet and counts all filters', async () => {
