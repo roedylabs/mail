@@ -1108,7 +1108,7 @@ describe('compose', () => {
       focus.mockClear();
       const { getByRole } = render(ComposeView, { cm: values(), act: actions(), isMobile: false });
       expect(focus.mock.contexts).toEqual([getByRole('combobox', { name: 'To' })]);
-      expect(focus).toHaveBeenCalledWith();
+      expect(focus).toHaveBeenCalledWith(undefined);
     } finally {
       focus.mockRestore();
     }

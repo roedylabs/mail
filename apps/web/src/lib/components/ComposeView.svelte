@@ -352,7 +352,7 @@
     oninput={(e) => act.setText(e.currentTarget.value)}
     onkeydown={onTextKey}
     placeholder={cm.ph}
-    use:autofocus={{ on: cm.taAuto, scroll: 'minimal' }}
+    use:autofocus={{ on: cm.taAuto, preventScroll: true }}
     aria-label={m.compose_text()}></textarea>
 {/snippet}
 
