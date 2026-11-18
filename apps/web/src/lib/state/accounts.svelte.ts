@@ -73,7 +73,10 @@ export class Accounts {
   /** `null` while unknown (before the first load, signed out). */
   list = $state<MailAccount[] | null>(null);
   count = $derived(this.list?.length ?? null);
-  /** The latest load failed and the list is still unknown (no "no account" either). */
+  /**
+   * The latest load failed; cleared when a new load starts. Says nothing about the list: after a failed first
+   * load it stays `null` (no "no account" either), a failed refresh keeps the previous list.
+   */
   failed = $state(false);
 
   // Not reactive: sources and clients are not displayed.
@@ -111,6 +114,7 @@ export class Accounts {
   async load(): Promise<void> {
     const seq = ++this.#seq;
     this.#running = seq;
+    this.failed = false;
     let res: { accounts: MailAccount[] };
     try {
       res = await api<{ accounts: MailAccount[] }>('GET', 'mail-accounts');

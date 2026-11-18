@@ -82,6 +82,29 @@ describe('accounts', () => {
     await accounts.ensure();
     expect(accounts.failed).toBe(false);
     expect(accounts.count).toBe(1);
+  });
+
+  it('clears a failed load when a new one starts and on sign-out', async () => {
+    let answer: (a: { body: unknown }) => void = () => {};
+    mockApi({
+      'GET mail-accounts': [
+        { status: 500, body: { error: 'internal' } },
+        () => new Promise((resolve) => (answer = resolve)),
+        { status: 500, body: { error: 'internal' } },
+      ],
+    });
+    const accounts = new Accounts();
+    await expect(accounts.load()).rejects.toThrow();
+    expect(accounts.failed).toBe(true);
+    // Retry: not failed while it runs.
+    const retry = accounts.load();
+    expect(accounts.failed).toBe(false);
+    answer({ body: { accounts: [account('a1')] } });
+    await retry;
+    // A failed refresh keeps the list.
+    await expect(accounts.load()).rejects.toThrow();
+    expect(accounts.failed).toBe(true);
+    expect(accounts.count).toBe(1);
     accounts.reset();
     expect(accounts.failed).toBe(false);
   });
