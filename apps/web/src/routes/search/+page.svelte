@@ -17,6 +17,7 @@
 -->
 <script lang="ts">
   import { scrollbar } from '#lib/actions/scrollbar.ts';
+  import { blurOnDrag } from '#lib/swipe.ts';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
   import { onMount } from 'svelte';
@@ -278,7 +279,8 @@
   <!-- On mobile the whole page as the main landmark, with a heading for screen readers only. -->
   <main class="m-search">
     <h1 class="sr-only">{m.shell_search()}</h1>
-    <div class="m-field">
+    <!-- A vertical drag in the field row, the quick filters or the results closes the keyboard (`blurOnDrag`). -->
+    <div class="m-field" {@attach blurOnDrag}>
       <span class="m-field-icon"><Icon name="ti-search" size={19} /></span>
       <input
         bind:this={field}
@@ -309,7 +311,7 @@
     </div>
     {#if rp.qfOn}
       <!-- Quick filters (`resQF`), then the remaining filters as chips (`mf.mChips`). -->
-      <div class="m-qf no-scrollbar" role="group" aria-label={m.search_page_quick()}>
+      <div class="m-qf no-scrollbar" role="group" {@attach blurOnDrag} aria-label={m.search_page_quick()}>
         {#each quick as c (c.key)}
           <button class="m-quick" class:on={c.on} onclick={c.onClick} aria-pressed={c.on}
             ><span class="m-quick-icon"><Icon name={c.icon} size={15} /></span>{c.label}</button
@@ -325,7 +327,7 @@
       <!-- The skeleton without a search field of its own: the real one stays and keeps the focus. -->
       <div class="m-skel"><Skeleton kind="srch" isMobile /></div>
     {:else}
-      <div class="m-card no-scrollbar" data-scroll>
+      <div class="m-card no-scrollbar" data-scroll {@attach blurOnDrag}>
         {#if rp.idle}
           <div class="m-idle">
             <div class="m-qa">

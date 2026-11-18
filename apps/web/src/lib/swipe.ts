@@ -1,7 +1,7 @@
 /**
  * Swipe gestures of the message list and the toast, dragging sheets and
  * dialogs down to close them, pulling "More" up from the tab bar, and swiping
- * back in the settings: actions per
+ * back in the settings, closing the keyboard in the mobile search: actions per
  * direction from the settings, threshold, rubber band, sliding out or
  * springing back.
  *
@@ -297,6 +297,34 @@ export function follow(down: PointerEvent, steps: Steps): void {
   window.addEventListener('pointerup', onUp);
   window.addEventListener('pointercancel', onUp);
 }
+
+// --- Keyboard ---
+
+/**
+ * Mobile search: a vertical drag (decided after 8 px, `|dx| ≤ |dy|`) that
+ * starts in an area of the page – search field row, quick filters, results –
+ * blurs the focused text field, the keyboard closes (`gDecide` with
+ * `mSearch`). The drag stays no gesture of its own: scrolling stays with the
+ * browser, a tap and a horizontal drag (the quick filters) change nothing. A
+ * press on the field itself starts nothing (`canStart`).
+ */
+export const blurOnDrag: Attachment<HTMLElement> = (el) => {
+  const onDown = (e: PointerEvent) => {
+    if (!canStart(e)) return;
+    follow(e, {
+      decide: (dx, dy) => {
+        const active = document.activeElement;
+        if (Math.abs(dx) <= Math.abs(dy) && active instanceof HTMLInputElement) active.blur();
+        return false;
+      },
+      start: () => {},
+      move: () => {},
+      end: () => {},
+    });
+  };
+  el.addEventListener('pointerdown', onDown);
+  return () => el.removeEventListener('pointerdown', onDown);
+};
 
 /** Curves for springing back and sliding out; a sheet slides down with `SHEET_OUT`. */
 const SPRING = 'cubic-bezier(.2,1.15,.35,1)';
