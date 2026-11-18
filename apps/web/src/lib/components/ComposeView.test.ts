@@ -1092,6 +1092,28 @@ describe('compose', () => {
     expect(getByRole('textbox', { name: 'Message' })).not.toHaveFocus();
   });
 
+  it('focuses the text of a draft without scrolling, so heading and fields stay in view', () => {
+    const focus = vi.spyOn(HTMLElement.prototype, 'focus');
+    try {
+      for (const isMobile of [false, true]) {
+        focus.mockClear();
+        const { getByRole, unmount } = render(ComposeView, { cm: draft(), act: actions(), isMobile });
+        const text = getByRole('textbox', { name: 'Message' });
+        expect(text).toHaveFocus();
+        expect(focus.mock.contexts).toEqual([text]);
+        expect(focus).toHaveBeenCalledWith({ preventScroll: true });
+        unmount();
+      }
+      // "To" of a new email sits at the top and keeps the plain focus.
+      focus.mockClear();
+      const { getByRole } = render(ComposeView, { cm: values(), act: actions(), isMobile: false });
+      expect(focus.mock.contexts).toEqual([getByRole('combobox', { name: 'To' })]);
+      expect(focus).toHaveBeenCalledWith(undefined);
+    } finally {
+      focus.mockRestore();
+    }
+  });
+
   it('shows the attachments as tiles after the signature on desktop', async () => {
     const act = actions();
     const { getByRole, queryByRole, getByText, container } = render(ComposeView, {
