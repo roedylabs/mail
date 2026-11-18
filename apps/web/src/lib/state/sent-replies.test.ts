@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageEmail } from '#lib/state/message.svelte.ts';
-import { COMPOSE_SCROLL_DELAY, SENT_LOCAL, sentReplies } from './sent-replies.svelte.ts';
+import { COMPOSE_SCROLL_DELAY, CONFIRMED_KEEP_MS, SENT_LOCAL, sentReplies } from '#lib/state/sent-replies.svelte.ts';
 
 const T1 = { account: 'k1', threadId: 't1' };
 const T2 = { account: 'k1', threadId: 't2' };
@@ -36,7 +36,10 @@ const sent = (receivedAt: number): Omit<MessageEmail, 'id' | 'threadId'> => ({
   subject: 'Re: Plan',
 });
 
-afterEach(() => sentReplies.reset());
+afterEach(() => {
+  sentReplies.reset();
+  vi.useRealTimers();
+});
 
 describe('sentReplies', () => {
   it('puts a sent reply into its conversation by date, only there', () => {
@@ -51,35 +54,53 @@ describe('sentReplies', () => {
     expect(sentReplies.merge(T2, list)).toBe(list);
   });
 
-  it('stands for the email once confirmed and ends when the thread holds it', () => {
+  it('stands for the submitted email, without actions until the thread holds it', () => {
     const key = sentReplies.add(T1, sent(300), 0);
-    sentReplies.confirm(key, 'd9');
-    expect(sentReplies.merge(T1, []).map((e) => e.id)).toEqual(['d9']);
+    sentReplies.confirm(key, 'd9', { ...sent(999), subject: 'Re: Plan (sent)' });
+    // The content that went out; the time it appeared stays.
+    expect(sentReplies.merge(T1, [])).toMatchObject([{ id: 'd9', subject: 'Re: Plan (sent)', receivedAt: 300 }]);
+    expect(sentReplies.pending('d9')).toBe(true);
     // The server already returns it: not twice.
     const server = email('d9', 310);
     expect(sentReplies.merge(T1, [server])).toEqual([server]);
-    // An unconfirmed entry does not end on settling.
+    // An entry that is not submitted yet does not end on settling.
     const other = sentReplies.add(T1, sent(500), 0);
     sentReplies.settle(T1, (ids) => ids.has('d9'));
+    expect(sentReplies.pending('d9')).toBe(false);
     expect(sentReplies.merge(T1, []).map((e) => e.id)).toEqual([SENT_LOCAL + other]);
   });
 
-  it('takes the jump to the end once, only for its conversation; removing cancels it', () => {
-    const first = sentReplies.add(T1, sent(300), COMPOSE_SCROLL_DELAY);
-    expect(sentReplies.takeScroll(T2)).toBeNull();
-    expect(sentReplies.takeScroll(T1)).toBe(160);
-    expect(sentReplies.takeScroll(T1)).toBeNull();
+  it('a submitted entry the server never returns ends after a while', () => {
+    vi.useFakeTimers();
     const key = sentReplies.add(T1, sent(300), 0);
-    expect(sentReplies.scroll).toMatchObject({ ...T1, delay: 0 });
-    sentReplies.remove(key);
-    expect(sentReplies.scroll).toBeNull();
-    expect(sentReplies.merge(T1, []).map((e) => e.id)).toEqual([SENT_LOCAL + first]);
+    sentReplies.confirm(key, 'd9');
+    vi.advanceTimersByTime(CONFIRMED_KEEP_MS - 1);
+    expect(sentReplies.merge(T1, [])).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(sentReplies.merge(T1, [])).toEqual([]);
+  });
+
+  it('keeps one jump per conversation, takes it once; removing the reply cancels it', () => {
+    const a = sentReplies.add(T1, sent(300), COMPOSE_SCROLL_DELAY);
+    // A reply in another conversation does not erase the waiting jump.
+    const b = sentReplies.add(T2, sent(300), 0);
+    expect(sentReplies.takeScroll(T1)).toMatchObject({ ...T1, delay: 160, key: a });
+    expect(sentReplies.takeScroll(T1)).toBeNull();
+    expect(sentReplies.live(a)).toBe(true);
+    sentReplies.remove(b);
+    expect(sentReplies.scrolls).toEqual([]);
+    expect(sentReplies.live(b)).toBe(false);
+    // The latest reply of a conversation replaces its jump.
+    sentReplies.add(T1, sent(400), COMPOSE_SCROLL_DELAY);
+    const c = sentReplies.add(T1, sent(500), 0);
+    expect(sentReplies.scrolls).toEqual([{ ...T1, delay: 0, key: c }]);
   });
 
   it('forgets everything at the end of the session', () => {
-    sentReplies.add(T1, sent(300), 0);
+    const key = sentReplies.add(T1, sent(300), 0);
+    sentReplies.confirm(key, 'd9');
     sentReplies.reset();
     expect(sentReplies.merge(T1, [])).toEqual([]);
-    expect(sentReplies.scroll).toBeNull();
+    expect(sentReplies.scrolls).toEqual([]);
   });
 });

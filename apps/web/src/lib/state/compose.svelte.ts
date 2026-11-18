@@ -61,7 +61,7 @@ import { network } from '#lib/state/network.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import type { MessageEmail, MessagePart } from '#lib/state/message.svelte.ts';
 import { verdictPatch } from '#lib/state/scheduled.svelte.ts';
-import { COMPOSE_SCROLL_DELAY, sentReplies, type ThreadRef } from '#lib/state/sent-replies.svelte.ts';
+import { COMPOSE_SCROLL_DELAY, sentReplies, type ReplyEmail, type ThreadRef } from '#lib/state/sent-replies.svelte.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import {
   replyRecipients,
@@ -1386,43 +1386,15 @@ export class Compose {
 
   /**
    * A reply from the reading view ("Reply", "Reply all") stands in its conversation
-   * right away, until the server returns it (`sentReplies`); a forward or a scheduled
-   * email does not. Its key, otherwise `null`.
+   * right away, until the server returns it (`sentReplies`); a forward, a scheduled
+   * email and a reply sent from another account do not. Its key, otherwise `null`.
    */
   #joinThread(d: Draft, when: number | null, delay: number): number | null {
     const thread = d.thread;
     if (!thread || when !== null || (d.mode !== 'reply' && d.mode !== 'all')) return null;
     const choice = this.#choiceOf(d, this.#choices());
-    if (!choice) return null;
-    const email = this.#emailOf(d, choice);
-    const sent = mailboxes.role(choice.account.id, 'sent')?.id;
-    const attachments: MessagePart[] = [...email.attachments];
-    return sentReplies.add(
-      thread,
-      {
-        blobId: '',
-        mailboxIds: sent ? [sent] : [],
-        keywords: { $seen: true },
-        receivedAt: Date.now(),
-        from: [email.from],
-        to: email.to,
-        cc: email.cc,
-        bcc: email.bcc,
-        replyTo: [],
-        messageId: [],
-        inReplyTo: email.inReplyTo ?? [],
-        references: email.references ?? [],
-        subject: email.subject,
-        // As the server's `preview` (RFC 8621, 4.1.4: at most 256 characters).
-        preview: email.text.replace(/\s+/g, ' ').trim().slice(0, 256),
-        hasAttachment: attachments.length > 0,
-        textBody: [{ partId: 'body', type: 'text/plain' } as MessagePart],
-        htmlBody: [{ partId: 'body', type: 'text/plain' } as MessagePart],
-        attachments,
-        bodyValues: { body: { value: email.text, isEncodingProblem: false, isTruncated: false } },
-      },
-      delay,
-    );
+    if (choice?.account.id !== thread.account) return null;
+    return sentReplies.add(thread, replyEmail(this.#emailOf(d, choice), thread.account), delay);
   }
 
   /** Leaves compose without closing (e.g. a mailbox opened): save with a notice. */
@@ -2423,7 +2395,7 @@ export class Compose {
     };
     const holdFor = planned ? null : Math.ceil(UNDO_MS[prefs.values.gUndo] / 1000) + SEND_BUFFER_S;
     const start = Date.now();
-    let sent: { account: string; sub: Submission; res: SendResult };
+    let sent: { account: string; sub: Submission; res: SendResult; email: DraftEmail };
     try {
       sent = await this.#enqueue(s, () => this.#submit(s, { holdFor, holdUntil: when }, gen));
     } catch (error) {
@@ -2433,9 +2405,10 @@ export class Compose {
     const { account, sub, res } = sent;
     if (!live()) return;
     const ref = draftRef({ account, id: res.email });
-    // From now on the reply stands for the email; sent from another account it is not part of the conversation.
-    if (reply !== null && d.thread?.account === account) sentReplies.confirm(reply, res.email);
-    else unjoin();
+    // Submitted: from now on the reply stands for the email with the content that went out.
+    const confirm = () => {
+      if (reply !== null) sentReplies.confirm(reply, res.email, replyEmail(sent.email, account));
+    };
     if (!res.ok && planned) {
       const why = planRefusal(res.error);
       if (why) this.#planRefused(s, nav, account, why, when);
@@ -2444,7 +2417,17 @@ export class Compose {
     }
     if (!res.ok) {
       if (holdRefused(res.error))
-        this.#sendDeferred(s, nav, { account, ref, email: res.email, sub, live, fail, unjoin, sent: sentText });
+        this.#sendDeferred(s, nav, {
+          account,
+          ref,
+          email: res.email,
+          sub,
+          live,
+          fail,
+          unjoin,
+          confirm,
+          sent: sentText,
+        });
       else fail(new ComposeError('EmailSubmission/set', [res.error]));
       return;
     }
@@ -2453,6 +2436,7 @@ export class Compose {
       fail(new ComposeError('EmailSubmission/set'));
       return;
     }
+    confirm();
     // Undo only as long as the withdrawal arrives before sending.
     const text = planned ? m.compose_planned({ when: planWhen(when, Date.now(), this.#time()) }) : sentText;
     const ms = planned
@@ -2489,7 +2473,7 @@ export class Compose {
     s: ComposeSession,
     hold: Pick<Submission, 'holdFor' | 'holdUntil'>,
     gen: number,
-  ): Promise<{ account: string; sub: Submission; res: SendResult }> {
+  ): Promise<{ account: string; sub: Submission; res: SendResult; email: DraftEmail }> {
     const d = s.latest;
     // The submission needs an identity; if they are not loaded yet, now.
     await this.#identities(d.account).catch(() => []);
@@ -2505,7 +2489,7 @@ export class Compose {
     const keepalive = new TextEncoder().encode(email.text).length < KEEPALIVE_MAX;
     const old = s.saved;
     const res = await this.#api.send(account, email, old?.account === account ? old.id : null, sub, keepalive);
-    if (gen !== this.#gen) return { account, sub, res };
+    if (gen !== this.#gen) return { account, sub, res, email };
     if (old && old.account !== account) void this.#api.destroy(old.account, old.id, false).catch(() => {});
     // If a version was still stored while sending: it would otherwise give a ghost draft.
     this.#unpark(s);
@@ -2518,7 +2502,7 @@ export class Compose {
       this.#sent.add(ref);
     } else if (old) this.#moved.set(draftRef(old), s.saved);
     this.#patch(s, { saved: s.saved, savedAt: Date.now(), dirty: false, failed: false });
-    return { account, sub, res };
+    return { account, sub, res, email };
   }
 
   /** `HOLDFOR` rejected: like the other actions send only after the toast expires. */
@@ -2532,13 +2516,14 @@ export class Compose {
       sub: Submission;
       live: () => boolean;
       fail: (error: unknown) => void;
-      /** The reply leaves its conversation (`sentReplies`). */
+      /** The reply leaves its conversation (`sentReplies`), or stands for the submitted email. */
       unjoin: () => void;
+      confirm: () => void;
       /** Text of the toast (`send()`). */
       sent: string;
     },
   ): void {
-    const { account, ref, email, sub, live, fail, unjoin } = at;
+    const { account, ref, email, sub, live, fail, unjoin, confirm } = at;
     ui.toasts.defer({
       text: at.sent,
       // The draft still lies in "Drafts"; undo only opens it again.
@@ -2555,6 +2540,7 @@ export class Compose {
           await this.#api.restore(account, res.email).catch(() => {});
           throw new ComposeError('EmailSubmission/set');
         }
+        confirm();
       },
       onError: (error) => {
         this.#sent.delete(ref);
@@ -3032,6 +3018,34 @@ function lighter(email: DraftEmail, errors: readonly SetError[]): DraftEmail | n
   const mailboxIds = boxes ? [] : email.mailboxIds;
   if (attachments.length === email.attachments.length && mailboxIds.length === email.mailboxIds.length) return null;
   return { ...email, attachments, mailboxIds };
+}
+
+/** Sent reply as the reading view shows it until the server returns it (`sentReplies`). */
+function replyEmail(email: DraftEmail, account: string, receivedAt = Date.now()): ReplyEmail {
+  const sent = mailboxes.role(account, 'sent')?.id;
+  const attachments: MessagePart[] = [...email.attachments];
+  return {
+    blobId: '',
+    mailboxIds: sent ? [sent] : [],
+    keywords: { $seen: true },
+    receivedAt,
+    from: [email.from],
+    to: email.to,
+    cc: email.cc,
+    bcc: email.bcc,
+    replyTo: [],
+    messageId: [],
+    inReplyTo: email.inReplyTo ?? [],
+    references: email.references ?? [],
+    subject: email.subject,
+    // As the server's `preview` (RFC 8621, 4.1.4: at most 256 characters).
+    preview: email.text.replace(/\s+/g, ' ').trim().slice(0, 256),
+    hasAttachment: attachments.length > 0,
+    textBody: [{ partId: 'body', type: 'text/plain' } as MessagePart],
+    htmlBody: [{ partId: 'body', type: 'text/plain' } as MessagePart],
+    attachments,
+    bodyValues: { body: { value: email.text, isEncodingProblem: false, isTruncated: false } },
+  };
 }
 
 function emailObject(email: DraftEmail, drafts: Id) {

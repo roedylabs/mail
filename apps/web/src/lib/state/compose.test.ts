@@ -34,7 +34,7 @@ import { DRAFT_PAUSE_MS, EditQueue, unanswered, type ReplayedDraft } from '#lib/
 import { network } from '#lib/state/network.svelte.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
-import { sentReplies, SENT_LOCAL } from '#lib/state/sent-replies.svelte.ts';
+import { CONFIRMED_KEEP_MS, sentReplies, SENT_LOCAL } from '#lib/state/sent-replies.svelte.ts';
 import type { ReplyContext } from '#lib/reply.ts';
 import { m } from '#lib/paraglide/messages.js';
 
@@ -4423,6 +4423,7 @@ describe('Reply and forward', () => {
   describe('Sent reply in its conversation', () => {
     const thread = { account: 'k1', threadId: 't1' };
     const shown = () => sentReplies.merge(thread, []);
+    const QUOTE = '\n\nOn Sunday Ben Weber wrote:\n> Hello,\n>\n> how are you?';
     afterEach(() => sentReplies.reset());
 
     it('from the bar it joins the conversation at once, stands for the sent email and leaves it on undo', async () => {
@@ -4431,40 +4432,70 @@ describe('Reply and forward', () => {
       const init = { ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread };
       expect(c.sendNow(init, ret, nav(), 'Reply sent')).toBe(true);
       // Before the server answers: provisional, without actions, jump in the next frame.
+      // The identities are still loading: account address, no signature.
       expect(shown()).toMatchObject([
         {
           threadId: 't1',
           subject: 'Re: Plan',
-          from: [{ email: 'k1@example.com' }],
+          from: [{ name: null, email: 'k1@example.com' }],
           to: [{ name: 'Ben Weber', email: 'ben@example.com' }],
           receivedAt: NOW,
           keywords: { $seen: true },
           inReplyTo: ['m1@example.com'],
-          bodyValues: { body: { value: 'Ja\n\nOn Sunday Ben Weber wrote:\n> Hello,\n>\n> how are you?' } },
+          bodyValues: { body: { value: `Ja${QUOTE}` } },
         },
       ]);
-      expect(sentReplies.pending(shown()[0]!.id)).toBe(true);
-      expect(sentReplies.scroll).toMatchObject({ ...thread, delay: 0 });
+      const local = shown()[0]!.id;
+      expect(local.startsWith(SENT_LOCAL)).toBe(true);
+      expect(sentReplies.pending(local)).toBe(true);
+      expect(sentReplies.scrolls).toMatchObject([{ ...thread, delay: 0 }]);
       await settle();
-      expect(shown()).toMatchObject([{ id: 'd1' }]);
-      expect(sentReplies.pending('d1')).toBe(false);
+      // Submitted: the email that went out, with sender and signature; still no actions until the server returns it.
+      expect(shown()).toMatchObject([
+        {
+          id: 'd1',
+          receivedAt: NOW,
+          from: [{ name: 'Anna Becker', email: 'k1@example.com' }],
+          bodyValues: { body: { value: `Ja\n\n-- \nBest regards\nAnna${QUOTE}` } },
+        },
+      ]);
+      expect(sentReplies.pending('d1')).toBe(true);
       ui.toasts.undo();
       await settle();
       expect(shown()).toEqual([]);
+      expect(sentReplies.pending('d1')).toBe(false);
     });
 
-    it('appears once and ends when the server returns it in the thread', async () => {
+    it('appears once and ends when the server returns it in the thread, at the latest after a while', async () => {
       const { api } = fakeApi();
       const c = new Compose(api);
       c.sendNow({ ...replyInit(ctx, { mode: 'all', text: 'Ja', to: '' }, 'k1'), thread }, ret, nav(), 'Reply sent');
+      c.sendNow({ ...replyInit(ctx, { mode: 'reply', text: 'Nein', to: '' }, 'k1'), thread }, ret, nav(), 'Reply sent');
       await settle();
+      expect(shown().map((e) => e.id)).toEqual(['d1', 'd2']);
       const server = { ...shown()[0]!, receivedAt: NOW - 1 };
-      expect(sentReplies.merge(thread, [server])).toEqual([server]);
+      expect(sentReplies.merge(thread, [server]).map((e) => e.id)).toEqual(['d1', 'd2']);
       // Not yet held: it stays.
       sentReplies.settle(thread, () => false);
-      expect(shown()).toHaveLength(1);
+      expect(shown()).toHaveLength(2);
       sentReplies.settle(thread, (ids) => ids.has('d1'));
+      expect(shown().map((e) => e.id)).toEqual(['d2']);
+      expect(sentReplies.pending('d1')).toBe(false);
+      await vi.advanceTimersByTimeAsync(CONFIRMED_KEEP_MS);
       expect(shown()).toEqual([]);
+    });
+
+    it('stays provisional while a refused HOLDFOR waits for the end of the toast', async () => {
+      const error = { type: 'forbiddenMailFrom', description: '501 5.5.4 FUTURERELEASE extension has been disabled.' };
+      const { api, submits } = fakeApi({ send: () => Promise.resolve<SendResult>({ ok: false, email: 'd3', error }) });
+      const c = new Compose(api);
+      c.sendNow({ ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread }, ret, nav(), 'Reply sent');
+      await settle();
+      // Still a draft: not the email of the reply yet.
+      expect(shown()[0]!.id.startsWith(SENT_LOCAL)).toBe(true);
+      await vi.advanceTimersByTimeAsync(60_000);
+      expect(submits).toHaveLength(1);
+      expect(shown()).toMatchObject([{ id: 'd3' }]);
     });
 
     it('from compose the jump waits 160 ms; a failed send takes the reply back out', async () => {
@@ -4474,12 +4505,11 @@ describe('Reply and forward', () => {
       c.start({ ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread }, ret);
       expect(c.send(n)).toBe(true);
       expect(shown()).toHaveLength(1);
-      expect(shown()[0]!.id.startsWith(SENT_LOCAL)).toBe(true);
-      expect(sentReplies.scroll).toMatchObject({ ...thread, delay: 160 });
+      expect(sentReplies.scrolls).toMatchObject([{ ...thread, delay: 160 }]);
       await settle();
       expect(n.reopen).toHaveBeenCalled();
       expect(shown()).toEqual([]);
-      expect(sentReplies.scroll).toBeNull();
+      expect(sentReplies.scrolls).toEqual([]);
     });
 
     it('a forward, a scheduled reply and a reply without a conversation do not join', async () => {
@@ -4497,17 +4527,22 @@ describe('Reply and forward', () => {
       c.plan(nav());
       await settle();
       expect(shown()).toEqual([]);
-      expect(sentReplies.scroll).toBeNull();
+      expect(sentReplies.scrolls).toEqual([]);
     });
 
-    it('sent from another account it leaves the conversation', async () => {
-      const { api } = fakeApi();
+    it('a reply sent from another account does not join the conversation', async () => {
+      const other = identity('i9', 'k2@example.com', { name: 'Anna Becker' });
+      const { api, sends } = fakeApi({ identities: (a) => Promise.resolve(a === 'k2' ? [other] : (IDS[a] ?? [])) });
       const c = new Compose(api);
       c.start({ ...replyInit(ctx, { mode: 'reply', text: 'Ja', to: '' }, 'k1'), thread }, ret);
-      c.pickFrom('k2/');
-      c.send(nav());
-      expect(shown()).toHaveLength(1);
+      c.loadIdentities(['k2']);
       await settle();
+      c.pickFrom('k2/i9');
+      expect(c.send(nav())).toBe(true);
+      expect(shown()).toEqual([]);
+      expect(sentReplies.scrolls).toEqual([]);
+      await settle();
+      expect(sends.map((x) => x.account)).toEqual(['k2']);
       expect(shown()).toEqual([]);
     });
   });

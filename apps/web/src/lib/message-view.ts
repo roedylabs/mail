@@ -59,6 +59,8 @@ export interface ReadInput {
   emails: readonly MessageEmail[];
   /** Email that represented the conversation in the list (`rm`); without it the newest. */
   repId: string | null;
+  /** Shown only until the server returns it (a reply just sent, `sentReplies`): never the representative. */
+  pending?: (id: string) => boolean;
   kind: ListKind;
   /** Title of the view for "Back". */
   title: string;
@@ -583,7 +585,7 @@ export function moveValues(subject: string, targets: MoveTargets, hasBack: boole
  * and spam (except in these mailboxes themselves) and always the
  * representing one; plus the one the reading view stands for (`rm`). `emails` must not be empty.
  */
-export function shownEmails(input: Pick<ReadInput, 'emails' | 'repId' | 'kind' | 'roles'>): {
+export function shownEmails(input: Pick<ReadInput, 'emails' | 'repId' | 'kind' | 'roles' | 'pending'>): {
   seq: MessageEmail[];
   rm: MessageEmail;
 } {
@@ -594,7 +596,9 @@ export function shownEmails(input: Pick<ReadInput, 'emails' | 'repId' | 'kind' |
   );
   const shown = input.emails.filter((e) => e.id === input.repId || !e.mailboxIds.some((b) => hidden.has(b)));
   const seq = shown.length ? shown : [...input.emails];
-  return { seq, rm: seq.find((e) => e.id === input.repId) ?? seq[seq.length - 1]! };
+  const rm =
+    seq.find((e) => e.id === input.repId) ?? seq.findLast((e) => !input.pending?.(e.id)) ?? seq[seq.length - 1]!;
+  return { seq, rm };
 }
 
 /**

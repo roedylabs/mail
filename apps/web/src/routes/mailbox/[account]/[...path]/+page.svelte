@@ -113,7 +113,7 @@
   import { scheduled } from '#lib/state/scheduled.svelte.ts';
   import { TagFixError, tags } from '#lib/state/tags.svelte.ts';
   import { tagFixError } from '#lib/tag-fix.ts';
-  import { sentReplies } from '#lib/state/sent-replies.svelte.ts';
+  import { sameThread, sentReplies } from '#lib/state/sent-replies.svelte.ts';
   import { threads, type ThreadList } from '#lib/state/threads.svelte.ts';
   import { listView } from '#lib/state/list-view.svelte.ts';
   import { Loading, ui } from '#lib/state/ui.svelte.ts';
@@ -469,8 +469,9 @@
     if (c?.status === 'ready') sentReplies.settle(c, (ids) => c.holds(ids));
   });
 
-  /** Email the server has not confirmed yet (a reply just sent): no actions on it. */
-  const confirmed = (e: { id: string }) => !sentReplies.pending(e.id);
+  /** Email the server has not returned yet (a reply just sent): no actions on it, never the representative. */
+  const pending = (id: string) => sentReplies.pending(id);
+  const confirmed = (e: { id: string }) => !pending(e.id);
 
   /** The view's list is not there yet: it may still bring the conversation's row. */
   const listPending = $derived(!view || (!view.unavailable && (!list || list.status === 'loading')));
@@ -507,6 +508,7 @@
     return readValues({
       emails: readEmails,
       repId,
+      pending,
       kind: view.kind,
       // Opened from the search: its way back instead of the folder (`navRet.label`).
       title: searchBack ? returnLabel(searchBack.kind) : view.title,
@@ -668,27 +670,30 @@
 
   /** Reading view, for the jump to the end of the conversation after sending a reply. */
   let messageView: { toEnd: () => void } | undefined = $state();
-  let endTimer: ReturnType<typeof setTimeout> | undefined;
-  let endFrame = 0;
+  /** Waiting jumps (timer, frame), cancelled when leaving the page. */
+  let jumps: (() => void)[] = [];
   /**
    * After sending a reply the reading view jumps to the end of its conversation (`rdScrollRef`):
    * from the reply bar in the next frame, once the reply stands in it; from compose 160 ms after
    * it shows the conversation again. Instantly, also without reduced motion (`scrollTop = scrollHeight`).
+   * Only if the conversation is still the open one and the reply was not undone or failed meanwhile.
    */
   $effect(() => {
-    const view = messageView;
-    if (!sentReplies.scroll || !view || !rd || !opened) return;
     const thread = opened;
-    untrack(() => {
-      const delay = sentReplies.takeScroll(thread);
-      if (delay === null) return;
-      if (delay > 0) endTimer = setTimeout(() => messageView?.toEnd(), delay);
-      else endFrame = requestAnimationFrame(() => messageView?.toEnd());
-    });
+    if (!sentReplies.scrolls.length || !messageView || !rd || !thread) return;
+    const req = untrack(() => sentReplies.takeScroll(thread));
+    if (!req) return;
+    const end = () => {
+      jumps = jumps.filter((c) => c !== cancel);
+      if (opened && sameThread(opened, req) && sentReplies.live(req.key)) messageView?.toEnd();
+    };
+    const id = req.delay > 0 ? setTimeout(end, req.delay) : requestAnimationFrame(end);
+    const cancel = () => (req.delay > 0 ? clearTimeout(id) : cancelAnimationFrame(id as number));
+    jumps.push(cancel);
   });
   $effect(() => () => {
-    clearTimeout(endTimer);
-    cancelAnimationFrame(endFrame);
+    for (const cancel of jumps) cancel();
+    jumps = [];
   });
 
   // --- Actions: star, read, delete, spam, restore ---
@@ -1165,6 +1170,7 @@
     const { seq, rm } = shownEmails({
       emails: readEmails,
       repId,
+      pending,
       kind: view.kind,
       roles: rolesOf(opened.account),
     });

@@ -100,6 +100,16 @@ const att = (patch: Partial<MessagePart>): MessagePart => ({
 });
 
 describe('readValues', () => {
+  it('never takes a reply just sent as the representative, but shows it last', () => {
+    const emails = [email('e1'), email('sent-local:1', { mailboxIds: ['sent'], receivedAt: NOW })];
+    const pending = (id: string) => id.startsWith('sent-local:');
+    const rd = readValues(input({ emails, pending }));
+    expect(rd.id).toBe('e1');
+    expect(rd.msgs.map((x) => x.key)).toEqual(['e1', 'sent-local:1']);
+    // Without the check the newest one, as before.
+    expect(readValues(input({ emails })).id).toBe('sent-local:1');
+  });
+
   it('shows a simple email with its attachment', () => {
     const rd = readValues(input({ emails: [email('e1', { attachments: [att({})] })] }));
     expect(rd).toMatchObject({

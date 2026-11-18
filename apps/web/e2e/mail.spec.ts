@@ -147,11 +147,22 @@ test('reply quoting a long HTML mail', async ({ browser, instance, stalwart }) =
   await page.getByRole('article').getByRole('button', { name: 'Reply', exact: true }).click();
   const reply = `Thanks, ${word('reply')}`;
   await page.getByPlaceholder(/^Reply to /).fill(reply);
+  // The sending request waits until the reply is checked: it can only come from the reading view, not from the server.
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
+  await page.route('**/*', async (route) => {
+    const request = route.request();
+    if (request.method() === 'POST' && request.postData()?.includes('EmailSubmission/set')) await held;
+    await route.fallback();
+  });
   await page.getByRole('button', { name: 'Send', exact: true }).click();
-  await expect(page.getByText('Reply sent', { exact: true })).toBeVisible();
-  // Right away, before the sync, the reply stands in the conversation and the reading view is at its end.
+  // Right away, before the server answers, the reply stands in the conversation and the reading view is at its end.
   await expect(page.getByRole('article').getByText(reply).first()).toBeVisible();
   await expect.poll(() => scrollGap(page)).toBeLessThan(2);
+  await expect(page.getByText('Reply sent', { exact: true })).toHaveCount(0);
+  release();
+  await expect(page.getByText('Reply sent', { exact: true })).toBeVisible();
+  await page.unrouteAll({ behavior: 'wait' });
 
   // From compose ("Open in editor") the reading view is at the end again on return.
   await page.locator('.rd .scroll').evaluate((el) => (el.scrollTop = 0));
