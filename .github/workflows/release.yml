@@ -102,10 +102,21 @@ jobs:
         with:
           toolchain: stable
           targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
-      - uses: mlugg/setup-zig@d1434d08867e3ee9daa34448df10607b98908d29 # v2.2.1
-        with:
-          version: 0.17.0
-          use-cache: false
+      # Zig for cargo-zigbuild straight from ziglang.org, checked against the
+      # SHA-256 from https://ziglang.org/download/index.json (no setup action
+      # that still runs on Node 20).
+      - name: Zig
+        env:
+          ZIG_VERSION: 0.17.0
+          ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
+        run: |
+          archive="$RUNNER_TEMP/zig.tar.xz"
+          curl -fsSL --retry 3 -o "$archive" "https://ziglang.org/download/$ZIG_VERSION/zig-x86_64-linux-$ZIG_VERSION.tar.xz"
+          echo "$ZIG_SHA256  $archive" | sha256sum -c -
+          mkdir "$RUNNER_TEMP/zig"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >>"$GITHUB_PATH"
+          "$RUNNER_TEMP/zig/zig" version
       - uses: taiki-e/install-action@cfdb7ed4ccc7c7dce37759eae89dc5674b469b39 # v2.90.3
         with:
           tool: cargo-zigbuild@0.24.0,cargo-auditable@0.7.7,cargo-about@0.9.2
@@ -207,6 +218,7 @@ jobs:
       packages: write # ghcr.io
       id-token: write # keyless cosign and attestations (Sigstore)
       attestations: write
+      artifact-metadata: write # storage records of the attestations
     env:
       VERSION: ${{ needs.build.outputs.version }}
       PRERELEASE: ${{ needs.build.outputs.prerelease }}
