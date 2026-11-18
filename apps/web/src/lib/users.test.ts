@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { KEPT_WAIT_MS } from '#lib/state/kept.ts';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
@@ -1351,6 +1352,27 @@ describe('Reopening', () => {
     await load;
     await sending;
     expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id));
+  });
+
+  it('a reopened page loads again once a removal that took too long is through', async () => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    vi.setSystemTime(NOW);
+    let removed: (reply: { status: number }) => void = () => {};
+    const later = USERS.filter((u) => u.id !== 'u3');
+    const { p, v } = await loaded({ 'DELETE users/u3': [() => new Promise((resolve) => (removed = resolve))] });
+    row(v(), 'Sophie Hamilton').remove();
+    ui.confirmOk();
+    p.dispose();
+    const { calls } = mockApi({ 'GET users': [{ body: { users: USERS } }, { body: { users: later } }] });
+    const q = new UsersPage();
+    const load = q.load();
+    await vi.advanceTimersByTimeAsync(KEPT_WAIT_MS);
+    await load;
+    // Loaded after the wait ran out, still with the user.
+    expect(q.rows.map((u) => u.id)).toContain('u3');
+    removed({ status: 204 });
+    await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
+    expect(sent(calls)).toEqual(['GET users', 'GET users']);
   });
 
   it('a reopened page sends nothing if it is left again while waiting', async () => {

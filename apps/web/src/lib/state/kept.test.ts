@@ -25,6 +25,7 @@ describe('Kept', () => {
 
   it('waits for calls of other pages, also failed ones, until the session ends', async () => {
     const kept = new Kept<string>();
+    const late = vi.fn();
     const left = {};
     const open = {};
     let done = () => {};
@@ -33,13 +34,17 @@ describe('Kept', () => {
     kept.track(new Promise<void>((_, reject) => (failed = () => reject(new Error('x')))), left);
     // Its own calls: right away.
     let own = false;
-    void kept.after(left, () => Promise.resolve((own = true)));
+    void kept.after(left, () => Promise.resolve((own = true)), late);
     expect(own).toBe(true);
     let through = false;
-    const load = kept.after(open, () => {
-      through = true;
-      return Promise.resolve(1);
-    });
+    const load = kept.after(
+      open,
+      () => {
+        through = true;
+        return Promise.resolve(1);
+      },
+      late,
+    );
     done();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(through).toBe(false);
@@ -49,22 +54,41 @@ describe('Kept', () => {
     kept.forget();
     // Without calls right away.
     let now = false;
-    void kept.after(open, () => Promise.resolve((now = true)));
+    void kept.after(open, () => Promise.resolve((now = true)), late);
     expect(now).toBe(true);
+    // Through before the wait ran out: no second load.
+    expect(late).not.toHaveBeenCalled();
   });
 
-  it('loads anyway after `KEPT_WAIT_MS` if a call hangs', async () => {
+  it('loads anyway after `KEPT_WAIT_MS` and again once the call is through after all', async () => {
     vi.useFakeTimers();
     try {
       const kept = new Kept<string>();
-      kept.track(new Promise(() => {}), {});
+      let done = () => {};
+      kept.track(new Promise<void>((resolve) => (done = resolve)), {});
       let through = false;
-      const load = kept.after({}, () => Promise.resolve((through = true)));
+      const late = vi.fn();
+      const load = kept.after({}, () => Promise.resolve((through = true)), late);
       await vi.advanceTimersByTimeAsync(KEPT_WAIT_MS - 1);
       expect(through).toBe(false);
       await vi.advanceTimersByTimeAsync(1);
       await load;
       expect(through).toBe(true);
+      expect(late).not.toHaveBeenCalled();
+      done();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(late).toHaveBeenCalledOnce();
+      // A hanging call of an ended session loads nothing later.
+      let never = () => {};
+      kept.track(new Promise<void>((resolve) => (never = resolve)), {});
+      const after = vi.fn();
+      const old = kept.after({}, () => Promise.resolve(), after);
+      await vi.advanceTimersByTimeAsync(KEPT_WAIT_MS);
+      await old;
+      kept.forget();
+      never();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(after).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }

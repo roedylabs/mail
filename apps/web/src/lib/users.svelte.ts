@@ -293,12 +293,19 @@ export class UsersPage {
     try {
       // After a removal of a left page still on its way: otherwise the response could still contain the user.
       const res = await this.loading.run(
-        keptUsers.after(this, () => {
-          // Superseded or left while waiting: no request any more.
-          if (seq !== this.#seq || this.#disposed) return Promise.resolve(null);
-          changes = keptUsers.changes;
-          return api<{ users: ListedUser[] }>('GET', 'users');
-        }),
+        keptUsers.after(
+          this,
+          () => {
+            // Superseded or left while waiting: no request any more.
+            if (seq !== this.#seq || this.#disposed) return Promise.resolve(null);
+            changes = keptUsers.changes;
+            return api<{ users: ListedUser[] }>('GET', 'users');
+          },
+          // The wait ran out: once the removal is through after all, load again.
+          () => {
+            if (!this.#disposed) void this.load();
+          },
+        ),
       );
       if (!res || seq !== this.#seq || this.#disposed) return;
       const { users } = res;

@@ -261,18 +261,25 @@ export class ServersPage {
     try {
       const res = await this.loading.run(
         // After a removal of a left page still on its way: otherwise the response could still contain the server.
-        keptServers.after(this, () => {
-          // Superseded or left while waiting: no request any more.
-          if (seq !== this.#seq || this.#disposed) return Promise.resolve(null);
-          changes = keptServers.changes;
-          return Promise.all([
-            api<ServerList>('GET', 'admin/servers'),
-            // After toggles still on their way: otherwise the response could be older than a confirmed one.
-            policyWrites
-              .catch(() => {})
-              .then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
-          ]);
-        }),
+        keptServers.after(
+          this,
+          () => {
+            // Superseded or left while waiting: no request any more.
+            if (seq !== this.#seq || this.#disposed) return Promise.resolve(null);
+            changes = keptServers.changes;
+            return Promise.all([
+              api<ServerList>('GET', 'admin/servers'),
+              // After toggles still on their way: otherwise the response could be older than a confirmed one.
+              policyWrites
+                .catch(() => {})
+                .then(() => api<{ allow_custom_servers: boolean }>('GET', 'admin/servers/policy')),
+            ]);
+          },
+          // The wait ran out: once the removal is through after all, load again.
+          () => {
+            if (!this.#disposed) void this.load();
+          },
+        ),
       );
       if (!res || seq !== this.#seq || this.#disposed) return;
       const [list, policy] = res;

@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { csp } from '#lib/csp.ts';
+import { KEPT_WAIT_MS } from '#lib/state/kept.ts';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
@@ -668,6 +669,27 @@ describe('Remove', () => {
     await load;
     expect(sent(calls)).toEqual(['GET admin/servers', 'GET admin/servers/policy']);
     expect(q.rows.map((s) => s.id)).toEqual(['s1']);
+  });
+
+  it('a reopened page loads again once a removal that took too long is through', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const del = later({ status: 204 });
+    const { p, v } = await loaded({ 'DELETE admin/servers/s2': [del.reply] });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    p.dispose();
+    const { calls } = mockApi({
+      'GET admin/servers': [list([S1, S2]), list([S1])],
+      'GET admin/servers/policy': [POLICY, POLICY],
+    });
+    const q = new ServersPage();
+    const load = q.load();
+    await vi.advanceTimersByTimeAsync(KEPT_WAIT_MS);
+    await load;
+    expect(q.rows.map((s) => s.id)).toEqual(['s1', 's2']);
+    del.release();
+    await vi.waitFor(() => expect(q.rows.map((s) => s.id)).toEqual(['s1']));
+    expect(sent(calls).filter((c) => c === 'GET admin/servers')).toHaveLength(2);
   });
 
   it('a reopened page loads only after a removal sent before leaving', async () => {

@@ -57,14 +57,27 @@ export class Kept<T> {
 
   /**
    * Runs `load` of `page` once the calls of other pages are through (also
-   * failed ones), at most `KEPT_WAIT_MS`; without any right away.
+   * failed ones), at most `KEPT_WAIT_MS`; without any right away. If the
+   * wait ran out, `late` follows once they are through after all (load again).
    */
-  after<R>(page: object, load: () => Promise<R>): Promise<R> {
+  after<R>(page: object, load: () => Promise<R>, late: () => void): Promise<R> {
     const others = [...this.#sending].filter(([, p]) => p !== page).map(([call]) => call);
     if (!others.length) return load();
+    const gen = this.#gen;
+    const through = Promise.all(others);
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const deadline = new Promise<void>((resolve) => (timer = setTimeout(resolve, KEPT_WAIT_MS)));
-    return Promise.race([Promise.all(others), deadline]).then(() => {
+    let overdue = false;
+    const deadline = new Promise<void>(
+      (resolve) =>
+        (timer = setTimeout(() => {
+          overdue = true;
+          resolve();
+        }, KEPT_WAIT_MS)),
+    );
+    void through.then(() => {
+      if (overdue && gen === this.#gen) late();
+    });
+    return Promise.race([through, deadline]).then(() => {
       clearTimeout(timer);
       return load();
     });
