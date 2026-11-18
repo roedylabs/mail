@@ -19,6 +19,15 @@ describe('api', () => {
     await expect(api('GET', 'auth/me')).rejects.toBeInstanceOf(ApiError);
   });
 
+  it('reports a body that breaks off after the headers as `NetworkError`', async () => {
+    const broken = new ReadableStream({ start: (c) => c.error(new DOMException('timed out', 'TimeoutError')) });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.resolve(new Response(broken, { status: 200 }))),
+    );
+    await expect(api('POST', 'auth/me/email/resend')).rejects.toBeInstanceOf(NetworkError);
+  });
+
   it('returns the body as a file with `apiBlob`', async () => {
     const fetch = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(() =>
       Promise.resolve(new Response('a;b', { headers: { 'Content-Type': 'text/csv' } })),

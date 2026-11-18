@@ -77,7 +77,14 @@ export async function api<T>(method: Method, path: string, body?: unknown, optio
   } catch (error) {
     throw new NetworkError(error);
   }
-  const data = parsed(await res.text());
+  let text: string;
+  try {
+    text = await res.text();
+  } catch (error) {
+    // The body broke off after the headers (connection lost, `signal` expired): no answer either.
+    throw new NetworkError(error);
+  }
+  const data = parsed(text);
   if (!res.ok) {
     throw new ApiError(res.status, isRecord(data) ? data : {});
   }

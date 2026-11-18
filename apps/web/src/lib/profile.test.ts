@@ -590,6 +590,26 @@ describe('confirmation pending', () => {
     expect(rowOf(profileValues(p), 'Email')).toMatchObject({ pendEmail: 'two@example.com', hasPendErr: false });
   });
 
+  it('"Resend link" whose answer breaks off after the headers also shows the server state', async () => {
+    const renewed = { ...OPEN, expires_at: '2026-10-28T12:00:00Z' };
+    const { calls } = mockApi({ 'GET auth/me': [{ body: { ...ME, email_change: renewed } }] });
+    const fetch = globalThis.fetch;
+    // Headers arrive, then the deadline ends the body.
+    vi.stubGlobal('fetch', (input: string, init: RequestInit = {}) =>
+      init.method === 'POST'
+        ? Promise.resolve(
+            new Response(new ReadableStream({ start: (c) => c.error(new DOMException('timed out', 'TimeoutError')) })),
+          )
+        : fetch(input, init),
+    );
+    const p = new ProfilePage();
+    await p.resend();
+    expect(sent(calls).map((c) => c.call)).toEqual(['GET auth/me']);
+    expect(session.user?.email_change).toEqual(renewed);
+    expect(ui.toast).toMatchObject({ text: 'No connection. Please try again.', error: true });
+    expect(p.resending).toBe(false);
+  });
+
   it('"Resend link" without an answer shows the server state and the error toast', async () => {
     const renewed = { ...OPEN, expires_at: '2026-10-28T12:00:00Z' };
     // No response for the POST: `fetch` fails.
