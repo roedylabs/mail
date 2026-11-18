@@ -1,5 +1,6 @@
 // Administration: create, download and delete a backup (with undo), switch
-// the banner on, dismiss it and see it again after a change. Own instance
+// the banner on, dismiss it and see it again after a change, revoke an
+// invitation (with undo, sent when leaving the page). Own instance
 // without mail account (setup via API, setup.ts); the state in the backend is
 // checked too, axe checks every visited page.
 import { expect, test } from './fixtures.ts';
@@ -150,4 +151,47 @@ test('switch the banner on, dismiss it and see it again after a change', async (
   await settled(page);
   await expect(notice).toBeVisible();
   await expect(page.getByText('Postponed to tomorrow.', { exact: true })).toBeVisible();
+});
+
+test('revoke an invitation with undo, sent when leaving the page', async ({ browser, instance }) => {
+  const page = await openAs(browser, need(session, 'session'), `${instance.url}/admin/users`);
+  const email = 'revoke@example.com';
+  const created = await page.request.post(`${instance.url}/api/v1/invites`, {
+    data: { emails: [email], role: 'user' },
+    headers: CSRF,
+  });
+  expect(created.status(), 'invite').toBe(201);
+  const invited = async () =>
+    (await apiGet<{ users: { email: string; status: string }[] }>(page, 'users')).users.some(
+      (u) => u.email === email && u.status === 'invited',
+    );
+  await page.reload();
+  await settled(page);
+  const main = page.getByRole('main');
+  const revoke = async () => {
+    await main.getByRole('button', { name: email }).filter({ visible: true }).click();
+    await main.getByRole('button', { name: 'Revoke invitation' }).filter({ visible: true }).click();
+    await page.getByRole('alertdialog', { name: 'Revoke invitation?' }).getByRole('button', { name: 'Revoke' }).click();
+  };
+
+  // Sent only after the toast: undo keeps the invitation.
+  const toast = page.getByRole('status').filter({ hasText: 'Invitation revoked' });
+  await revoke();
+  await expect(toast).toBeVisible();
+  await expect(main.getByText(email)).toHaveCount(0);
+  await toast.getByRole('button', { name: 'Undo' }).click();
+  await expect(main.getByText(email).filter({ visible: true })).toBeVisible();
+  expect(await invited(), 'still invited after undo').toBe(true);
+
+  // Leaving the page sends it right away and closes the toast, well before its 5 s run out.
+  await revoke();
+  await expect(toast).toBeVisible();
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Maintenance', exact: true })
+    .filter({ visible: true })
+    .click();
+  await expect(toast).toBeHidden({ timeout: 1_500 });
+  await expect.poll(invited, { message: 'invitation revoked', timeout: 2_000 }).toBe(false);
+  await expect(page.getByRole('heading', { name: 'Maintenance', level: 1 })).toBeVisible();
 });

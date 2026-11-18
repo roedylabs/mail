@@ -6,10 +6,17 @@
  */
 import { onForget } from '#lib/state/forget.ts';
 
+/** A reopened page waits at most this long for calls of a left page (`after()`), then loads anyway. */
+export const KEPT_WAIT_MS = 10_000;
+
 export class Kept<T> {
   #value: T | null = null;
   #gen = 0;
   #changes = 0;
+  /** Calls still on their way per page; another page of the same list waits for them (`after()`). */
+  readonly #sending = new Map<Promise<void>, object>();
+  /** Calls a wait already ran out for (`after()`). */
+  readonly #overdue = new WeakSet<Promise<void>>();
 
   constructor() {
     onForget(() => this.forget());
@@ -40,8 +47,65 @@ export class Kept<T> {
     this.#changes++;
   }
 
+  /** Call of `page` on its way (e.g. a removal): a reopened page loads only after it (`after()`). */
+  track(call: Promise<unknown>, page: object): void {
+    // Through once it is out of the list: after the reactions of its caller (e.g. `changed()` on success).
+    const done: Promise<void> = call
+      .then(
+        () => {},
+        () => {},
+      )
+      .then(() => {
+        this.#sending.delete(done);
+      });
+    this.#sending.set(done, page);
+  }
+
+  /**
+   * Runs `load` of `page` once the calls of other pages are through (also
+   * failed ones), at most `KEPT_WAIT_MS`; without any right away. If the
+   * wait ran out, `late` follows for each of them that is through after all
+   * (load again), also while another one still hangs; a call that already
+   * ran out once holds up no later load. `null` without `load` if the
+   * session ended while waiting.
+   */
+  after<R>(page: object, load: () => Promise<R | null>, late: () => void): Promise<R | null> {
+    const others = [...this.#sending]
+      .filter(([call, p]) => p !== page && !this.#overdue.has(call))
+      .map(([call]) => call);
+    if (!others.length) return load();
+    const gen = this.#gen;
+    const through = Promise.all(others);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let overdue = false;
+    const deadline = new Promise<void>(
+      (resolve) =>
+        (timer = setTimeout(() => {
+          overdue = true;
+          for (const call of others) this.#overdue.add(call);
+          resolve();
+        }, KEPT_WAIT_MS)),
+    );
+    for (const call of others) {
+      void call.then(() => {
+        if (overdue && gen === this.#gen) late();
+      });
+    }
+    return Promise.race([through, deadline]).then(() => {
+      clearTimeout(timer);
+      return gen === this.#gen ? load() : null;
+    });
+  }
+
+  /** Whether the session of now still runs (no `forget()` since), e.g. before reporting a late error. */
+  alive(): () => boolean {
+    const gen = this.#gen;
+    return () => gen === this.#gen;
+  }
+
   forget(): void {
     this.#value = null;
     this.#gen++;
+    this.#sending.clear();
   }
 }

@@ -6,10 +6,11 @@
  *
  * Role, lock and unlock change the display immediately and go to the server
  * with undo only after the toast expires (`ui.toasts.defer`). Removing,
- * withdrawing an invitation and "Reset multi-factor" run immediately after
- * confirmation, without undo. Errors without a text of their own show the
- * generic error toast and reload the list. Local changes the server does not
- * know yet also apply to reloaded lists until their call is through.
+ * withdrawing an invitation and "Reset multi-factor" do the same after the
+ * confirmation; leaving the page sends them immediately. If one fails, the
+ * row returns with the error toast. Errors without a text of their own show
+ * the generic error toast and reload the list. Local changes the server does
+ * not know yet also apply to reloaded lists until their call is through.
  *
  * The list stays for the session (`keptUsers`): a reopened page shows it at
  * once and loads again in the background; if that fails, the list stays with
@@ -32,6 +33,7 @@ import { prefs } from '#lib/state/prefs.svelte.ts';
 import { Kept } from '#lib/state/kept.ts';
 import { initialsOf, session } from '#lib/state/session.svelte.ts';
 import { Loading, ui } from '#lib/state/ui.svelte.ts';
+import type { DeferredAction } from '#lib/undo.ts';
 import { waitText } from '#lib/wait.ts';
 import { intlLocale } from '#lib/locale.ts';
 
@@ -107,6 +109,8 @@ interface Overlay {
   patch?: RowPatch;
   /** The rows without this change (as the server still knows them). */
   undo: (rows: ListedUser[]) => ListedUser[];
+  /** A newer list from the server: the base for `undo`. */
+  rebase?: (users: ListedUser[]) => void;
 }
 
 /** Lifting a local change: revert it or, if the server knows it, settle it. */
@@ -196,6 +200,12 @@ export class UsersPage {
   #seq = 0;
   #formId = 0;
   #disposed = false;
+  /** Counts opening and closing rows by the admin (`#restorer`). */
+  #openRev = 0;
+  /** Counts changes of the selection by the admin (`#restorer`). */
+  #selRev = 0;
+  /** Last removal or multi-factor reset with undo: leaving the page sends it immediately. */
+  #final: DeferredAction | null = null;
   /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
   #reopened = false;
   readonly #keep = keptUsers.keeper();
@@ -283,10 +293,26 @@ export class UsersPage {
     const seq = ++this.#seq;
     const reopened = this.#reopened;
     this.#reopened = false;
-    const changes = keptUsers.changes;
+    let changes = keptUsers.changes;
     try {
-      const { users } = await this.loading.run(api<{ users: ListedUser[] }>('GET', 'users'));
-      if (seq !== this.#seq || this.#disposed) return;
+      // After a removal of a left page still on its way: otherwise the response could still contain the user.
+      const res = await this.loading.run(
+        keptUsers.after(
+          this,
+          () => {
+            // Superseded or left while waiting: no request any more.
+            if (seq !== this.#seq || this.#disposed) return Promise.resolve(null);
+            changes = keptUsers.changes;
+            return api<{ users: ListedUser[] }>('GET', 'users');
+          },
+          // The wait ran out: once the removal is through after all, load again.
+          () => {
+            if (!this.#disposed) void this.load();
+          },
+        ),
+      );
+      if (!res || seq !== this.#seq || this.#disposed) return;
+      const { users } = res;
       // Confirmed in the meantime (e.g. removed): the list is older, so reload.
       if (changes !== keptUsers.changes) {
         this.#reopened = reopened;
@@ -317,6 +343,7 @@ export class UsersPage {
   #overlaid(users: ListedUser[]): ListedUser[] {
     let rows = users;
     for (const o of this.#overlays) {
+      o.rebase?.(users);
       const { patch } = o;
       rows = patch
         ? rows.map((u) => (o.ids.includes(u.id) ? { ...u, ...patch } : u))
@@ -352,7 +379,8 @@ export class UsersPage {
   /**
    * Leave the page: keep the list as the server knows it (without local changes
    * still on their way, which may yet fail); late responses and errors after a
-   * toast expires load nothing any more.
+   * toast expires load nothing any more. A removal or multi-factor reset still
+   * waiting in the toast goes out immediately; the toast closes with its undo.
    */
   dispose(): void {
     if (this.status === 'ready' && !this.#disposed) {
@@ -361,6 +389,9 @@ export class UsersPage {
     }
     this.#disposed = true;
     this.inviteLock.stop();
+    // With `keepalive`: the tab may be closed right after.
+    if (ui.toasts.waiting(this.#final)) void ui.toasts.flush(true);
+    this.#final = null;
   }
 
   // Search, filter, sorting, selection
@@ -386,6 +417,7 @@ export class UsersPage {
   }
 
   toggleOpen(id: string): void {
+    this.#openRev++;
     this.open = this.open === id ? null : id;
     this.sendFail = null;
     ui.closeMenu();
@@ -393,16 +425,19 @@ export class UsersPage {
 
   toggleSelect(id: string): void {
     if (id === this.me) return;
+    this.#selRev++;
     this.selected = this.selected.includes(id) ? this.selected.filter((x) => x !== id) : [...this.selected, id];
   }
 
   /** Select all visible ones or, if all are already selected, none. */
   toggleAll(): void {
     const all = this.chosen.length > 0 && this.chosen.length === this.pickable.length;
+    this.#selRev++;
     this.selected = all ? [] : this.pickable.map((u) => u.id);
   }
 
   clearSelection(): void {
+    this.#selRev++;
     this.selected = [];
     ui.closeMenu();
   }
@@ -415,7 +450,9 @@ export class UsersPage {
     // What the server reported as taken may have changed since (e.g. a discarded email change).
     this.#taken.clear();
     this.#invalid.clear();
+    this.#openRev++;
     this.open = null;
+    this.#selRev++;
     this.selected = [];
     this.result = null;
   }
@@ -563,15 +600,17 @@ export class UsersPage {
   /**
    * Action failed: error toast with the text of the place (without a
    * connection "No connection. …"), reload the list; without a session or
-   * role reload the account.
+   * role reload the account. After leaving the page nothing, except for
+   * `late` the error toast (an action sent when leaving).
    */
-  #failed(error: unknown, text: string = m.error_act()): void {
-    if (this.#disposed) return;
+  #failed(error: unknown, text: string = m.error_act(), late = false): void {
+    if (this.#disposed && !late) return;
     if (isApiError(error, 429)) {
       ui.toasts.error(m.error_limit({ wait: waitText(retryAfter(error)) }));
       return;
     }
     ui.toasts.error(failText(error, text));
+    if (this.#disposed) return;
     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
       void session.refreshUser().catch(() => {});
       return;
@@ -601,9 +640,10 @@ export class UsersPage {
     return this.#change({ ids, patch, undo });
   }
 
-  /** Remove rows (remove, withdraw) until the response; `revert` if the server rejects. */
+  /** Remove rows (remove, withdraw) until the response; `revert` after undo or if the server rejects. */
   #drop(ids: readonly string[]): Change {
-    const rows = this.rows;
+    // A newer list replaces it: what the server no longer has does not come back with undo.
+    let rows = this.rows;
     this.rows = rows.filter((u) => !ids.includes(u.id));
     this.selected = this.selected.filter((id) => !ids.includes(id));
     if (this.open && ids.includes(this.open)) this.open = null;
@@ -611,15 +651,67 @@ export class UsersPage {
       const known = now.map((u) => u.id);
       return [...now, ...rows.filter((u) => ids.includes(u.id) && !known.includes(u.id))];
     };
-    return this.#change({ ids, undo });
+    const rebase = (users: ListedUser[]) => {
+      rows = users;
+    };
+    return this.#change({ ids, undo, rebase });
   }
 
-  /** Call immediately after confirmation; afterwards the server state applies, otherwise back. */
-  #now(change: Change, call: Promise<unknown>): void {
-    void call.then(change.settle, (error: unknown) => {
-      change.revert();
-      this.#failed(error);
-    });
+  /**
+   * Removal or multi-factor reset after the confirmation, with undo: the call
+   * goes out when the toast expires or immediately when leaving the page
+   * (`dispose`). If it fails, the rows return (`restore`: also selection and
+   * expanded row) and the error toast appears.
+   */
+  #deferFinal(
+    text: string,
+    change: Change,
+    call: (keepalive: boolean) => Promise<unknown>,
+    restore?: () => void,
+  ): void {
+    // Errors of an earlier session (signed out meanwhile) are no longer reported.
+    const alive = keptUsers.alive();
+    const action: DeferredAction = {
+      text,
+      revert: change.revert,
+      commit: async (keepalive) => {
+        const sending = call(keepalive);
+        // Also if the page is left meanwhile: a reopened one loads only after it.
+        keptUsers.track(sending, this);
+        await sending;
+        change.settle();
+      },
+      onError: (error) => {
+        if (!alive()) return;
+        if (!this.#disposed) restore?.();
+        this.#failed(error, m.error_act(), true);
+      },
+    };
+    this.#final = action;
+    ui.toasts.defer(action);
+    // Confirmed only after leaving the page (the dialog stays open): send right away.
+    if (this.#disposed) void ui.toasts.flush(true);
+  }
+
+  /**
+   * Selection and expanded row before a removal, for a failed call (each
+   * only if the admin has not changed it since).
+   */
+  #restorer(ids: readonly string[]): () => void {
+    const selected = this.selected.filter((id) => ids.includes(id));
+    const open = this.open !== null && ids.includes(this.open) ? this.open : null;
+    const rev = this.#openRev;
+    const selRev = this.#selRev;
+    return () => {
+      const known = this.rows.map((u) => u.id);
+      if (selRev === this.#selRev) {
+        this.selected = [
+          ...this.selected,
+          ...selected.filter((id) => known.includes(id) && !this.selected.includes(id)),
+        ];
+      }
+      if (open !== null && rev === this.#openRev && known.includes(open)) this.open = open;
+    };
   }
 
   /** Role in the expanded row, with undo. */
@@ -684,7 +776,7 @@ export class UsersPage {
     });
   }
 
-  /** "Remove" or "Revoke invitation": immediately after confirmation. */
+  /** "Remove" or "Revoke invitation" after confirmation, with undo. */
   remove(u: ListedUser): void {
     const name = displayName(u);
     const invited = u.status === 'invited';
@@ -695,14 +787,20 @@ export class UsersPage {
       ok: invited ? m.users_revoke_ok() : m.users_remove(),
       danger: true,
       run: () => {
+        const restore = this.#restorer([u.id]);
         const change = this.#drop([u.id]);
-        ui.toasts.show(invited ? m.users_revoked() : m.users_removed({ who: name }));
-        this.#now(change, api('DELETE', invited ? `invites/${u.id}` : `users/${u.id}`));
+        const path = invited ? `invites/${u.id}` : `users/${u.id}`;
+        this.#deferFinal(
+          invited ? m.users_revoked() : m.users_removed({ who: name }),
+          change,
+          (keepalive) => api('DELETE', path, undefined, { keepalive }),
+          restore,
+        );
       },
     });
   }
 
-  /** "Reset multi-factor": immediately after confirmation, without undo. */
+  /** "Reset multi-factor" after confirmation, with undo. */
   resetMfa(u: ListedUser): void {
     const name = displayName(u);
     ui.ask({
@@ -713,8 +811,9 @@ export class UsersPage {
       danger: true,
       run: () => {
         const change = this.#patch([u.id], { mfa: false });
-        ui.toasts.show(m.users_mfa_done({ name }));
-        this.#now(change, api('POST', `users/${u.id}/reset-mfa`));
+        this.#deferFinal(m.users_mfa_done({ name }), change, (keepalive) =>
+          api('POST', `users/${u.id}/reset-mfa`, undefined, { keepalive }),
+        );
       },
     });
   }
@@ -827,7 +926,7 @@ export class UsersPage {
     this.#setStatus(list, 'active', m.users_unlocked({ who }), true);
   }
 
-  /** Remove the selection or withdraw invitations: immediately after confirmation. */
+  /** Remove the selection or withdraw invitations after confirmation, with undo. */
   bulkRemove(): void {
     const list = this.chosen;
     const [one] = list;
@@ -847,9 +946,14 @@ export class UsersPage {
       danger: true,
       run: () => {
         const ids = list.map((u) => u.id);
+        const restore = this.#restorer(ids);
         const change = this.#drop(ids);
-        ui.toasts.show(m.users_removed({ who }));
-        this.#now(change, api('POST', 'users/bulk', { action: 'remove', ids }));
+        this.#deferFinal(
+          m.users_removed({ who }),
+          change,
+          (keepalive) => api('POST', 'users/bulk', { action: 'remove', ids }, { keepalive }),
+          restore,
+        );
       },
     });
   }

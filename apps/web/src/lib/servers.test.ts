@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { csp } from '#lib/csp.ts';
+import { KEPT_WAIT_MS } from '#lib/state/kept.ts';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type Me, type PublicConfig } from '#lib/state/session.svelte.ts';
@@ -560,7 +561,7 @@ describe('Saved during a test', () => {
 });
 
 describe('Remove', () => {
-  it('asks with a warning about the system mail, removes immediately and reloads the account', async () => {
+  it('asks with a warning about the system mail, removes with undo and reloads the account after expiry', async () => {
     const { p, v, calls } = await loaded({
       'DELETE admin/servers/s1': [{ status: 204 }],
       'GET auth/me': [{ body: { ...ME, system_mail_configured: false } }],
@@ -575,7 +576,15 @@ describe('Remove', () => {
     });
     ui.confirmOk();
     expect(v().srvRows.map((r) => r.id)).toEqual(['s2']);
-    expect(ui.toast).toMatchObject({ text: '“VPS 1” removed', undo: false });
+    expect(ui.toast).toMatchObject({ text: '“VPS 1” removed', undo: true });
+    // "Undo": back at its place, nothing sent.
+    ui.toasts.undo();
+    expect(v().srvRows.map((r) => r.id)).toEqual(['s1', 's2']);
+    expect(sent(calls)).not.toContain('DELETE admin/servers/s1');
+    rowOf(v(), 's1').remove();
+    ui.confirmOk();
+    expect(sent(calls)).not.toContain('DELETE admin/servers/s1');
+    await ui.toasts.flush();
     await vi.waitFor(() => expect(session.user?.system_mail_configured).toBe(false));
     expect(sent(calls)).toContain('DELETE admin/servers/s1');
     expect(p.systemServer).toBeNull();
@@ -591,9 +600,10 @@ describe('Remove', () => {
       '3 linked accounts will lose their connection until they’re assigned to another server.',
     );
     ui.confirmOk();
-    await vi.waitFor(() => expect(ui.toast?.text).toBe('That didn’t work. Please try again.'));
-    expect(ui.toast?.error).toBe(true);
-    expect(v().srvRows.map((r) => r.id)).toContain('s2');
+    expect(v().srvRows.map((r) => r.id)).toEqual(['s1']);
+    await ui.toasts.flush();
+    expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true });
+    expect(v().srvRows.map((r) => r.id)).toEqual(['s1', 's2']);
     expect(sent(calls)).not.toContain('GET auth/me');
     p.rows = [{ ...S2, accounts: 1 }];
     p.remove(p.rows[0] as AdminServer);
@@ -605,11 +615,139 @@ describe('Remove', () => {
     const { p } = await loaded({ 'DELETE admin/servers/s2': [del.reply] });
     p.remove(p.rows[1] as AdminServer);
     ui.confirmOk();
+    // Waiting in the toast and then on its way: reloaded lists leave it out.
+    await p.load();
+    expect(p.rows.map((s) => s.id)).toEqual(['s1']);
+    const sending = ui.toasts.flush();
     await p.load();
     expect(p.rows.map((s) => s.id)).toEqual(['s1']);
     del.release();
-    await vi.waitFor(() => expect(ui.toast?.text).toBe('“VPS 2” removed'));
+    await sending;
+    expect(ui.toast?.text).not.toBe('That didn’t work. Please try again.');
     expect(p.rows.map((s) => s.id)).toEqual(['s1']);
+  });
+
+  it('sends a waiting removal immediately when leaving the page and reports a later error', async () => {
+    const { p, v, calls } = await loaded({ 'DELETE admin/servers/s2': [{ status: 500, body: { error: 'internal' } }] });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    p.dispose();
+    // The toast closes: "Undo" no longer applies.
+    expect(ui.toast).toBeNull();
+    expect(sent(calls)).toContain('DELETE admin/servers/s2');
+    await ui.toasts.flush();
+    expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true });
+    // The left page loads nothing any more; the kept list still has the server.
+    expect(sent(calls).filter((c) => c === 'GET admin/servers')).toHaveLength(1);
+    expect(new ServersPage().rows.map((s) => s.id)).toEqual(['s1', 's2']);
+  });
+
+  it('brings back a server with undo as the newest list has it, or not if it is gone', async () => {
+    const { p, v } = await loaded({
+      'GET admin/servers': [list([S1, S2]), list([S1, { ...S2, label: 'VPS 2 new' }]), list([S1])],
+      'GET admin/servers/policy': [POLICY, POLICY, POLICY],
+    });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    await p.load();
+    ui.toasts.undo();
+    expect(p.rows.map((s) => s.label)).toEqual(['VPS 1', 'VPS 2 new']);
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    // Removed by another administrator in the meantime.
+    await p.load();
+    ui.toasts.undo();
+    expect(p.rows.map((s) => s.id)).toEqual(['s1']);
+  });
+
+  it('brings back the row as it was shown at the confirmation', async () => {
+    const { p } = await loaded();
+    const old = p.rows[1] as AdminServer;
+    // A reload changed the label while the dialog was open.
+    p.rows = [p.rows[0] as AdminServer, { ...old, label: 'VPS 2 new' }];
+    p.remove(old);
+    ui.confirmOk();
+    expect(ui.toast?.text).toBe('“VPS 2 new” removed');
+    ui.toasts.undo();
+    expect(p.rows.map((s) => s.label)).toEqual(['VPS 1', 'VPS 2 new']);
+  });
+
+  it('clears the system mail server only if it still is the removed one', async () => {
+    const { p, v, calls } = await loaded({ 'DELETE admin/servers/s1': [{ status: 204 }] });
+    rowOf(v(), 's1').remove();
+    ui.confirmOk();
+    // Reloaded in the meantime with another server for the system mail.
+    p.systemServer = 's2';
+    await ui.toasts.flush();
+    expect(p.systemServer).toBe('s2');
+    expect(sent(calls)).not.toContain('GET auth/me');
+  });
+
+  it('a reopened page loads only after the removal sent on leaving, with `keepalive`', async () => {
+    const del = later({ status: 204 });
+    const { p, v } = await loaded({ 'DELETE admin/servers/s2': [del.reply] });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    p.dispose();
+    expect(vi.mocked(fetch).mock.calls.at(-1)?.[1]).toMatchObject({ method: 'DELETE', keepalive: true });
+    const { calls } = mockApi({ 'GET admin/servers': [list([S1])], 'GET admin/servers/policy': [POLICY] });
+    const q = new ServersPage();
+    const load = q.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls)).toEqual([]);
+    del.release();
+    await load;
+    expect(sent(calls)).toEqual(['GET admin/servers', 'GET admin/servers/policy']);
+    expect(q.rows.map((s) => s.id)).toEqual(['s1']);
+  });
+
+  it('a reopened page loads again once a removal that took too long is through', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const del = later({ status: 204 });
+    const { p, v } = await loaded({ 'DELETE admin/servers/s2': [del.reply] });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    p.dispose();
+    const { calls } = mockApi({
+      'GET admin/servers': [list([S1, S2]), list([S1])],
+      'GET admin/servers/policy': [POLICY, POLICY],
+    });
+    const q = new ServersPage();
+    const load = q.load();
+    await vi.advanceTimersByTimeAsync(KEPT_WAIT_MS);
+    await load;
+    expect(q.rows.map((s) => s.id)).toEqual(['s1', 's2']);
+    del.release();
+    await vi.waitFor(() => expect(q.rows.map((s) => s.id)).toEqual(['s1']));
+    expect(sent(calls).filter((c) => c === 'GET admin/servers')).toHaveLength(2);
+  });
+
+  it('a reopened page loads only after a removal sent before leaving', async () => {
+    const del = later({ status: 204 });
+    const { p, v } = await loaded({ 'DELETE admin/servers/s2': [del.reply] });
+    rowOf(v(), 's2').remove();
+    ui.confirmOk();
+    // Sent before leaving (toast expired), still on its way.
+    const sending = ui.toasts.flush();
+    p.dispose();
+    const { calls } = mockApi({ 'GET admin/servers': [list([S1])], 'GET admin/servers/policy': [POLICY] });
+    const q = new ServersPage();
+    const load = q.load();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(sent(calls)).toEqual([]);
+    del.release();
+    await load;
+    await sending;
+    expect(q.rows.map((s) => s.id)).toEqual(['s1']);
+  });
+
+  it('leaves an action of another page waiting when leaving', async () => {
+    const { p } = await loaded();
+    const other = { text: 'Elsewhere', revert: vi.fn(), commit: vi.fn(() => Promise.resolve()) };
+    ui.toasts.defer(other);
+    p.dispose();
+    expect(other.commit).not.toHaveBeenCalled();
+    expect(ui.toast?.text).toBe('Elsewhere');
   });
 });
 
@@ -1388,8 +1526,9 @@ describe('Reopening', () => {
   });
 
   it('keeps list and policy as the server knows them while a removal or toggle may yet fail', async () => {
+    const del = later({ status: 204 });
     const { p } = await loaded({
-      'DELETE admin/servers/s2': [() => new Promise(() => {})],
+      'DELETE admin/servers/s2': [del.reply],
       'PUT admin/servers/policy': [() => new Promise(() => {})],
     });
     const s2 = p.rows.find((s) => s.id === 's2');
@@ -1401,6 +1540,8 @@ describe('Reopening', () => {
     p.dispose();
     const q = new ServersPage();
     expect([q.rows.map((s) => s.id), q.allowOwn]).toEqual([['s1', 's2'], false]);
+    del.release();
+    await ui.toasts.flush();
   });
 
   it('asks for the policy only after a toggle still on its way', async () => {

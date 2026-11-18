@@ -95,6 +95,11 @@ export class Toasts {
     return this.#pending !== null;
   }
 
+  /** Is this action still waiting in the toast (not sent, not undone)? */
+  waiting(action: DeferredAction | null): boolean {
+    return action !== null && this.#pending === action;
+  }
+
   /** Notice without undo; a pending action goes out first. */
   show(text: string): void {
     void this.flush();
