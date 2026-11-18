@@ -4,6 +4,7 @@ import { dialogValues, ServersPage, type AdminServer, type ServerDialogValues } 
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import ServerDialog from './ServerDialog.svelte';
+import SOURCE from './ServerDialog.svelte?raw';
 
 const S2: AdminServer = {
   id: 's2',
@@ -148,6 +149,59 @@ describe('ServerDialog', () => {
       'true',
     );
     p.regLock.stop();
+  });
+
+  it('shows the icon on mobile only in the client ID / secret error line', async () => {
+    const { p, view, sync } = open(S2, true);
+    p.setLabel('');
+    p.setUrl('');
+    p.setCid('c\u0001');
+    await p.save();
+    await sync();
+    const alerts = view.getAllByRole('alert');
+    expect(alerts.map((a) => a.textContent?.trim())).toEqual([
+      'Please enter a label.',
+      'The URL must start with https://, e.g. https://mail.example.com.',
+      'The client ID contains invalid characters or is too long.',
+    ]);
+    expect(alerts.map((a) => a.querySelector('svg') !== null)).toEqual([false, false, true]);
+    expect(alerts[2]).toHaveClass('cred', 'm');
+  });
+
+  it('shows the admin error on mobile without icon and the rate limit text level with the tile', async () => {
+    mockApi({
+      'POST admin/servers/register-client': [
+        { status: 502, body: { error: 'registration_failed', reason: 'throttled', retry_after: 90 } },
+      ],
+    });
+    const { p, view, sync } = open(null, true);
+    p.setUrl('https://mail.new.test');
+    await p.register();
+    await sync();
+    const adm = view.getByRole('alert');
+    expect(adm).toHaveTextContent('Please enter the mail server’s admin user and app password.');
+    expect(adm).toHaveClass('adm', 'm');
+    expect(adm.querySelector('svg')).toBeNull();
+    p.setAdminUser('admin');
+    p.setAdminPassword('app-password');
+    try {
+      await p.register();
+      await sync();
+      const box = view.getByRole('alert');
+      expect(box.querySelector('.locked-text')).toHaveTextContent(/^Too many requests\. /);
+      expect(view.getByRole('button', { name: /^Register client automatically in/ })).toHaveClass('off');
+    } finally {
+      p.regLock.stop();
+    }
+  });
+
+  it('styles the rate limit box and the disabled register button', () => {
+    const rule = (selector: string) =>
+      new RegExp(`^ {2}${selector.replace(/[\\^$.*+?()[\]{}|]/g, '\\$&')} \\{([^}]*)\\}`, 'm').exec(SOURCE)?.[1] ?? '';
+    expect(rule('.locked')).toMatch(/border-radius: 16px;/);
+    expect(rule('.locked-text')).toMatch(/padding-top: 4px;/);
+    expect(rule('.reg.off')).toMatch(/opacity: 0\.55;\s*cursor: not-allowed;/);
+    expect(rule('.field-err.adm.m')).toMatch(/padding: 0 4px;/);
   });
 
   it('names the linked accounts before a new client when editing', async () => {

@@ -38,9 +38,10 @@
   const key = (handler: (e: KeyInput) => void) => (event: KeyboardEvent) => handler(event);
 </script>
 
-{#snippet errorLine(text: string, extra = '')}
+<!-- On mobile only the client ID / secret line keeps its icon. -->
+{#snippet errorLine(text: string, extra = '', icon = !isMobile)}
   <div role="alert" class="field-err {extra}">
-    {#if !isMobile}<Icon name="ti-alert-circle" />{/if}{text}
+    {#if icon}<Icon name="ti-alert-circle" />{/if}{text}
   </div>
 {/snippet}
 
@@ -100,19 +101,19 @@
             autocomplete="off"
           />
         </div>
-        {#if sd.hasEAdm}{@render errorLine(sd.eAdm, 'adm')}{/if}
         {#if sd.aLocked}
           <div role="alert" class="locked">
             <span class="locked-icon"><Icon name="ti-lock" /></span>
-            <span><strong>{m.limit_title()}</strong> {sd.aLockText}</span>
+            <div class="locked-text"><strong>{m.limit_title()}</strong> {sd.aLockText}</div>
           </div>
         {/if}
         {#if sd.aThr}
           <div role="alert" class="locked">
             <span class="locked-icon"><Icon name="ti-clock" /></span>
-            <span><strong>{m.reg_throttled_title()}</strong> {sd.aThrText}</span>
+            <div class="locked-text"><strong>{m.reg_throttled_title()}</strong> {sd.aThrText}</div>
           </div>
         {/if}
+        {#if sd.hasEAdm}{@render errorLine(sd.eAdm, isMobile ? 'adm m' : 'adm')}{/if}
         {#if sd.hasLinkHint}{@render note(sd.linkHint)}{/if}
         <button
           class="reg"
@@ -176,11 +177,11 @@
         </div>
       </div>
       {#if !isMobile && sd.hasCidHint}{@render note(sd.cidHint)}{/if}
-      {#if sd.hasECred}{@render errorLine(sd.eCred, isMobile ? 'cred m' : 'cred')}{/if}
+      {#if sd.hasECred}{@render errorLine(sd.eCred, isMobile ? 'cred m' : 'cred', true)}{/if}
       <span class="hint oa-hint">{isMobile || sd.secReg ? sd.secPh : m.server_secret_hint({ text: sd.secPh })}</span>
     {/if}
     <!-- Client ID or secret invalid (`eCred`) stays visible in the "Automatic" mode too -->
-    {#if sd.hasECred && !sd.isManual}{@render errorLine(sd.eCred, isMobile ? 'cred m' : 'cred')}{/if}
+    {#if sd.hasECred && !sd.isManual}{@render errorLine(sd.eCred, isMobile ? 'cred m' : 'cred', true)}{/if}
     <div class="redirect">
       <div class="redirect-text">
         <span class="redirect-label">{m.server_redirect()}</span>
@@ -531,6 +532,12 @@
 
   .field-err.adm :global(svg) {
     margin-top: 1px;
+  }
+
+  /* Mobile: plain text line without icon, aligned with the other mobile lines. */
+  .field-err.adm.m {
+    display: block;
+    padding: 0 4px;
   }
 
   /* Longer messages at the client ID field (`redirect_mismatch`) wrap. */
@@ -1140,12 +1147,17 @@
     align-items: flex-start;
     gap: 10px;
     padding: 10px 14px 10px 10px;
-    border-radius: 18px;
+    border-radius: 16px;
     background: color-mix(in oklab, var(--danger) 12%, var(--surface));
     color: var(--danger);
     font-size: 13.5px;
     line-height: 1.45;
     text-wrap: pretty;
+  }
+
+  /* Level with the 30 px tile */
+  .locked-text {
+    padding-top: 4px;
   }
 
   .locked strong {
@@ -1165,5 +1177,6 @@
 
   .reg.off {
     opacity: 0.55;
+    cursor: not-allowed;
   }
 </style>
