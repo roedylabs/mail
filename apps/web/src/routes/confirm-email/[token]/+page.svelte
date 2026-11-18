@@ -114,7 +114,7 @@
             <p>{fail.text}</p>
             <button
               type="button"
-              class="primary"
+              class="primary retry"
               class:locked={fail.locked}
               aria-disabled={fail.disabled}
               onclick={() => flow.retry()}
@@ -561,7 +561,22 @@
     height: 19px;
   }
 
-  /* "Try again" during the lockout (429): faded */
+  /* "Try again": fades in the lockout (429); while it checks or is locked no lift and the default cursor */
+  .primary.retry {
+    transition:
+      transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1),
+      box-shadow 220ms,
+      background-color 300ms,
+      opacity 220ms;
+  }
+
+  .primary.retry[aria-disabled='true'] {
+    cursor: default;
+    --htf: none;
+    /* fixed value (button edge) */
+    --hsh: inset 0 -3px 0 rgba(0, 0, 0, 0.08), var(--sh1);
+  }
+
   .primary.locked {
     opacity: 0.55;
   }
@@ -581,10 +596,9 @@
   }
 
   .primary:hover {
-    transform: translateY(-2px);
-    box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.08),
-      var(--sh2);
+    transform: var(--htf, translateY(-2px));
+    /* fixed value (button edge) */
+    box-shadow: var(--hsh, inset 0 -3px 0 rgba(0, 0, 0, 0.08), var(--sh2));
   }
 
   .primary:active {

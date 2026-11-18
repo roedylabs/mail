@@ -17,8 +17,10 @@
     active: boolean;
     /** Error: red borders. */
     bad: boolean;
-    /** Locked (429): field disabled, boxes faded. */
+    /** Locked (429): field disabled. */
     locked?: boolean;
+    /** Fade the boxes while locked (sign-in); the invitation keeps them opaque. */
+    fadeLocked?: boolean;
     describedby?: string | undefined;
     /** Gap and height of the boxes from the page's size step. */
     gap: string;
@@ -38,6 +40,7 @@
     active,
     bad,
     locked = false,
+    fadeLocked = true,
     describedby,
     gap,
     height,
@@ -60,7 +63,7 @@
   });
 </script>
 
-<div class="code-ctl" style:opacity={locked ? 0.5 : 1}>
+<div class="code-ctl" style:opacity={locked && fadeLocked ? 0.5 : 1}>
   <div
     class="boxes"
     class:bc={!otp}

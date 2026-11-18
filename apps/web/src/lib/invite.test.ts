@@ -361,15 +361,22 @@ describe('step multi-factor', () => {
   });
 
   it('shows maintenance mode and expiry when confirming', async () => {
-    const { flow } = await atMfa({
-      [accept]: [
-        { status: 503, body: { error: 'maintenance', message: 'Until 6 pm' } },
-        { status: 422, body: { error: 'invite_expired' } },
-      ],
-    });
+    const h = hooks();
+    const { flow } = await atMfa(
+      {
+        [accept]: [
+          { status: 503, body: { error: 'maintenance', message: 'Until 6 pm' } },
+          { status: 422, body: { error: 'invite_expired' } },
+        ],
+      },
+      h,
+    );
+    h.fail.mockClear();
     flow.editOtp('123456');
     await vi.waitFor(() => expect(flow.maint).toEqual({ message: 'Until 6 pm' }));
     expect(flow.otp).toBe('');
+    // A notice, not a mistake: the card does not shake.
+    expect(h.fail).not.toHaveBeenCalled();
     flow.editOtp('654321');
     await vi.waitFor(() => expect(flow.showExpired).toBe(true));
     expect(flow.info?.expired).toBe(true);

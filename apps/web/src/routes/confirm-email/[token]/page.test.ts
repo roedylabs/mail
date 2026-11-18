@@ -127,4 +127,15 @@ describe('Confirm email address page', () => {
     const again = render(Page);
     expect(await again.findByRole('button', { name: 'Try again' })).toBeInTheDocument();
   });
+
+  it('locks “Try again” after 429: faded, focusable and without the hover lift', async () => {
+    mockApi({
+      'POST auth/email/check': [{ status: 429, body: { error: 'rate_limited', retry_after: 300 } }],
+    });
+    const view = render(Page);
+    const button = await view.findByRole('button', { name: 'Try again in 5:00' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).not.toBeDisabled();
+    expect(button).toHaveClass('retry', 'locked');
+  });
 });

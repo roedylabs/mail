@@ -231,8 +231,8 @@
   {/if}
 {/snippet}
 
-{#snippet alert(icon: IconName, title: string, text: string, id?: string)}
-  <div class="alert" role="alert" {id}>
+{#snippet alert(icon: IconName, title: string, text: string, id?: string, cls?: string)}
+  <div class={['alert', cls]} role="alert" {id}>
     <span class="alert-icon"><Icon name={icon} /></span>
     <div class="alert-text"><strong>{title}</strong> {text}</div>
   </div>
@@ -454,15 +454,15 @@
                     {@render alert('ti-shield-x', m.invite_code_bad_title(), m.invite_code_bad_text(), 'in-code-alert')}
                   </div>
                 {/if}
+                {#if flow.maint}
+                  <div class="maint" role="status">
+                    <span class="maint-icon"><Icon name="ti-tool" /></span>
+                    <span class="maint-text">{flow.maint.message ?? m.login_maint_default()}</span>
+                  </div>
+                {/if}
                 {#if flow.codeLocked}
                   <div class="alert-top">
                     {@render alert('ti-lock', m.login_code_locked_title(), flow.codeLockText, 'in-code-alert')}
-                  </div>
-                {/if}
-                {#if flow.maint}
-                  <div class="maint" role="alert">
-                    <span class="maint-icon"><Icon name="ti-tool" /></span>
-                    <span class="maint-text">{flow.maint.message ?? m.login_maint_default()}</span>
                   </div>
                 {/if}
 
@@ -477,6 +477,7 @@
                     active={focus === 'otp' && !flow.otpLoading}
                     bad={!!flow.otpErr}
                     locked={flow.codeLocked}
+                    fadeLocked={false}
                     describedby={flow.otpShort
                       ? 'in-otp-err'
                       : flow.otpBad || flow.codeLocked
@@ -555,7 +556,7 @@
                   })}
                 </p>
                 {#if flow.linkLocked}
-                  <div class="wide gap-l">{@render alert('ti-lock', m.login_requests_title(), flow.linkLockText)}</div>
+                  {@render alert('ti-lock', m.login_requests_title(), flow.linkLockText, undefined, 'gap-m')}
                 {/if}
                 <button
                   type="button"
