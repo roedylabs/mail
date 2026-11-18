@@ -204,7 +204,7 @@ describe('Notifications page', () => {
     ui.pageDialog?.()?.close();
     expect(ui.pageDialog?.()).toBeNull();
 
-    // Channel on, but this browser not subscribed: button below the row.
+    // Channel on, but the browser has not asked yet: button below the row.
     prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
     await tick();
     const allow = view.getByRole('button', { name: 'Allow in browser' });
@@ -213,31 +213,44 @@ describe('Notifications page', () => {
     expect(ui.pageDialog?.()?.title).toBe('Push notifications');
   });
 
-  it('push with permission subscribes silently; when subscribed it only toggles the channel', async () => {
+  it('push with permission subscribes this browser; on without "Allow in browser"', async () => {
     push.permission = 'granted';
     const view = render(Page);
     const sw = view.getByRole('switch', { name: 'Push notifications' });
     await fireEvent.click(sw);
     expect(request).toHaveBeenCalledOnce();
     expect(ui.pageDialog?.()).toBeNull();
+    expect(prefs.values.nCh.push).toBe(false);
 
-    request.mockClear();
-    push.current = {
-      id: 's1',
-      endpoint: 'https://push.example.test/1',
-      device: 'Firefox on Linux',
-      created_at: '2026-11-01T10:00:00Z',
-      expires_at: null,
-      current: true,
-    };
+    // Turned on (also on another device): with permission it counts as active, without a button below.
+    prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
     await tick();
-    await fireEvent.click(sw);
-    expect(request).not.toHaveBeenCalled();
-    expect(prefs.values.nCh.push).toBe(true);
     expect(sw).toHaveAttribute('aria-checked', 'true');
+    expect(view.getByText('Allowed in the browser')).toBeInTheDocument();
     expect(view.queryByRole('button', { name: 'Allow in browser' })).toBeNull();
     await fireEvent.click(sw);
     expect(prefs.values.nCh.push).toBe(false);
+    expect(pause).toHaveBeenCalledOnce();
+  });
+
+  it('permission, channel on, silent subscription failed: off on this device, "Turn on push" subscribes', async () => {
+    accounts.list = [ACCOUNT];
+    push.permission = 'granted';
+    prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
+    push.missing = true;
+    const view = render(Page);
+    const sw = view.getByRole('switch', { name: 'Push notifications' });
+    expect(sw).toHaveAttribute('aria-checked', 'false');
+    expect(view.getByText('Allowed in the browser')).toBeInTheDocument();
+    expect(view.queryByRole('button', { name: 'Allow in browser' })).toBeNull();
+    expect(mailSwitch()).toHaveAttribute('aria-disabled', 'true');
+    expect(restore).not.toHaveBeenCalled();
+    await fireEvent.click(view.getByRole('button', { name: 'Turn on push' }));
+    expect(request).toHaveBeenCalledOnce();
+    await fireEvent.click(sw);
+    expect(request).toHaveBeenCalledTimes(2);
+    expect(prefs.values.nCh.push).toBe(true);
+    expect(ui.pageDialog?.()).toBeNull();
   });
 
   it('opens the push dialog from the command palette, also on the open page', async () => {
@@ -718,6 +731,19 @@ describe('Notifications page', () => {
       await tick();
       expect(restore).not.toHaveBeenCalled();
       prefs.set({ nCh: { ...prefs.values.nCh, push: true } });
+      await tick();
+      expect(restore).toHaveBeenCalledOnce();
+    });
+
+    it('restores the selection only once this browser is registered', async () => {
+      pushActive();
+      const current = push.current;
+      push.current = null;
+      render(Page);
+      await tick();
+      expect(push.status).toBe('active');
+      expect(restore).not.toHaveBeenCalled();
+      push.current = current;
       await tick();
       expect(restore).toHaveBeenCalledOnce();
     });

@@ -116,6 +116,7 @@
     flex-shrink: 0;
     padding: 0 16px;
     font-size: 13.5px;
+    transition: none;
   }
 
   .mobile .tab:hover {

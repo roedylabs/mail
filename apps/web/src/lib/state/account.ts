@@ -45,10 +45,9 @@ export async function loadSignedIn(): Promise<boolean> {
   } catch {
     return false;
   }
-  // Push subscriptions end with the session: register an existing browser for the new one.
+  // Push subscriptions end with the session: register this browser for the new one (silently subscribes with the channel on).
   if (session.authed) {
-    void push.resume();
-    void mailPush.resume();
+    void push.resume().then(() => mailPush.resume());
     session.announce();
   }
   return session.authed;

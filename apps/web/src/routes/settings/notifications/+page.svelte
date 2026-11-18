@@ -99,7 +99,7 @@
           support: push.support,
           permission: push.permission,
           status: push.status,
-          subscribed: push.current !== null,
+          missing: push.missing,
           appName: session.appName,
         },
         mailAccounts:
@@ -158,9 +158,9 @@
     });
   });
 
-  // Push channel active, also on opening: the remembered selection applies again.
+  // Push channel active and this browser registered, also on opening: the remembered selection applies again.
   $effect(() => {
-    if (push.status === 'active') untrack(() => void mailPush.restore().catch(() => {}));
+    if (push.status === 'active' && push.current) untrack(() => void mailPush.restore().catch(() => {}));
   });
 
   // Show mail servers without push before the first click; the account itself shows sign-in required and locked servers.
