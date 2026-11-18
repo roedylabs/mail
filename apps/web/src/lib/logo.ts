@@ -11,6 +11,8 @@ export interface LogoValues {
   text?: string;
   fs?: string;
   icon?: string;
+  /** Size of the icon (default 56cqmin of the frame). */
+  iconSize?: string;
   src?: string;
 }
 

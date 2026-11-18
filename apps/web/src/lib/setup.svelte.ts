@@ -393,8 +393,8 @@ export class SetupFlow {
     if (this.locked) return 'locked';
     if (
       (this.step === 1 && this.tokErr === 'invalid') ||
-      (this.step === 4 && (this.srvSt === 'err' || this.srvSt === 'warn')) ||
-      (this.step === 5 && (this.sysSt === 'err' || this.sysSt === 'locked')) ||
+      (this.step === 4 && this.srvSt === 'err') ||
+      (this.step === 5 && this.sysSt === 'err') ||
       Object.values(this.err).some(Boolean)
     )
       return 'error';

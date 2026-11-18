@@ -2260,6 +2260,7 @@
   .done-title {
     max-width: 100%;
     line-height: 1.15;
+    letter-spacing: normal;
     overflow-wrap: anywhere;
   }
 

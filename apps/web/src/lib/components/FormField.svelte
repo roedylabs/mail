@@ -25,6 +25,8 @@
     /** Text below the field; `true` marks the field without text. */
     error?: string | true | null | undefined;
     hint?: string;
+    /** Error text over several lines: icon at the top of the first line. */
+    errorWrap?: boolean;
     /** Show the hint even when the page has little room. */
     hintAlways?: boolean;
     /** Further description (`aria-describedby`), e.g. the password rules. */
@@ -44,6 +46,7 @@
     value,
     oninput,
     error = null,
+    errorWrap = false,
     hint,
     hintAlways = false,
     describedby,
@@ -79,7 +82,9 @@
   </div>
   {@render children?.()}
   {#if text}
-    <div class="err" id="{id}-err"><span class="ei"><Icon name="ti-alert-circle" /></span><span>{text}</span></div>
+    <div class="err" class:wrap={errorWrap} id="{id}-err">
+      <span class="ei"><Icon name="ti-alert-circle" /></span><span>{text}</span>
+    </div>
   {/if}
   {#if hint}<span class="hint" class:always={hintAlways}>{hint}</span>{/if}
 </div>
@@ -180,10 +185,20 @@
     color: var(--errfg);
   }
 
+  .err.wrap {
+    align-items: flex-start;
+    line-height: 1.4;
+    text-wrap: pretty;
+  }
+
   .ei {
     display: grid;
     flex-shrink: 0;
     font-size: 15px;
+  }
+
+  .wrap .ei {
+    margin-top: 1px;
   }
 
   .hint {
