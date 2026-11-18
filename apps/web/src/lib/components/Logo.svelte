@@ -55,7 +55,7 @@
   {/if}
   {#if logo.isIcon && icon}
     <!-- Size via CSS: container units are not valid everywhere as an SVG attribute -->
-    <span class="glyph"><Icon name={icon} size="100%" /></span>
+    <span class="glyph" style:width={logo.iconSize} style:height={logo.iconSize}><Icon name={icon} size="100%" /></span>
   {/if}
   {#if logo.isFill}
     <img class="fill" src={logo.src} alt="" draggable="false" />

@@ -106,6 +106,7 @@ describe('page sign-in', () => {
     const view = show();
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
     expect(view.getByText('Please enter your email address or username.')).toBeInTheDocument();
+    expect(view.container.querySelector('#ln-id-err')).not.toHaveClass('wrap');
     await type('Email or username', 'max');
     await type('Password', 'wrong');
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
@@ -215,6 +216,8 @@ describe('page sign-in', () => {
     await type('New password', 'short');
     await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
     expect(view.getByText('The new password must be at least 10 characters long.')).toBeInTheDocument();
+    // Only this error line wraps with the icon at the top; the sign-in lines stay centred.
+    expect(view.container.querySelector('#ln-np-err')).toHaveClass('wrap');
     await type('New password', 'New-password-1');
     await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
     expect(await view.findByRole('heading', { name: 'Password changed' })).toBeInTheDocument();

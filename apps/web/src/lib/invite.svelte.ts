@@ -240,7 +240,7 @@ export class InviteFlow {
       if (focus === 'name') return 'name';
       return this.nmErr || this.pwErr ? 'error' : 'name';
     }
-    if (this.step === 3) return this.otpBad || this.codeLocked || this.maint ? 'error' : 'mfa';
+    if (this.step === 3) return this.otpBad ? 'error' : 'mfa';
     if (this.step === 4) return this.savedShown ? 'error' : 'backup';
     return 'idle';
   }

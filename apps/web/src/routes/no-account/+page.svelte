@@ -245,6 +245,7 @@
     justify-content: center;
     padding: 0;
     box-shadow: none;
+    transition: none;
   }
 
   .mobile .add:active {

@@ -506,7 +506,8 @@ describe('Step 4: mail server', () => {
     await flow.submitServer();
     expect(flow.srvSt).toBe('warn');
     expect(flow.srvGood).toBe(false);
-    expect(flow.phase).toBe('error');
+    // Warnings are not an error: the illustration keeps the step's icon.
+    expect(flow.phase).toBe('server');
     expect(flow.srvWarn).toBe(true);
     expect(flow.diag.map((r) => [r.status, r.text])).toEqual([
       ['ok', 'Session found. JMAP Core and Mail are available.'],
@@ -802,6 +803,7 @@ describe('Step 5: system emails', () => {
     });
     await flow.submitSystem();
     expect(flow.sysSt).toBe('locked');
+    expect(flow.phase).toBe('system');
     expect(flow.sysLimitText).toBe(
       'Roedy Mail will try again in 45 seconds so the mail server doesn’t block the address.',
     );

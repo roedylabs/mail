@@ -34,8 +34,8 @@
     linkbad: 'ti-link-off',
   };
 
-  /** Initial in the large tile larger than in the header logo (60 or 80 px). */
-  const big = $derived<LogoValues>({ ...logo, fs: (logo.text ?? '').length > 1 ? '60px' : '80px' });
+  /** Initial (60 or 80 px) and icon (76 px) in the large tile larger than in the header logo. */
+  const big = $derived<LogoValues>({ ...logo, fs: (logo.text ?? '').length > 1 ? '60px' : '80px', iconSize: '76px' });
 </script>
 
 {#snippet lines(a: number, b: number)}

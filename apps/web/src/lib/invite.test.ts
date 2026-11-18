@@ -266,6 +266,8 @@ describe('step multi-factor', () => {
     flow.editOtp('111111');
     await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
     expect(flow.codeLockText).toBe('Try again in 15 minutes.');
+    // Only "Invalid code." shows the error icon, not the lock.
+    expect(flow.phase(null, false)).toBe('mfa');
     expect(flow.codeLockBtn).toBe('Confirm in 15:00');
     expect(flow.otpDis).toBe(true);
     flow.dispose();
@@ -377,6 +379,7 @@ describe('step multi-factor', () => {
     expect(flow.otp).toBe('');
     // A notice, not a mistake: the card does not shake.
     expect(h.fail).not.toHaveBeenCalled();
+    expect(flow.phase(null, false)).toBe('mfa');
     flow.editOtp('654321');
     await vi.waitFor(() => expect(flow.showExpired).toBe(true));
     expect(flow.info?.expired).toBe(true);

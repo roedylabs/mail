@@ -27,6 +27,11 @@ describe('Logo', () => {
     expect(render(Logo, { logo: { isIcon: true, icon: 'ti-unknown' } }).container.querySelector('svg')).toBeNull();
   });
 
+  it('sizes the icon when asked', () => {
+    const { container } = render(Logo, { logo: { isIcon: true, icon: 'ti-mountain', iconSize: '76px' } });
+    expect(container.querySelector('.glyph')).toHaveInlineStyle({ width: '76px', height: '76px' });
+  });
+
   it('shows images filled or with a border', () => {
     const { container } = render(Logo, { logo: { isPad: true, src: '/logo.png' } });
     expect(container.querySelector('img')).toHaveClass('pad');

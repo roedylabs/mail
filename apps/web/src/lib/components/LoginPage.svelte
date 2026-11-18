@@ -599,6 +599,7 @@
                 onfocus={focusOn('np')}
                 onblur={blur}
                 error={flow.npErr}
+                errorWrap
                 describedby="ln-np-rules"
               >
                 {#snippet trailing()}{@render pwToggle()}{/snippet}
