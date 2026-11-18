@@ -186,7 +186,11 @@ test('revoke an invitation with undo, sent when leaving the page', async ({ brow
   // Leaving the page sends it right away and closes the toast, well before its 5 s run out.
   await revoke();
   await expect(toast).toBeVisible();
-  await page.getByRole('link', { name: 'Maintenance' }).filter({ visible: true }).click();
+  await page
+    .getByRole('navigation')
+    .getByRole('button', { name: 'Maintenance', exact: true })
+    .filter({ visible: true })
+    .click();
   await expect(toast).toBeHidden({ timeout: 1_500 });
   await expect.poll(invited, { message: 'invitation revoked', timeout: 2_000 }).toBe(false);
   await expect(page.getByRole('heading', { name: 'Maintenance', level: 1 })).toBeVisible();
