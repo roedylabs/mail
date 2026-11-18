@@ -14,7 +14,8 @@
 //              desktop 1440 × 900 and mobile 390 × 844, each light and dark; also
 //              landmarks, number of h1, <title>, lang and skip link per route
 //   states     axe in opened states (menus, dialogs, sheets, toasts, select lists,
-//              search suggestions, target picker in the rule editor): desktop light/dark, mobile light
+//              search suggestions, target picker in the rule editor): desktop light/dark, mobile light;
+//              bars "Unsaved changes" and "Offline" (real and simulated): desktop and mobile, light and dark
 //   zoom       WCAG 1.4.4/1.4.10: every route at 720 × 450 (200 %) and 320 × 640; horizontal
 //              scrolling, clipped, covered and off-screen controls
 //   motion     prefers-reduced-motion: reduce with the default "animations on":
@@ -135,10 +136,11 @@ const ROUTES = [
   ].map((s) => ({ id: `/admin/${s}`, path: `/admin/${s}` })),
 ];
 
-/** States for axe: desktop light and dark, mobile light (`views`), each with `prepare`. */
+/** States for axe: desktop light and dark, mobile light (or `views`), each with `prepare`. */
 /** Layers a state waits for (`shown`): dialogs and sheets; on mobile, select lists are in the sheet. */
 const MODAL = '[role=dialog][aria-modal=true]';
 const LISTBOX = (v) => (isMobile(v) ? MODAL : '[role=listbox]');
+const ALL_VIEWS = ['d-light', 'd-dark', 'm-light', 'm-dark'];
 
 const STATES = [
   {
@@ -248,6 +250,50 @@ const STATES = [
     views: ['m-light', 'm-dark'],
     prepare: (p) => clickVisible(p, 'button[aria-label="More actions"]', null),
     shown: () => `[role=menu], ${MODAL}`,
+  },
+  // Bars, in all four views: the bar "Unsaved changes" has text on desktop, on mobile only
+  // the two buttons; the notice bar "Offline" shows the text on mobile only as a tooltip.
+  {
+    id: 'Unsaved changes bar (profile)',
+    path: '/account/profile',
+    views: ALL_VIEWS,
+    prepare: async (p) => {
+      await clickVisible(p, 'button[aria-label="Edit display name"]', null);
+      await p.locator('input[aria-label="Display name"]').filter({ visible: true }).first().fill('Max Changed');
+      await settle(p, 400);
+    },
+    shown: () => '[role=region][aria-label="Unsaved changes"]',
+  },
+  // A real loss of connection, without "End simulation": every request fails and the
+  // browser reports offline. `setOffline` alone does neither here: the routes of the mocks
+  // keep answering (the newest route wins, so it aborts them) and headless Chromium keeps
+  // `navigator.onLine` true, so the script sets it and sends the event a browser sends.
+  {
+    id: 'Offline bar',
+    path: mailbox,
+    views: ALL_VIEWS,
+    prepare: async (p, v) => {
+      await awayFromBars(p, v);
+      await p.context().route('**/*', (route) => route.abort('internetdisconnected'));
+      await p.context().setOffline(true);
+      await p.evaluate(() => {
+        Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => false });
+        window.dispatchEvent(new Event('offline'));
+      });
+      await settle(p, 400);
+    },
+    shown: () => '[role=status]:has-text("Offline")',
+  },
+  // Offline simulation of the Developer page: the same bar with the action "End simulation".
+  {
+    id: 'Offline bar (simulation)',
+    path: mailbox,
+    views: ALL_VIEWS,
+    prepare: async (p, v) => {
+      await awayFromBars(p, v);
+      await network(p, 'network.simulate(true)');
+    },
+    shown: () => '[role=status]:has-text("Offline") button',
   },
   {
     id: 'Target picker in the rule editor',
@@ -368,6 +414,8 @@ async function open(job, { view, dark, opts = {}, reducedMotion = 'no-preference
     // Expected: `auth/me` answers guests with 401.
     if (opts.guest && /status of 401/.test(text)) return;
     if (opts.setup && /status of 401/.test(text)) return;
+    // Expected: the state "Offline bar" cuts the connection.
+    if (/ERR_INTERNET_DISCONNECTED/.test(text)) return;
     pageErrors.push(`[${tag}] console.${msg.type()}: ${text.slice(0, 300)}`);
   });
   await page.goto(BASE + p, { waitUntil: waitApp ? 'load' : 'commit' });
@@ -408,6 +456,25 @@ async function ui(page, code) {
     code,
   );
   await settle(page, 250);
+}
+
+/**
+ * The mouse rests at (0, 0), where the notice bar appears on mobile: its tooltip
+ * (the text on mobile, meant for a long press) would open by hovering. Moves it to
+ * the middle of the page first.
+ */
+async function awayFromBars(page, view) {
+  await page.mouse.move(VIEWS[view].w / 2, VIEWS[view].h / 2);
+}
+
+/** Runs one of our own fixed expressions against the app's `network` state. */
+async function network(page, code) {
+  await page.evaluate(
+    // Only our own fixed expressions from this script.
+    (c) => import('/src/lib/state/network.svelte.ts').then(({ network }) => new Function('network', c)(network)),
+    code,
+  );
+  await settle(page, 400);
 }
 
 /**
