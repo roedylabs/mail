@@ -29,6 +29,9 @@ export const COMPOSE_SCROLL_DELAY = 160;
 /** How long the reading view stays at the end after the jump while its content still grows (`toEnd`). */
 export const END_FOLLOW_MS = 3000;
 
+/** How long a jump waits for the reading view to show its conversation (the return from compose). */
+export const SCROLL_CLAIM_MS = 10_000;
+
 /** How long a submitted reply stands in for its email if the server does not return it in the thread. */
 export const CONFIRMED_KEEP_MS = 5 * 60_000;
 
@@ -64,6 +67,9 @@ export class SentReplies {
   // Not reactive: only timers.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
   readonly #timers = new Map<number, ReturnType<typeof setTimeout>>();
+  /** Deadline of jumps not taken yet (`SCROLL_CLAIM_MS`), per reply. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity
+  readonly #claims = new Map<number, ReturnType<typeof setTimeout>>();
 
   /**
    * A sent reply joins its conversation (`email` with a provisional id), and its
@@ -80,7 +86,13 @@ export class SentReplies {
       confirmed: false,
     };
     this.#entries = [...this.#entries, entry];
+    for (const s of this.#scrolls) if (sameThread(s, thread)) this.#unclaim(s.key);
     this.#scrolls = [...this.#scrolls.filter((s) => !sameThread(s, thread)), { ...thread, delay, key }];
+    // Not opened in time (left before the reading view showed it): no late jump on a later visit.
+    this.#claims.set(
+      key,
+      setTimeout(() => this.#unclaim(key), SCROLL_CLAIM_MS),
+    );
     return key;
   }
 
@@ -111,6 +123,13 @@ export class SentReplies {
   remove(key: number): void {
     this.#drop(key);
     this.#cancelled.add(key);
+    this.#unclaim(key);
+  }
+
+  /** The jump of a reply no longer waits. */
+  #unclaim(key: number): void {
+    clearTimeout(this.#claims.get(key));
+    this.#claims.delete(key);
     if (this.#scrolls.some((s) => s.key === key)) this.#scrolls = this.#scrolls.filter((s) => s.key !== key);
   }
 
@@ -151,7 +170,7 @@ export class SentReplies {
   takeScroll(thread: ThreadRef): ScrollRequest | null {
     const s = this.#scrolls.find((x) => sameThread(x, thread));
     if (!s) return null;
-    this.#scrolls = this.#scrolls.filter((x) => x !== s);
+    this.#unclaim(s.key);
     return s;
   }
 
@@ -169,6 +188,8 @@ export class SentReplies {
   reset(): void {
     for (const t of this.#timers.values()) clearTimeout(t);
     this.#timers.clear();
+    for (const t of this.#claims.values()) clearTimeout(t);
+    this.#claims.clear();
     this.#cancelled.clear();
     this.#entries = [];
     this.#scrolls = [];

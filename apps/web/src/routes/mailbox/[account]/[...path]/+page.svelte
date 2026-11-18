@@ -683,6 +683,9 @@
     if (!sentReplies.scrolls.length || !messageView || !rd || !thread) return;
     const req = untrack(() => sentReplies.takeScroll(thread));
     if (!req) return;
+    // A newer reply replaces a jump still waiting (e.g. from compose); it must not pull back later.
+    for (const cancel of jumps) cancel();
+    jumps = [];
     const end = () => {
       jumps = jumps.filter((c) => c !== cancel);
       if (opened && sameThread(opened, req) && sentReplies.live(req.key)) messageView?.toEnd();
@@ -1394,9 +1397,10 @@
     if (fresh.length) untrack(() => edits.run({ account: r.account, edits: seenEdits(fresh, true), quiet: true }));
   });
 
-  // All emails of the conversation deleted (permanently, from the reading view): back to the list.
+  // All emails of the conversation deleted (permanently, from the reading view): back to the list; not while
+  // a reply just sent still stands in it (`readEmails`).
   $effect(() => {
-    if (opened && conversation?.status === 'ready' && !conversation.emails.length) untrack(() => toList(true));
+    if (opened && conversation?.status === 'ready' && !readEmails?.length) untrack(() => toList(true));
   });
 
   /** "Load once" (`hb.once`). */

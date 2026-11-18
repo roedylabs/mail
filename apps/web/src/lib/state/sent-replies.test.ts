@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { MessageEmail } from '#lib/state/message.svelte.ts';
-import { COMPOSE_SCROLL_DELAY, CONFIRMED_KEEP_MS, SENT_LOCAL, sentReplies } from '#lib/state/sent-replies.svelte.ts';
+import {
+  COMPOSE_SCROLL_DELAY,
+  CONFIRMED_KEEP_MS,
+  SCROLL_CLAIM_MS,
+  SENT_LOCAL,
+  sentReplies,
+} from '#lib/state/sent-replies.svelte.ts';
 
 const T1 = { account: 'k1', threadId: 't1' };
 const T2 = { account: 'k1', threadId: 't2' };
@@ -103,6 +109,19 @@ describe('sentReplies', () => {
     sentReplies.add(T1, sent(400), COMPOSE_SCROLL_DELAY);
     const c = sentReplies.add(T1, sent(500), 0);
     expect(sentReplies.scrolls).toEqual([{ ...T1, delay: 0, key: c }]);
+  });
+
+  it('a jump the reading view does not take in time expires; a taken one does not', () => {
+    vi.useFakeTimers();
+    sentReplies.add(T1, sent(300), COMPOSE_SCROLL_DELAY);
+    sentReplies.add(T2, sent(300), COMPOSE_SCROLL_DELAY);
+    expect(sentReplies.takeScroll(T2)).not.toBeNull();
+    vi.advanceTimersByTime(SCROLL_CLAIM_MS - 1);
+    expect(sentReplies.scrolls).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(sentReplies.takeScroll(T1)).toBeNull();
+    // The reply itself still stands in the conversation.
+    expect(sentReplies.merge(T1, [])).toHaveLength(1);
   });
 
   it('forgets everything at the end of the session', () => {
