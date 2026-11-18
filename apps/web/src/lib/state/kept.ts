@@ -6,12 +6,15 @@
  */
 import { onForget } from '#lib/state/forget.ts';
 
+/** A reopened page waits at most this long for calls of a left page (`after()`), then loads anyway. */
+export const KEPT_WAIT_MS = 10_000;
+
 export class Kept<T> {
   #value: T | null = null;
   #gen = 0;
   #changes = 0;
-  /** Calls of pages already left that a reopened page waits for (`settled()`). */
-  readonly #sending = new Set<Promise<void>>();
+  /** Calls still on their way per page; another page of the same list waits for them (`after()`). */
+  readonly #sending = new Map<Promise<void>, object>();
 
   constructor() {
     onForget(() => this.forget());
@@ -42,20 +45,29 @@ export class Kept<T> {
     this.#changes++;
   }
 
-  /** Call sent by a page that was left (e.g. a removal on leaving); a reopened page loads only after it. */
-  track(call: Promise<unknown>): void {
+  /** Call of `page` on its way (e.g. a removal): a reopened page loads only after it (`after()`). */
+  track(call: Promise<unknown>, page: object): void {
     const done = call.then(
       () => {},
       () => {},
     );
-    this.#sending.add(done);
+    this.#sending.set(done, page);
     void done.then(() => this.#sending.delete(done));
   }
 
-  /** Runs `load` once all calls of left pages are through (also failed ones); without any right away. */
-  after<R>(load: () => Promise<R>): Promise<R> {
-    if (!this.#sending.size) return load();
-    return Promise.all(this.#sending).then(load);
+  /**
+   * Runs `load` of `page` once the calls of other pages are through (also
+   * failed ones), at most `KEPT_WAIT_MS`; without any right away.
+   */
+  after<R>(page: object, load: () => Promise<R>): Promise<R> {
+    const others = [...this.#sending].filter(([, p]) => p !== page).map(([call]) => call);
+    if (!others.length) return load();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => (timer = setTimeout(resolve, KEPT_WAIT_MS)));
+    return Promise.race([Promise.all(others), deadline]).then(() => {
+      clearTimeout(timer);
+      return load();
+    });
   }
 
   forget(): void {

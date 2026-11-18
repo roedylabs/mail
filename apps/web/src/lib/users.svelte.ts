@@ -198,6 +198,8 @@ export class UsersPage {
   #seq = 0;
   #formId = 0;
   #disposed = false;
+  /** Counts opening and closing rows by the admin (`#restorer`). */
+  #openRev = 0;
   /** Last removal or multi-factor reset with undo: leaving the page sends it immediately. */
   #final: DeferredAction | null = null;
   /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
@@ -289,14 +291,17 @@ export class UsersPage {
     this.#reopened = false;
     let changes = keptUsers.changes;
     try {
-      // After a removal the left page sent on leaving: otherwise the response could still contain the user.
-      const { users } = await this.loading.run(
-        keptUsers.after(() => {
+      // After a removal of a left page still on its way: otherwise the response could still contain the user.
+      const res = await this.loading.run(
+        keptUsers.after(this, () => {
+          // Superseded or left while waiting: no request any more.
+          if (seq !== this.#seq || this.#disposed) return Promise.resolve(null);
           changes = keptUsers.changes;
           return api<{ users: ListedUser[] }>('GET', 'users');
         }),
       );
-      if (seq !== this.#seq || this.#disposed) return;
+      if (!res || seq !== this.#seq || this.#disposed) return;
+      const { users } = res;
       // Confirmed in the meantime (e.g. removed): the list is older, so reload.
       if (changes !== keptUsers.changes) {
         this.#reopened = reopened;
@@ -400,6 +405,7 @@ export class UsersPage {
   }
 
   toggleOpen(id: string): void {
+    this.#openRev++;
     this.open = this.open === id ? null : id;
     this.sendFail = null;
     ui.closeMenu();
@@ -429,6 +435,7 @@ export class UsersPage {
     // What the server reported as taken may have changed since (e.g. a discarded email change).
     this.#taken.clear();
     this.#invalid.clear();
+    this.#openRev++;
     this.open = null;
     this.selected = [];
     this.result = null;
@@ -647,7 +654,8 @@ export class UsersPage {
       revert: change.revert,
       commit: async (keepalive) => {
         const sending = call(keepalive);
-        if (this.#disposed) keptUsers.track(sending);
+        // Also if the page is left meanwhile: a reopened one loads only after it.
+        keptUsers.track(sending, this);
         await sending;
         change.settle();
       },
@@ -660,14 +668,18 @@ export class UsersPage {
     ui.toasts.defer(action);
   }
 
-  /** Selection and expanded row before a removal, for a failed call (the row only if no other one was opened since). */
+  /**
+   * Selection and expanded row before a removal, for a failed call (the row
+   * only if the admin has not opened or closed a row since).
+   */
   #restorer(ids: readonly string[]): () => void {
     const selected = this.selected.filter((id) => ids.includes(id));
     const open = this.open !== null && ids.includes(this.open) ? this.open : null;
+    const rev = this.#openRev;
     return () => {
       const known = this.rows.map((u) => u.id);
       this.selected = [...this.selected, ...selected.filter((id) => known.includes(id) && !this.selected.includes(id))];
-      if (open !== null && this.open === null && known.includes(open)) this.open = open;
+      if (open !== null && rev === this.#openRev && known.includes(open)) this.open = open;
     };
   }
 

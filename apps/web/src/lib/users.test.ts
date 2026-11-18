@@ -1043,8 +1043,14 @@ describe('Actions per row', () => {
     expect(ui.toast?.text).toBe('Elsewhere');
   });
 
-  it('keeps a row opened in the meantime when a removal fails', async () => {
-    const { p, v } = await loaded({ 'DELETE users/u2': [{ status: 500, body: { error: 'internal' } }] });
+  it('keeps a row opened or closed in the meantime when a removal fails', async () => {
+    const { p, v } = await loaded({
+      'DELETE users/u2': [
+        { status: 500, body: { error: 'internal' } },
+        { status: 500, body: { error: 'internal' } },
+      ],
+      'GET users': [{ body: { users: USERS } }, { body: { users: USERS } }, { body: { users: USERS } }],
+    });
     p.toggleOpen('u2');
     row(v(), 'Luke Walker').remove();
     ui.confirmOk();
@@ -1052,6 +1058,13 @@ describe('Actions per row', () => {
     await ui.toasts.flush();
     expect(listed(p, 'u2')).toBeDefined();
     expect(p.open).toBe('u1');
+    p.toggleOpen('u2');
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    p.toggleOpen('u1');
+    p.toggleOpen('u1');
+    await ui.toasts.flush();
+    expect(p.open).toBeNull();
   });
 
   it('sends a removal on leaving with `keepalive`', async () => {
@@ -1317,9 +1330,8 @@ describe('Reopening', () => {
     await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
   });
 
-  it('a removal the left page confirms later makes the reopened page load again', async () => {
+  it('a reopened page loads only after a removal sent before leaving', async () => {
     let removed: (reply: { status: number }) => void = () => {};
-    let answer: (reply: { body: { users: ListedUser[] } }) => void = () => {};
     const later = USERS.filter((u) => u.id !== 'u3');
     const { p } = await loaded({ 'DELETE users/u3': [() => new Promise((resolve) => (removed = resolve))] });
     const u3 = p.rows.find((u) => u.id === 'u3');
@@ -1329,16 +1341,31 @@ describe('Reopening', () => {
     // Sent before leaving (toast expired), still on its way.
     const sending = ui.toasts.flush();
     p.dispose();
-    mockApi({ 'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: later } }] });
+    const { calls } = mockApi({ 'GET users': [{ body: { users: later } }] });
     const q = new UsersPage();
     expect(q.rows.map((u) => u.id)).toContain('u3');
     const load = q.load();
-    removed({ status: 204 });
     await new Promise((resolve) => setTimeout(resolve, 0));
-    answer({ body: { users: USERS } });
+    expect(calls).toEqual([]);
+    removed({ status: 204 });
     await load;
     await sending;
-    await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
+    expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id));
+  });
+
+  it('a reopened page sends nothing if it is left again while waiting', async () => {
+    let removed: (reply: { status: number }) => void = () => {};
+    const { p, v } = await loaded({ 'DELETE users/u3': [() => new Promise((resolve) => (removed = resolve))] });
+    row(v(), 'Sophie Hamilton').remove();
+    ui.confirmOk();
+    p.dispose();
+    const { calls } = mockApi({});
+    const q = new UsersPage();
+    const load = q.load();
+    q.dispose();
+    removed({ status: 204 });
+    await load;
+    expect(calls).toEqual([]);
   });
 
   it('a reopened page loads only after the removal sent on leaving', async () => {

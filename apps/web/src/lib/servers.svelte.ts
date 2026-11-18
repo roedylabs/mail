@@ -259,9 +259,11 @@ export class ServersPage {
     const reopened = this.#reopened;
     this.#reopened = false;
     try {
-      const [list, policy] = await this.loading.run(
-        // After a removal the left page sent on leaving: otherwise the response could still contain the server.
-        keptServers.after(() => {
+      const res = await this.loading.run(
+        // After a removal of a left page still on its way: otherwise the response could still contain the server.
+        keptServers.after(this, () => {
+          // Superseded or left while waiting: no request any more.
+          if (seq !== this.#seq || this.#disposed) return Promise.resolve(null);
           changes = keptServers.changes;
           return Promise.all([
             api<ServerList>('GET', 'admin/servers'),
@@ -272,7 +274,8 @@ export class ServersPage {
           ]);
         }),
       );
-      if (seq !== this.#seq || this.#disposed) return;
+      if (!res || seq !== this.#seq || this.#disposed) return;
+      const [list, policy] = res;
       // Added, saved, tested or removed in the meantime: the list is older, so reload.
       if (changes !== keptServers.changes) {
         this.#reopened = reopened;
@@ -465,7 +468,8 @@ export class ServersPage {
           commit: async (keepalive) => {
             try {
               const sending = api('DELETE', `admin/servers/${server.id}`, undefined, { keepalive });
-              if (this.#disposed) keptServers.track(sending);
+              // Also if the page is left meanwhile: a reopened one loads only after it.
+              keptServers.track(sending, this);
               await sending;
             } catch (error) {
               // Already gone (e.g. removed by another person): treat as removed.
