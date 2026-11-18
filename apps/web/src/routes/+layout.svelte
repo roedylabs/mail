@@ -93,6 +93,7 @@
   import {
     ALL_ACCOUNTS,
     chromeOf,
+    inNoAccountView,
     isAdminPath,
     isSettingsPath,
     mailboxParams,
@@ -292,8 +293,18 @@
   /** Header or "Back to …" visible: signed in on a page of the app. */
   const inShell = $derived(ready && !target && chrome !== 'bare' && session.authed);
 
-  // Without a mail account: no sidebar and no tab bar (`noAcctV`); likewise while unknown.
-  const noAccounts = $derived(!mailAccountCount && chrome === 'main');
+  /**
+   * Without a mail account "No account": no sidebar and no tab bar (`noAcctV`); likewise while unknown.
+   * The search, error pages (router error, "Access denied", `/error/[code]`) and an open compose keep both.
+   */
+  const noAccounts = $derived(
+    !mailAccountCount &&
+      chrome === 'main' &&
+      !page.error &&
+      !forbidden &&
+      !(path.startsWith('/compose/') && !!compose.current) &&
+      inNoAccountView(path),
+  );
   // The search takes the full width: sidebar slid out and no sidebar toggle, as without a mail account.
   const sbHidden = $derived(noAccounts || path === SEARCH);
   /** Tablet in portrait: the sidebar lies as a drawer over the mailbox (`drawerOpen`), with a scrim. */

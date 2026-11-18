@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   chromeOf,
+  inNoAccountView,
   isAdminPath,
   isSettingsPath,
   isAppPath,
@@ -106,6 +107,15 @@ describe('redirectFor', () => {
     expect(redirectFor('/start', { ...user, mailAccounts: null })).toBeNull();
     expect(redirectFor('/no-account', user)).toBeNull();
     expect(redirectFor('/no-account', guest)).toBe('/login');
+  });
+
+  it('keeps the search and error pages out of the "No account" state', () => {
+    expect(inNoAccountView('/no-account')).toBe(true);
+    expect(inNoAccountView('/start')).toBe(true);
+    expect(inNoAccountView('/mailbox/all/inbox')).toBe(true);
+    expect(inNoAccountView('/search')).toBe(false);
+    expect(inNoAccountView('/error/404')).toBe(false);
+    expect(inNoAccountView('/error/offline')).toBe(false);
   });
 });
 
