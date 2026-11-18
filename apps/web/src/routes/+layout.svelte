@@ -26,6 +26,7 @@
   import ConfirmDialog from '#lib/components/ConfirmDialog.svelte';
   import DebugBar from '#lib/components/DebugBar.svelte';
   import ErrorView from '#lib/components/ErrorView.svelte';
+  import FolderLoadFail from '#lib/components/FolderLoadFail.svelte';
   import FolderTree from '#lib/components/FolderTree.svelte';
   import Header from '#lib/components/Header.svelte';
   import Icon from '#lib/components/Icon.svelte';
@@ -915,6 +916,7 @@
     dismiss: (id) => notifications.remove(id),
     markAll: () => void notifications.readAll(),
     enable: () => prefs.set({ nCh: { ...prefs.values.nCh, app: true } }),
+    retry: () => void notifications.load(),
     settings: () => go(NOTIFICATIONS),
   };
 
@@ -924,6 +926,7 @@
         isMobile: ui.isMobile,
         list: notifications.list,
         loading: notifications.loading,
+        failure: notifications.failure,
         channels: prefs.values.nCh,
         topics: prefs.values.nMx,
         tz: timeZoneOf(prefs.values),
@@ -1222,6 +1225,16 @@
   const foldersBusy = $derived(
     !treeReady && scopeAccounts.some((a) => (mailboxes.of(a.id)?.status ?? 'loading') === 'loading'),
   );
+  /**
+   * First load of the mailboxes failed for every account of the view (one of them reachable):
+   * "Couldn’t load folders" instead of the tree, without "New folder" and "Sync tags".
+   */
+  const foldersFailed = $derived(
+    !treeReady &&
+      !foldersBusy &&
+      scopeAccounts.some(isReachable) &&
+      scopeAccounts.every((a) => mailboxes.of(a.id)?.status === 'error'),
+  );
   /** Until the first response of the tags (with an account): placeholder rows instead of the list, without "New tag". */
   const tagsBusy = $derived(scopeAccounts.length > 0 && tags.list === null && !tags.failed);
   const activeFolder = $derived.by(() => {
@@ -1280,23 +1293,30 @@
 
   // Mailboxes of the sidebar's accounts, only where it is visible; "Sign-in required" and locked
   // servers only read the storage. After an error the next page change tries
-  // again; several failed accounts report one toast.
+  // again; several failed accounts report one toast. If no account of the view has its
+  // mailboxes, the folder tab shows "Couldn’t load folders" instead of a toast.
   $effect(() => {
     void path;
     if (chrome !== 'main' || !inShell) return;
+    const ids = scopeAccounts.map((a) => a.id);
     const open = scopeAccounts.filter(isReachable).map((a) => a.id);
     const closed = scopeAccounts.filter((a) => !isReachable(a)).map((a) => a.id);
     untrack(() => {
       for (const id of closed) void mailboxes.restore(id);
-      let reported = false;
-      for (const id of open)
-        mailboxes.ensure(id).catch((error: unknown) => {
-          if (reported || isApiError(error, 409)) return;
-          reported = true;
-          ui.toasts.error(failText(error, m.error_list()));
-        });
+      void Promise.allSettled(open.map((id) => mailboxes.ensure(id))).then((results) => {
+        const failed = results.find(
+          (r): r is PromiseRejectedResult => r.status === 'rejected' && !isApiError(r.reason, 409),
+        );
+        if (!failed || !ids.some((id) => mailboxes.of(id)?.status === 'ready')) return;
+        ui.toasts.error(failText(failed.reason, m.error_list()));
+      });
     });
   });
+
+  /** "Try again" in the folder tab: reload the reachable accounts (placeholder rows until the answer). */
+  function retryFolders() {
+    for (const a of scopeAccounts.filter(isReachable)) mailboxes.load(a.id).catch(() => {});
+  }
 
   // Identities of the reachable accounts for the title of the account switch, silently: until then
   // and after an error the part of the address before the @; the next page change tries again.
@@ -1429,7 +1449,7 @@
         toggle: (id) => tags.toggle(id),
         select: (id) => openMailbox(key, { tag: id }),
         warnings: tagWarnings,
-        fixes: tagFixes.length,
+        fixes: foldersFailed ? 0 : tagFixes.length,
         openFix: () => (tagFixOpen = true),
       },
       {
@@ -1526,7 +1546,7 @@
     acctSw,
     allT2,
     // In "All accounts" every account has its "New folder in …" row in the tree.
-    addFShow: !scope.all && !foldersBusy,
+    addFShow: !scope.all && !foldersBusy && !foldersFailed,
     addTShow: !tagsBusy,
     addF: () => addFolder(scope.account?.id ?? null),
     addT: addTag,
@@ -1805,10 +1825,13 @@
 <svelte:document onmousedown={onDocDown} />
 <svelte:window onkeydown={onKey} />
 
-<!-- Folder tree of the sidebar or the "Mailboxes" sheet; placeholder rows until the first load instead of "No folders yet". -->
+<!-- Folder tree of the sidebar or the "Mailboxes" sheet; placeholder rows until the first load instead of "No folders yet",
+     "Couldn’t load folders" if it failed. -->
 {#snippet folderTree()}
   {#if foldersBusy}
     <TreeSkeleton kind="folders" isMobile={ui.isMobile} lblOp={ui.isMobile || sbWide ? 1 : 0} />
+  {:else if foldersFailed}
+    <FolderLoadFail lblOp={ui.isMobile || sbWide ? 1 : 0} onRetry={retryFolders} />
   {:else if folderValues && treeReady}<FolderTree {...folderValues} {sbBg} />{/if}
 {/snippet}
 
@@ -1938,7 +1961,7 @@
             {acctSw}
             acctSwOpen={swOpen && accountCount > 0}
             {allT2}
-            addFShow={!scope.all && !foldersBusy}
+            addFShow={!scope.all && !foldersBusy && !foldersFailed}
             addTShow={!tagsBusy}
             addF={() => addFolder(scope.account?.id ?? null)}
             addT={addTag}

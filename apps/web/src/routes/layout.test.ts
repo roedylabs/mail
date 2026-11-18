@@ -11,7 +11,7 @@ import { devLog } from '#lib/state/devlog.svelte.ts';
 import { listView } from '#lib/state/list-view.svelte.ts';
 import { mailStores } from '#lib/mail-store.ts';
 import { mailboxes } from '#lib/state/mailboxes.svelte.ts';
-import { mockApi } from '#lib/state/fetch-mock.ts';
+import { mockApi, type Call } from '#lib/state/fetch-mock.ts';
 import { network } from '#lib/state/network.svelte.ts';
 import { notifications } from '#lib/state/notifications.svelte.ts';
 import { search } from '#lib/state/search.svelte.ts';
@@ -2047,8 +2047,11 @@ describe('Mailboxes in the shell', () => {
     listView.sort = { key: 'date', dir: -1 };
   });
 
-  /** Two signed-in accounts with their own JMAP server; settings optionally with default "All accounts". */
-  function mockBoth(settings: Record<string, unknown> = {}, pending = false) {
+  /**
+   * Two signed-in accounts with their own JMAP server; settings optionally with default "All accounts".
+   * `fail`: the first `Mailbox/get` of both accounts fails, the next one answers.
+   */
+  function mockBoth(settings: Record<string, unknown> = {}, pending = false, fail = false) {
     const JMAP2 = 'https://s2.test/jmap/';
     // All addresses of the session on the account's server.
     const SESSION2 = {
@@ -2097,10 +2100,39 @@ describe('Mailboxes in the shell', () => {
         { body: { accessToken: 't2', expiresAt: '2099-01-01T00:00:00Z', session: SESSION2 } },
       ],
       'GET tags': [pending ? () => new Promise(() => {}) : { body: { tags: tags2 } }],
-      [`POST ${JMAP}`]: [pending ? () => new Promise(() => {}) : reply('j1', MAILBOXES)],
-      [`POST ${JMAP2}`]: [pending ? () => new Promise(() => {}) : reply('j2', BOXES2)],
+      [`POST ${JMAP}`]: [
+        ...(fail ? [{ status: 503 }] : []),
+        pending ? () => new Promise(() => {}) : reply('j1', MAILBOXES),
+      ],
+      [`POST ${JMAP2}`]: [
+        ...(fail ? [{ status: 503 }] : []),
+        // After the failure the answer waits a moment: the placeholder rows are visible in between.
+        pending
+          ? () => new Promise(() => {})
+          : fail
+            ? (call: Call) =>
+                new Promise<{ body: unknown }>((done) => setTimeout(() => done(reply('j2', BOXES2)(call)), 20))
+            : reply('j2', BOXES2),
+      ],
     });
   }
+
+  it('shows “Couldn’t load folders” without “New folder” and a toast, “Try again” reloads', async () => {
+    mockBoth({}, false, true);
+    const { findByRole, queryByRole, container } = renderAt('/mailbox/all/inbox');
+    await fireEvent.click(await findByRole('tab', { name: /Folders/ }));
+    const alert = await findByRole('alert');
+    expect(alert).toHaveTextContent('Couldn’t load folders');
+    const retry = await findByRole('button', { name: 'Couldn’t load folders Try again' });
+    expect(alert).toContainElement(retry);
+    expect(queryByRole('button', { name: /New folder/, hidden: true })).toBeNull();
+    expect(ui.toast).toBeNull();
+    await fireEvent.click(retry);
+    expect(await findByRole('status', { name: 'Loading folders' })).toHaveAttribute('aria-busy', 'true');
+    await vi.waitFor(() => expect(container.querySelector('.tree')?.textContent).toContain('account2@s2.test'));
+    expect(queryByRole('alert')).toBeNull();
+    expect(ui.toast).toBeNull();
+  });
 
   it('shows placeholder rows without “New folder” and “New tag” until the first response', async () => {
     mockBoth({}, true);

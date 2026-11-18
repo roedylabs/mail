@@ -1,7 +1,9 @@
 <!--
   Notifications menu behind the bell: head with counter, "Mark all as read" and
   settings, below it the entries by "Today" and "Earlier", or "All quiet" or
-  "Turned off in the app". On desktop as a popover below the bell, on mobile as
+  "Turned off in the app". If the first load fails, a "Couldn’t load
+  notifications" card with the reason and "Try again" instead of the
+  placeholder rows. On desktop as a popover below the bell, on mobile as
   the content of the sheet. Before the first response placeholder rows with
   `aria-busy`; on a reload the shown entries stay, marked `aria-busy`.
 -->
@@ -21,11 +23,14 @@
     notifHas,
     notifEmpty,
     notifOff,
+    notifFail,
+    notifFailText,
     hasUnread,
     notifNewLabel,
     notifNewAria,
     notifMarkAll,
     notifEnable,
+    notifRetry,
     openNotifSettings,
   }: NotifMenuValues = $props();
 
@@ -142,6 +147,14 @@
       <div class="art empty"><Icon name="ti-mood-smile" /></div>
       <div class="s-title">{m.notif_pop_empty_title()}</div>
       <div class="s-text">{m.notif_pop_empty_text()}</div>
+    </div>
+  {/if}
+  {#if notifFail}
+    <div class="state off fail" role="alert">
+      <div class="art" aria-hidden="true"><Icon name="ti-cloud-off" /></div>
+      <div class="s-title">{m.notif_pop_fail_title()}</div>
+      <div class="s-text">{notifFailText}</div>
+      <button class="enable retry" onclick={notifRetry}><Icon name="ti-refresh" size={17} />{m.error_retry()}</button>
     </div>
   {/if}
   {#if notifOff}
@@ -564,6 +577,19 @@
     font-weight: 700;
   }
 
+  .fail .art {
+    color: var(--danger);
+  }
+
+  .fail .s-title {
+    text-wrap: balance;
+  }
+
+  .fail .s-text {
+    text-wrap: pretty;
+    overflow-wrap: anywhere;
+  }
+
   .s-text {
     font-size: 13.5px;
     color: var(--mfg);
@@ -588,5 +614,18 @@
   .mobile .enable {
     height: 44px;
     font-size: 14.5px;
+  }
+
+  /* "Try again": icon before the label. */
+  .retry {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 0 18px 0 14px;
+    transition: background-color var(--dur, 220ms);
+  }
+
+  .retry:hover {
+    background: var(--sunken);
   }
 </style>

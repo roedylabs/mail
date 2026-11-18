@@ -4,6 +4,9 @@
  *
  * - Visible are entries whose topic is wanted in the app; security always
  *   (`shownInApp`). Channel "In the app" off: `notifOff`, count 0.
+ * - First load failed (`failure`, no list yet): `notifFail`, a "Couldn’t load
+ *   notifications" card with the reason instead of the placeholder rows,
+ *   without count; a running fetch shows the placeholder rows again.
  * - Groups "Today" and "Earlier" by calendar day in the time zone from
  *   Language & region.
  * - Targets (`targetOf`): the backend's path; team opens the row of the
@@ -57,6 +60,10 @@ export interface NotifMenuValues {
   notifHas: boolean;
   notifEmpty: boolean;
   notifOff: boolean;
+  /** First load failed (channel "In the app" on, no fetch running): card instead of the placeholder rows. */
+  notifFail: boolean;
+  /** Reason on the card: wait time after 429, "No connection", otherwise "That didn’t work". */
+  notifFailText: string;
   hasUnread: boolean;
   /** Count in the header: only the number, from 100 "99+". */
   notifNewLabel: string;
@@ -64,6 +71,8 @@ export interface NotifMenuValues {
   notifNewAria: string;
   notifMarkAll: () => void;
   notifEnable: () => void;
+  /** "Try again" on the card: reload (placeholder rows until the answer). */
+  notifRetry: () => void;
   openNotifSettings: () => void;
 }
 
@@ -81,6 +90,8 @@ export interface NotifMenuInput {
   list: readonly AppNotification[] | null;
   /** A fetch is running: entries already shown stay, marked `aria-busy`, until its response. */
   loading: boolean;
+  /** Reason of the failed first load, otherwise `null`. */
+  failure: string | null;
   /** Channels (`nCh`) and topics (`nMx`) of the settings. */
   channels: Channels;
   topics: Readonly<Record<string, Channels>>;
@@ -94,6 +105,7 @@ export interface NotifMenuActions {
   dismiss: (id: string) => void;
   markAll: () => void;
   enable: () => void;
+  retry: () => void;
   settings: () => void;
 }
 
@@ -154,21 +166,26 @@ export function notifMenuValues(input: NotifMenuInput, actions: NotifMenuActions
     [m.notif_pop_earlier(), earlier],
   ];
   const app = input.channels.app;
+  const first = app && input.list === null;
+  const fail = first && input.failure !== null && !input.loading;
   return {
     isMobile: input.isMobile,
     notifGroups: groups
       .filter(([, items]) => items.length > 0)
       .map(([label, items]) => ({ label, items: items.map((n) => item(n, input.now, actions)) })),
-    notifBusy: app && input.list === null,
+    notifBusy: first && !fail,
     notifBusyAttr: app && input.list !== null && input.loading,
     notifHas: app && visible.length > 0,
     notifEmpty: app && input.list !== null && visible.length === 0,
     notifOff: !app,
+    notifFail: fail,
+    notifFailText: input.failure ?? '',
     hasUnread: unread > 0,
     notifNewLabel: unread > 99 ? '99+' : String(unread),
     notifNewAria: m.notif_pop_new({ n: unread }),
     notifMarkAll: actions.markAll,
     notifEnable: actions.enable,
+    notifRetry: actions.retry,
     openNotifSettings: actions.settings,
   };
 }
