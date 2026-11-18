@@ -274,6 +274,7 @@ const STATES = [
     views: ALL_VIEWS,
     prepare: async (p, v) => {
       await awayFromBars(p, v);
+      offlinePages.add(p);
       await p.context().route('**/*', (route) => route.abort('internetdisconnected'));
       await p.context().setOffline(true);
       await p.evaluate(() => {
@@ -381,6 +382,8 @@ let browser;
 const runs = {};
 const pageErrors = [];
 const mockGaps = new Map();
+/** Pages whose connection a state has cut: their disconnection errors are expected. */
+const offlinePages = new WeakSet();
 
 async function open(job, { view, dark, opts = {}, reducedMotion = 'no-preference', path: p, waitApp = true }) {
   const vp = VIEWS[view];
@@ -414,8 +417,8 @@ async function open(job, { view, dark, opts = {}, reducedMotion = 'no-preference
     // Expected: `auth/me` answers guests with 401.
     if (opts.guest && /status of 401/.test(text)) return;
     if (opts.setup && /status of 401/.test(text)) return;
-    // Expected: the state "Offline bar" cuts the connection.
-    if (/ERR_INTERNET_DISCONNECTED/.test(text)) return;
+    // Expected only after the state "Offline bar" has cut the connection of this page.
+    if (offlinePages.has(page) && /ERR_INTERNET_DISCONNECTED/.test(text)) return;
     pageErrors.push(`[${tag}] console.${msg.type()}: ${text.slice(0, 300)}`);
   });
   await page.goto(BASE + p, { waitUntil: waitApp ? 'load' : 'commit' });
