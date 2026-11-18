@@ -60,6 +60,30 @@ describe('Kept', () => {
     expect(late).not.toHaveBeenCalled();
   });
 
+  it('loads again for each call through after the wait, also while another one hangs', async () => {
+    vi.useFakeTimers();
+    try {
+      const kept = new Kept<string>();
+      let done = () => {};
+      let failed = () => {};
+      kept.track(new Promise(() => {}), {});
+      kept.track(new Promise<void>((resolve) => (done = resolve)), {});
+      kept.track(new Promise<void>((_, reject) => (failed = () => reject(new Error('x')))), {});
+      const late = vi.fn();
+      const load = kept.after({}, () => Promise.resolve(1), late);
+      await vi.advanceTimersByTimeAsync(KEPT_WAIT_MS);
+      expect(await load).toBe(1);
+      done();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(late).toHaveBeenCalledTimes(1);
+      failed();
+      await vi.advanceTimersByTimeAsync(0);
+      expect(late).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('loads nothing if the session ended while waiting', async () => {
     const kept = new Kept<string>();
     let done = () => {};

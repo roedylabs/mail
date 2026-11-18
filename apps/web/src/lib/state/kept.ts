@@ -47,18 +47,23 @@ export class Kept<T> {
 
   /** Call of `page` on its way (e.g. a removal): a reopened page loads only after it (`after()`). */
   track(call: Promise<unknown>, page: object): void {
-    const done = call.then(
-      () => {},
-      () => {},
-    );
+    // Through once it is out of the list: after the reactions of its caller (e.g. `changed()` on success).
+    const done: Promise<void> = call
+      .then(
+        () => {},
+        () => {},
+      )
+      .then(() => {
+        this.#sending.delete(done);
+      });
     this.#sending.set(done, page);
-    void done.then(() => this.#sending.delete(done));
   }
 
   /**
    * Runs `load` of `page` once the calls of other pages are through (also
    * failed ones), at most `KEPT_WAIT_MS`; without any right away. If the
-   * wait ran out, `late` follows once they are through after all (load again).
+   * wait ran out, `late` follows for each of them that is through after all
+   * (load again), also while another one still hangs.
    * `null` without `load` if the session ended while waiting.
    */
   after<R>(page: object, load: () => Promise<R | null>, late: () => void): Promise<R | null> {
@@ -75,9 +80,11 @@ export class Kept<T> {
           resolve();
         }, KEPT_WAIT_MS)),
     );
-    void through.then(() => {
-      if (overdue && gen === this.#gen) late();
-    });
+    for (const call of others) {
+      void call.then(() => {
+        if (overdue && gen === this.#gen) late();
+      });
+    }
     return Promise.race([through, deadline]).then(() => {
       clearTimeout(timer);
       return gen === this.#gen ? load() : null;
