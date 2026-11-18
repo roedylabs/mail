@@ -394,7 +394,7 @@ describe('send confirmation link', () => {
     await p.sendLink();
     expect(ui.toast).toMatchObject({
       text: 'The email address change has since been discarded.',
-      error: true,
+      error: false,
       undo: false,
     });
     expect(p.ea).not.toBeNull();
@@ -444,47 +444,113 @@ describe('confirmation pending', () => {
     expect(session.user?.email_change).toEqual(OPEN);
   });
 
-  it('reloads the account if no change is pending anymore', async () => {
-    mockApi({
+  it('"Resend link" after the change was discarded elsewhere: box gone, regular toast', async () => {
+    const { calls } = mockApi({
       'POST auth/me/email/resend': [{ status: 404, body: { error: 'not_found' } }],
       'GET auth/me': [{ body: ME }],
     });
     const p = new ProfilePage();
     await p.resend();
+    expect(sent(calls).map((c) => c.call)).toEqual(['POST auth/me/email/resend', 'GET auth/me']);
+    expect(rowOf(profileValues(p), 'Email')).toMatchObject({ pend: false, hasPendErr: false });
+    expect(ui.toast).toMatchObject({
+      text: 'The email address change has since been discarded.',
+      error: false,
+      undo: false,
+    });
+  });
+
+  it('"Resend link" after the change was confirmed elsewhere: new address, no toast', async () => {
+    mockApi({
+      'POST auth/me/email/resend': [{ status: 404, body: { error: 'not_found' } }],
+      'GET auth/me': [{ body: { ...ME, email: OPEN.email } }],
+    });
+    const p = new ProfilePage();
+    await p.resend();
+    expect(rowOf(profileValues(p), 'Email')).toMatchObject({ pend: false, v: OPEN.email });
+    expect(ui.toast).toBeNull();
+  });
+
+  it('"Resend link" without an answer to `auth/me` still drops the box', async () => {
+    mockApi({ 'POST auth/me/email/resend': [{ status: 404, body: { error: 'not_found' } }] });
+    const p = new ProfilePage();
+    await p.resend();
+    expect(session.user?.email_change).toBeNull();
+    expect(ui.toast?.text).toBe('The email address change has since been discarded.');
+  });
+
+  it('reports `email_change_discarded` after "Resend link" with a regular toast', async () => {
+    mockApi({
+      'POST auth/me/email/resend': [{ status: 409, body: { error: 'email_change_discarded' } }],
+      'GET auth/me': [{ body: ME }],
+    });
+    const p = new ProfilePage();
+    await p.resend();
+    expect(ui.toast).toMatchObject({ text: 'The email address change has since been discarded.', error: false });
     await vi.waitFor(() => expect(session.user?.email_change).toBeNull());
   });
 
+  it('"Discard change" after the change was discarded elsewhere: regular toast, no undo, nothing sent', async () => {
+    const { calls } = mockApi({ 'GET auth/me': [{ body: ME }] });
+    const p = new ProfilePage();
+    const discarding = p.discardChange();
+    // While `auth/me` loads, both buttons wait.
+    expect(rowOf(profileValues(p), 'Email').busy).toBe(true);
+    await discarding;
+    expect(rowOf(profileValues(p), 'Email').pend).toBe(false);
+    expect(ui.toast).toMatchObject({
+      text: 'The email address change has since been discarded.',
+      error: false,
+      undo: false,
+    });
+    await ui.toasts.flush();
+    expect(sent(calls).map((c) => c.call)).toEqual(['GET auth/me']);
+  });
+
+  it('"Discard change" after the change was confirmed elsewhere: no toast', async () => {
+    mockApi({ 'GET auth/me': [{ body: { ...ME, email: OPEN.email } }] });
+    const p = new ProfilePage();
+    await p.discardChange();
+    expect(rowOf(profileValues(p), 'Email')).toMatchObject({ pend: false, v: OPEN.email });
+    expect(ui.toast).toBeNull();
+  });
+
   it('discards with undo only after the toast expires', async () => {
+    const pending = { body: { ...ME, email_change: OPEN } };
     const { calls } = mockApi({
+      'GET auth/me': [pending, pending, pending],
       'DELETE auth/me/email': [{ status: 204 }, { status: 404, body: { error: 'not_found' } }],
     });
     const p = new ProfilePage();
     rowOf(profileValues(p), 'Email').discard();
-    expect(rowOf(profileValues(p), 'Email').pend).toBe(false);
+    await vi.waitFor(() => expect(rowOf(profileValues(p), 'Email').pend).toBe(false));
     expect(ui.toast).toMatchObject({ text: 'Change discarded', undo: true });
-    expect(calls).toEqual([]);
+    expect(sent(calls).map((c) => c.call)).toEqual(['GET auth/me']);
     // Undo: nothing sent, the change is back.
     ui.toasts.undo();
     expect(rowOf(profileValues(p), 'Email').pend).toBe(true);
-    expect(calls).toEqual([]);
+    expect(calls).toHaveLength(1);
 
-    p.discardChange();
+    await p.discardChange();
     await ui.toasts.flush();
-    expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual(['DELETE auth/me/email']);
+    expect(sent(calls).map((c) => c.call)).toEqual(['GET auth/me', 'GET auth/me', 'DELETE auth/me/email']);
     expect(session.user?.email_change).toBeNull();
 
-    // Already discarded (404) counts as done.
+    // Discarded elsewhere only after the toast appeared (404): counts as done.
     session.user = { ...ME, email_change: OPEN };
-    p.discardChange();
+    await p.discardChange();
     await ui.toasts.flush();
     expect(session.user?.email_change).toBeNull();
     expect(ui.toast).toBeNull();
   });
 
   it('reverts the discard if the server rejects it', async () => {
-    mockApi({ 'DELETE auth/me/email': [{ status: 500, body: {} }] });
+    mockApi({
+      'GET auth/me': [{ body: { ...ME, email_change: OPEN } }],
+      'DELETE auth/me/email': [{ status: 500, body: {} }],
+    });
     const p = new ProfilePage();
-    p.discardChange();
+    await p.discardChange();
     await ui.toasts.flush();
     expect(session.user?.email_change).toEqual(OPEN);
     expect(ui.toast).toMatchObject({
@@ -497,7 +563,7 @@ describe('confirmation pending', () => {
     // No response for `DELETE auth/me/email`: `fetch` fails.
     mockApi({});
     const p = new ProfilePage();
-    p.discardChange();
+    await p.discardChange();
     await ui.toasts.flush();
     expect(session.user?.email_change).toEqual(OPEN);
     expect(ui.toast).toMatchObject({ text: 'No connection. Please try again.', error: true });
@@ -508,6 +574,7 @@ describe('edge cases', () => {
   it('sends a pending "Discard change" before the new link', async () => {
     session.user = { ...ME, email_change: OPEN };
     const { calls } = mockApi({
+      'GET auth/me': [{ body: { ...ME, email_change: OPEN } }],
       'DELETE auth/me/email': [{ status: 204 }],
       'PATCH auth/me': [
         { body: { status: 'reauth_required', user: USER } },
@@ -515,13 +582,14 @@ describe('edge cases', () => {
       ],
     });
     const p = new ProfilePage();
-    p.discardChange();
+    await p.discardChange();
     p.edit('email');
     p.setField('email', 'two@example.com');
     await p.save();
     p.setEaPw('Secret-123');
     await p.sendLink();
     expect(calls.map((c) => `${c.method} ${c.path}`)).toEqual([
+      'GET auth/me',
       'DELETE auth/me/email',
       'PATCH auth/me',
       'PATCH auth/me',
@@ -537,8 +605,9 @@ describe('edge cases', () => {
     const resending = p.resend();
     await vi.waitFor(() => expect(calls).toHaveLength(1));
     expect(rowOf(profileValues(p), 'Email').busy).toBe(true);
-    p.discardChange();
+    await p.discardChange();
     expect(ui.toast).toBeNull();
+    expect(calls).toHaveLength(1);
     release({ body: OPEN });
     await resending;
     expect(session.user?.email_change).toEqual(OPEN);
@@ -604,11 +673,11 @@ describe('edge cases', () => {
     session.user = { ...ME, email_change: OPEN };
     const { calls } = mockApi({
       'DELETE auth/me/email': [{ status: 500, body: {} }],
-      'GET auth/me': [{ body: { ...ME, email_change: OPEN } }],
+      'GET auth/me': [{ body: { ...ME, email_change: OPEN } }, { body: { ...ME, email_change: OPEN } }],
     });
-    new ProfilePage().discardChange();
+    await new ProfilePage().discardChange();
     await ui.toasts.flush();
-    await vi.waitFor(() => expect(calls.map((c) => c.method)).toEqual(['DELETE', 'GET']));
+    await vi.waitFor(() => expect(calls.map((c) => c.method)).toEqual(['GET', 'DELETE', 'GET']));
     expect(ui.toast?.text).toBe('The change wasn’t applied. Please try again.');
   });
 });

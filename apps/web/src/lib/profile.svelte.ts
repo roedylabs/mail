@@ -8,9 +8,10 @@
  *
  * Saving goes to the server immediately, without undo: it checks user name and
  * address, and its response decides whether the password prompt follows.
- * "Discard change" waits with undo for the end of the toast
- * (`ui.toasts.defer`). Errors without a text of their own show the error
- * toast.
+ * "Discard change" first reloads `auth/me`, then waits with undo for the end
+ * of the toast (`ui.toasts.defer`). A change discarded elsewhere in the
+ * meantime (another device, password changed) is reported with a regular
+ * toast instead. Errors without a text of their own show the error toast.
  */
 import { api, fieldsOf, isApiError, retryAfter } from '#lib/api.ts';
 import { isEmail } from '#lib/email.ts';
@@ -61,6 +62,8 @@ export class ProfilePage {
   saving = $state(false);
   sending = $state(false);
   resending = $state(false);
+  /** "Discard change" reloads `auth/me` first. */
+  checking = $state(false);
 
   get mfa(): boolean {
     return session.user?.mfa_enabled ?? false;
@@ -321,7 +324,8 @@ export class ProfilePage {
 
   /** "Resend link": new link with a new 24 hours; if it fails, everything stays. */
   async resend(): Promise<void> {
-    if (this.resending) return;
+    if (this.resending || this.checking) return;
+    const open = session.user?.email_change;
     this.resending = true;
     this.pendErr = null;
     try {
@@ -341,7 +345,7 @@ export class ProfilePage {
         this.pendErr = m.error_limit({ wait: waitText(retryAfter(error)) });
       } else if (isApiError(error, 404)) {
         // No pending change anymore (confirmed or discarded elsewhere).
-        void session.refreshUser().catch(() => {});
+        await this.#gone(open);
       } else {
         this.#unexpected(error);
       }
@@ -350,12 +354,30 @@ export class ProfilePage {
     }
   }
 
-  /** "Discard change" with undo: `DELETE auth/me/email` only after the toast expires. */
-  discardChange(): void {
-    const user = session.user;
-    const open = user?.email_change;
+  /**
+   * "Discard change" with undo: `DELETE auth/me/email` only after the toast
+   * expires. The toast says "Change discarded" only if the change is still
+   * pending, so `auth/me` is read first.
+   */
+  async discardChange(): Promise<void> {
+    const before = session.user;
     // During "Resend link" its response would set the change right back.
-    if (!user || !open || this.resending) return;
+    if (!before?.email_change || this.resending || this.checking) return;
+    this.checking = true;
+    try {
+      await session.refreshUser();
+    } catch {
+      // Without an answer the discard goes ahead; if sending fails, the change comes back.
+    } finally {
+      this.checking = false;
+    }
+    const user = session.user;
+    if (!user || user.id !== before.id) return;
+    const open = user.email_change;
+    if (!open) {
+      this.#reportGone(before.email_change, user);
+      return;
+    }
     this.pendErr = null;
     session.user = { ...user, email_change: null };
     ui.toasts.defer({
@@ -381,6 +403,30 @@ export class ProfilePage {
   }
 
   // ---- internal ----
+
+  /** No pending change anymore on the server: reload the account, then report it. */
+  async #gone(open: EmailChange | null | undefined): Promise<void> {
+    const before = session.user;
+    try {
+      await session.refreshUser();
+    } catch {
+      // Without an answer the 404 still counts: nothing is pending anymore.
+      const now = session.user;
+      if (now && now.id === before?.id) session.user = { ...now, email_change: null };
+    }
+    const user = session.user;
+    if (user && user.id === before?.id && !user.email_change) this.#reportGone(open, user);
+  }
+
+  /**
+   * "Confirmation pending" is gone: discarded elsewhere gives the regular toast
+   * "… has since been discarded"; confirmed elsewhere (the address applies) no toast.
+   */
+  #reportGone(open: EmailChange | null | undefined, user: Me): void {
+    this.pendErr = null;
+    if (open && user.email === open.email) return;
+    ui.toasts.show(m.profile_email_gone());
+  }
 
   #current(field: ProfileField): string {
     const user = session.user;
@@ -415,13 +461,13 @@ export class ProfilePage {
 
   /**
    * Without a text of its own: error toast; a change discarded in the
-   * meantime (`email_change_discarded`) with its own text.
+   * meantime (`email_change_discarded`) with its own text as a regular toast.
    * Without a session the account reloads, the layout then shows the sign-in.
    */
   #unexpected(error: unknown): void {
     const gone = isApiError(error, 409, 'email_change_discarded');
     if (isApiError(error, 401) || gone) void session.refreshUser().catch(() => {});
-    if (gone) ui.toasts.error(m.profile_email_gone());
+    if (gone) ui.toasts.show(m.profile_email_gone());
     else if (!isApiError(error, 401)) ui.toasts.error(failText(error));
   }
 }
@@ -459,7 +505,7 @@ export interface AcctRowValues {
   pendEmail: string;
   pendErr: string;
   hasPendErr: boolean;
-  /** Response pending ("Resend link"). */
+  /** Response pending ("Resend link", or "Discard change" reading `auth/me`). */
   busy: boolean;
   edit: () => void;
   onChange: (value: string) => void;
@@ -599,13 +645,13 @@ export function profileValues(p: ProfilePage, mailAccounts = 0): ProfileValues {
         pendEmail: pend && pending ? pending.email : '',
         pendErr,
         hasPendErr: !!pendErr,
-        busy: pend && p.resending,
+        busy: pend && (p.resending || p.checking),
         edit: () => id && p.edit(id),
         onChange: (value: string) => id && p.setField(id, value),
         onBlur: () => id && p.blurField(id),
         onKey: (event: KeyInput) => id && p.fieldKey(id, event),
         resend: () => void p.resend(),
-        discard: () => p.discardChange(),
+        discard: () => void p.discardChange(),
       };
     }),
     eaIntro: mfa ? m.profile_ea_intro_code() : m.profile_ea_intro(),
