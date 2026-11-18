@@ -120,6 +120,8 @@ afterEach(() => {
   window.dispatchEvent(new Event('resize'));
   vi.useRealTimers();
   nav.goto.mockClear();
+  page.status = 200;
+  page.error = null;
   // State modules are singletons: reset them for the next test.
   session.config = null;
   session.user = null;
@@ -1104,6 +1106,49 @@ describe('Shell layout', () => {
     ui.readError = true;
     await vi.waitFor(() => expect(container.querySelector('header.mobile')).not.toBeNull());
     expect(container.querySelector('nav.tabbar')).not.toBeNull();
+  });
+
+  it('shows the tab bar on mobile without a mail account on the search and error pages, not on “No account”', async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('user') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+    });
+    const { findByText, container, getByRole, goto } = renderAt('/no-account');
+    await findByText('Page content');
+    await vi.waitFor(() => expect(accounts.list).toEqual([]));
+    const tabbar = () => container.querySelector('nav.tabbar');
+    const current = () =>
+      [...container.querySelectorAll('nav.tabbar [aria-current="page"]')].map((t) => t.textContent?.trim());
+    expect(tabbar()).toBeNull();
+    // Search: tab bar with "Search" as the open tab.
+    page.url = new URL('http://localhost/search');
+    await vi.waitFor(() => expect(tabbar()).not.toBeNull());
+    expect(current()).toEqual(['Search']);
+    // "Inbox" leads to the start page, which shows "No account"; "Compose" only reports the missing account.
+    await fireEvent.click(getByRole('button', { name: 'Inbox' }));
+    expect(goto).toHaveBeenCalledWith('/start');
+    await fireEvent.click(getByRole('button', { name: 'Compose' }));
+    expect(await findByText('Connect an email account first')).toBeInTheDocument();
+    // Error page at `/error/[code]`: tab bar without an open tab.
+    page.url = new URL('http://localhost/error/500');
+    await vi.waitFor(() => expect(current()).toEqual([]));
+    expect(tabbar()).not.toBeNull();
+    // Router error (unknown address).
+    page.url = new URL('http://localhost/unknown');
+    page.status = 404;
+    page.error = { message: 'Not Found' };
+    await vi.waitFor(() => expect(container.querySelector('header.mobile')).not.toBeNull());
+    expect(tabbar()).not.toBeNull();
+    expect(current()).toEqual([]);
+    // Back on "No account" without the tab bar.
+    page.status = 200;
+    page.error = null;
+    page.url = new URL('http://localhost/no-account');
+    await vi.waitFor(() => expect(tabbar()).toBeNull());
   });
 
   it('shows the sync pill on mobile in the page area also on pages with a back bar', async () => {

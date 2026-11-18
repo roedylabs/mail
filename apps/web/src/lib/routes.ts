@@ -175,6 +175,16 @@ function isMailPath(path: string): boolean {
 }
 
 /**
+ * Pages of the main view that show the "No account" state without a mail
+ * account (no sidebar, no tab bar on mobile): not the search and its results
+ * or an error page at `/error/[code]`, which keep both. Router errors,
+ * "Access denied" and an open compose do not count either (`+layout.svelte`).
+ */
+export function inNoAccountView(path: string): boolean {
+  return path !== '/search' && !path.startsWith('/error/');
+}
+
+/**
  * Redirect after loading the session, otherwise `null`: without an
  * administrator only setup (`setup_required`), without sign-in only guest
  * pages, when signed in no longer sign-in or setup; "/" leads to the start page.

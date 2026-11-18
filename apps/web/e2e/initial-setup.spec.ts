@@ -194,3 +194,40 @@ test("connect an account via the mail server's sign-in page", async ({ browser, 
   await expect(page.getByText('Invitation to Roedy Mail').first()).toBeVisible();
   await context.close();
 });
+
+test('mobile without a mail account: tab bar on search and error pages', async ({ browser, instance }) => {
+  const context = await browser.newContext({
+    storageState: need(invitees[1]?.state, "second invitee's session"),
+    viewport: { width: 390, height: 700 },
+  });
+  const page = await newPage(context);
+  const tabbar = page.locator('nav.tabbar');
+  const tab = (name: string) => tabbar.getByRole('button', { name, exact: true });
+  await page.goto(`${instance.url}/no-account`);
+  await settled(page);
+  await expect(page.getByRole('button', { name: 'Add email account' })).toBeVisible();
+  await expect(tabbar).toHaveCount(0);
+
+  // Search by address: tab bar with "Search" open.
+  await page.goto(`${instance.url}/search`);
+  await settled(page);
+  await expect(tabbar).toBeVisible();
+  await expect(tab('Search')).toHaveAttribute('aria-current', 'page');
+  await expect(tab('Inbox')).not.toHaveAttribute('aria-current', 'page');
+  // "Compose" only reports the missing account, "Inbox" leads to "No account".
+  await tab('Compose').click();
+  await expect(page.getByText('Connect an email account first')).toBeVisible();
+  await expect(page).toHaveURL(/\/search$/);
+  await tab('Inbox').click();
+  await expect(page).toHaveURL(/\/no-account$/);
+  await expect(tabbar).toHaveCount(0);
+
+  // Error pages: unknown address and `/error/[code]`, without an open tab.
+  for (const path of ['/nowhere', '/error/500']) {
+    await page.goto(`${instance.url}${path}`);
+    await settled(page);
+    await expect(tabbar).toBeVisible();
+    await expect(tabbar.locator('[aria-current="page"]')).toHaveCount(0);
+  }
+  await context.close();
+});

@@ -3,5 +3,10 @@
  * updates a mounted layout like a navigation. Not a test file: imported by
  * `routes/layout.test.ts`.
  */
-// eslint-disable-next-line svelte/prefer-svelte-reactivity -- the tests replace `url` as a whole, like SvelteKit's `page`
-export const page = $state({ url: new URL('http://localhost/'), status: 200, params: {} });
+export const page = $state({
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- the tests replace `url` as a whole, like SvelteKit's `page`
+  url: new URL('http://localhost/'),
+  status: 200,
+  params: {},
+  error: null as { message: string } | null,
+});
