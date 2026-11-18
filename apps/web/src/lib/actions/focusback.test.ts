@@ -40,3 +40,33 @@ describe('focusback', () => {
     expect(document.activeElement).toBe($('elsewhere'));
   });
 });
+
+describe('focusback in the profile email row', () => {
+  const target = 'button.edit, input.row-input';
+  // Desktop: the box follows the row; mobile: the box sits inside the row.
+  const layouts = {
+    desktop: (field: string) =>
+      `<div><div class="row">${field}</div><div id="box"><button id="discard">D</button></div></div>`,
+    mobile: (field: string) =>
+      `<div><div class="row">${field}<div id="box"><button id="discard">D</button></div></div></div>`,
+  };
+  const fields = {
+    reading: '<button id="field" class="edit">Edit</button>',
+    editing: '<input id="field" class="row-input" />',
+  };
+
+  for (const [layout, html] of Object.entries(layouts)) {
+    for (const [mode, field] of Object.entries(fields)) {
+      it(`${layout}, ${mode}: focus goes to the row's ${mode === 'reading' ? 'edit button' : 'input'}`, async () => {
+        document.body.innerHTML = html(field);
+        const box = document.getElementById('box') as HTMLElement;
+        const action = focusback(box, target);
+        (document.getElementById('discard') as HTMLElement).focus();
+        box.remove();
+        action.destroy();
+        await tick();
+        expect(document.activeElement).toBe(document.getElementById('field'));
+      });
+    }
+  }
+});
