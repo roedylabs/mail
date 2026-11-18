@@ -96,6 +96,40 @@ describe('Fetch', () => {
     expect(n.list?.map((x) => x.id)).toEqual(['a']);
   });
 
+  it('keeps the reason of a failed first load until a list is there', async () => {
+    mockApi({
+      'GET notifications': [
+        { status: 500 },
+        { status: 429, body: { error: 'rate_limited', retry_after: 60 } },
+        answer(entry('a')),
+        { status: 500 },
+      ],
+    });
+    expect(n.failure).toBeNull();
+    await n.load();
+    expect(n.list).toBeNull();
+    expect(n.failure).toBe(m.error_act());
+    await n.load();
+    expect(n.failure).toMatch(/^Too many requests\. Try again in /);
+    await n.load();
+    expect(n.failure).toBeNull();
+    // With a list, a later error keeps it without a reason.
+    await n.load();
+    expect(n.list?.map((x) => x.id)).toEqual(['a']);
+    expect(n.failure).toBeNull();
+  });
+
+  it('names a missing connection on a failed first load and forgets it on reset()', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => Promise.reject(new TypeError('Failed to fetch'))),
+    );
+    await n.load();
+    expect(n.failure).toBe(m.error_offline());
+    n.reset();
+    expect(n.failure).toBeNull();
+  });
+
   it('reloads the account after an ended session (401)', async () => {
     const refresh = vi.spyOn(session, 'refreshUser').mockResolvedValue();
     mockApi({ 'GET notifications': [{ status: 500 }, { status: 401, body: { error: 'unauthorized' } }] });

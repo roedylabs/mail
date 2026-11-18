@@ -16,10 +16,14 @@
  * - **Sound** (`nSound`): on new unread entries after the
  *   first fetch, as long as the channel "In the app" and the topic in the app are
  *   on.
+ * - **First load failed** (`failure`): as long as there is no list, the bell
+ *   shows a "Couldn’t load notifications" card with the reason instead of the
+ *   placeholder rows; every later fetch (try again, opening the bell) shows
+ *   the placeholder rows again until its response.
  */
 import { api, isApiError } from '#lib/api.ts';
 import { armChime, chime } from '#lib/chime.ts';
-import { failText } from '#lib/errors.ts';
+import { failText, loadFailText } from '#lib/errors.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { pollVisible } from '#lib/state/network.svelte.ts';
 import { prefs, type Channels } from '#lib/state/prefs.svelte.ts';
@@ -94,6 +98,8 @@ export class Notifications {
   list = $state<AppNotification[] | null>(null);
   /** A fetch is running (the open list is marked `aria-busy` until its response). */
   loading = $state(false);
+  /** Reason of the failed first load (`loadFailText`); `null` once a list is there or before the first answer. */
+  failure = $state<string | null>(null);
 
   /** IDs already shown: only entries that are newly added play the sound. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping, not displayed
@@ -128,8 +134,11 @@ export class Notifications {
       const { notifications } = await api<{ notifications: AppNotification[]; unread: number }>('GET', 'notifications');
       if (generation !== this.#generation || changes !== this.#changes) return;
       this.#apply(notifications);
+      this.failure = null;
     } catch (error) {
       // Without a response the bell keeps its last state; the next fetch tries again.
+      // Without a list yet, the bell shows the reason instead of the placeholder rows.
+      if (generation === this.#generation && this.list === null) this.failure = loadFailText(error);
       // Session ended (other tab, password reset): reload the account, the layout then shows the sign-in.
       if (generation === this.#generation && isApiError(error, 401)) void session.refreshUser().catch(() => {});
     }
@@ -242,6 +251,7 @@ export class Notifications {
   reset(): void {
     this.#generation++;
     this.list = null;
+    this.failure = null;
     this.#seen.clear();
     this.#removing.clear();
     this.#loading = null;

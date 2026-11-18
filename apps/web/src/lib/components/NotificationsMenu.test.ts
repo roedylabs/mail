@@ -49,11 +49,14 @@ function values(patch: Partial<NotifMenuValues> = {}): NotifMenuValues {
     notifHas: true,
     notifEmpty: false,
     notifOff: false,
+    notifFail: false,
+    notifFailText: '',
     hasUnread: true,
     notifNewLabel: '2',
     notifNewAria: '2 new',
     notifMarkAll: () => {},
     notifEnable: () => {},
+    notifRetry: () => {},
     openNotifSettings: () => {},
     ...patch,
   };
@@ -217,6 +220,35 @@ describe('notifications', () => {
     expect(queryByText('All quiet')).toBeNull();
     await fireEvent.click(getByRole('button', { name: 'Turn on' }));
     expect(notifEnable).toHaveBeenCalledOnce();
+  });
+
+  it.each([false, true])('shows the card of a failed first load with "Try again" (mobile: %s)', async (isMobile) => {
+    const notifRetry = vi.fn();
+    const { getByRole, queryByRole, queryByText, container } = render(
+      NotificationsMenu,
+      values({
+        isMobile,
+        notifGroups: [],
+        notifHas: false,
+        hasUnread: false,
+        notifFail: true,
+        notifFailText: 'No connection. Please try again.',
+        notifRetry,
+      }),
+    );
+    const alert = getByRole('alert');
+    expect(alert).toHaveTextContent('Couldn’t load notifications');
+    expect(alert).toHaveTextContent('No connection. Please try again.');
+    expect(alert.querySelector('.art .tabler-icon-cloud-off')).not.toBeNull();
+    expect(queryByRole('status', { name: 'Loading notifications' })).toBeNull();
+    expect(queryByRole('button', { name: 'Mark all as read' })).toBeNull();
+    expect(container.querySelector('.badge')).toBeNull();
+    expect(queryByText('Turned off in the app')).toBeNull();
+    const retry = getByRole('button', { name: 'Try again' });
+    expect(alert).toContainElement(retry);
+    expect(retry.querySelector('.tabler-icon-refresh')).not.toBeNull();
+    await fireEvent.click(retry);
+    expect(notifRetry).toHaveBeenCalledOnce();
   });
 
   it.each([false, true])('shows placeholder rows before the first load (mobile: %s)', (isMobile) => {
