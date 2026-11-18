@@ -90,6 +90,11 @@ describe('sentReplies', () => {
     sentReplies.remove(b);
     expect(sentReplies.scrolls).toEqual([]);
     expect(sentReplies.live(b)).toBe(false);
+    // The server returning the email does not cancel a jump, not even one already taken.
+    sentReplies.confirm(a, 'd9');
+    sentReplies.settle(T1, (ids) => ids.has('d9'));
+    expect(sentReplies.merge(T1, [])).toEqual([]);
+    expect(sentReplies.live(a)).toBe(true);
     // The latest reply of a conversation replaces its jump.
     sentReplies.add(T1, sent(400), COMPOSE_SCROLL_DELAY);
     const c = sentReplies.add(T1, sent(500), 0);

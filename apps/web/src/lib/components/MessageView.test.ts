@@ -11,6 +11,7 @@ import { M_TAB_PAD_B } from '#lib/shell.ts';
 import type { FolderNode } from '#lib/state/mailboxes.svelte.ts';
 import type { MessageEmail, MessagePart } from '#lib/state/message.svelte.ts';
 import type { TagNode } from '#lib/state/tags.svelte.ts';
+import { END_FOLLOW_MS } from '#lib/state/sent-replies.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import MessageView from './MessageView.svelte';
 
@@ -655,6 +656,59 @@ describe('reading view', () => {
       // Set directly (`scrollTop = scrollHeight`), never smooth.
       expect(scrollTo).not.toHaveBeenCalled();
       view.unmount();
+    }
+  });
+
+  it('stays at the end while the content still grows, until the user scrolls or the time is up', () => {
+    vi.useFakeTimers();
+    const observers: { fire: () => void; on: boolean }[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        #o: { fire: () => void; on: boolean };
+        constructor(cb: () => void) {
+          this.#o = { fire: () => this.#o.on && cb(), on: true };
+          observers.push(this.#o);
+        }
+        observe() {}
+        disconnect() {
+          this.#o.on = false;
+        }
+      },
+    );
+    try {
+      const { view } = setup({ rd: values() });
+      const scroller = view.container.querySelector<HTMLElement>('.scroll')!;
+      let height = 1800;
+      let top = 0;
+      Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => height });
+      Object.defineProperty(scroller, 'scrollTop', {
+        configurable: true,
+        get: () => top,
+        set: (v: number) => (top = v),
+      });
+      const toEnd = () => (view.component as unknown as { toEnd: () => void }).toEnd();
+      const grow = (to: number) => {
+        height = to;
+        observers.at(-1)!.fire();
+      };
+      toEnd();
+      // An HTML email gets its height later: the view follows.
+      grow(5000);
+      expect(top).toBe(5000);
+      // The user scrolls themselves: no more following.
+      scroller.dispatchEvent(new WheelEvent('wheel'));
+      grow(6000);
+      expect(top).toBe(5000);
+      // At most `END_FOLLOW_MS`.
+      toEnd();
+      vi.advanceTimersByTime(END_FOLLOW_MS);
+      grow(7000);
+      expect(top).toBe(6000);
+      view.unmount();
+    } finally {
+      vi.unstubAllGlobals();
+      vi.useRealTimers();
     }
   });
 

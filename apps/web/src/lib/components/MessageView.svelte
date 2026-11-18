@@ -51,6 +51,7 @@
   import { m } from '#lib/paraglide/messages.js';
   import type { ReplyActions, ReplyValues } from '#lib/reply.ts';
   import { M_TAB_PAD_B } from '#lib/shell.ts';
+  import { END_FOLLOW_MS } from '#lib/state/sent-replies.svelte.ts';
 
   interface Props {
     rd: ReadValues;
@@ -177,9 +178,32 @@
     });
   });
 
-  /** To the end of the conversation, without animation (after sending a reply: `scrollTop = scrollHeight`). */
+  /** Stop following the end (`toEnd`): the user scrolls, the time is up or the view goes. */
+  let unfollow = () => {};
+  $effect(() => () => unfollow());
+
+  /**
+   * To the end of the conversation, without animation (after sending a reply: `scrollTop = scrollHeight`).
+   * While the content still grows (an HTML email gets its height only once its document loaded), the view
+   * stays at the end, until the user scrolls themselves or at most `END_FOLLOW_MS`.
+   */
   export function toEnd(): void {
-    if (scroller) scroller.scrollTop = scroller.scrollHeight;
+    const el = scroller;
+    if (!el) return;
+    unfollow();
+    el.scrollTop = el.scrollHeight;
+    if (typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => (el.scrollTop = el.scrollHeight));
+    for (const child of el.children) observer.observe(child);
+    const own = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
+    const timer = setTimeout(() => unfollow(), END_FOLLOW_MS);
+    unfollow = () => {
+      observer.disconnect();
+      clearTimeout(timer);
+      for (const type of own) el.removeEventListener(type, unfollow);
+      unfollow = () => {};
+    };
+    for (const type of own) el.addEventListener(type, unfollow, { passive: true });
   }
 
   /** Root of the view; mounted again after the skeleton while paging, `focusNav` gets focus back. */
