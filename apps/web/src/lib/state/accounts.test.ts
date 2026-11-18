@@ -70,6 +70,22 @@ describe('accounts', () => {
     expect(accounts.count).toBeNull();
   });
 
+  it('marks a failed load until the next successful one, without a count', async () => {
+    mockApi({
+      'GET mail-accounts': [{ status: 500, body: { error: 'internal' } }, { body: { accounts: [account('a1')] } }],
+    });
+    const accounts = new Accounts();
+    expect(accounts.failed).toBe(false);
+    await expect(accounts.ensure()).rejects.toThrow();
+    expect(accounts.failed).toBe(true);
+    expect(accounts.count).toBeNull();
+    await accounts.ensure();
+    expect(accounts.failed).toBe(false);
+    expect(accounts.count).toBe(1);
+    accounts.reset();
+    expect(accounts.failed).toBe(false);
+  });
+
   it('reloads when an account arrives during loading or before the first load', async () => {
     let release: (value: { body: unknown }) => void = () => {};
     const { calls } = mockApi({

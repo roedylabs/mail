@@ -39,6 +39,8 @@ export interface HeaderValues {
   appName: string;
   logo: LogoValues;
   sbToggleOn: boolean;
+  /** Without the toggle, an empty space of its size keeps the brand in place (mail accounts loading). */
+  sbToggleHold?: boolean;
   hdrQ: string;
   hdrHasQ: boolean;
   searchPlaceholder: string;

@@ -73,6 +73,8 @@ export class Accounts {
   /** `null` while unknown (before the first load, signed out). */
   list = $state<MailAccount[] | null>(null);
   count = $derived(this.list?.length ?? null);
+  /** The latest load failed and the list is still unknown (no "no account" either). */
+  failed = $state(false);
 
   // Not reactive: sources and clients are not displayed.
   // eslint-disable-next-line svelte/prefer-svelte-reactivity
@@ -112,6 +114,9 @@ export class Accounts {
     let res: { accounts: MailAccount[] };
     try {
       res = await api<{ accounts: MailAccount[] }>('GET', 'mail-accounts');
+    } catch (error) {
+      if (seq === this.#seq) this.failed = true;
+      throw error;
     } finally {
       if (this.#running === seq) this.#running = 0;
     }
@@ -123,6 +128,7 @@ export class Accounts {
       else this.#hidden.delete(id);
     }
     this.list = res.accounts.filter((a) => !this.#hidden.has(a.id));
+    this.failed = false;
     for (const id of [...this.#tokens.keys()]) if (!res.accounts.some((a) => a.id === id)) this.#forget(id);
   }
 
@@ -136,6 +142,7 @@ export class Accounts {
     this.#seq++;
     this.#loading = null;
     this.list = null;
+    this.failed = false;
     this.#hidden.clear();
     for (const id of [...this.#tokens.keys()]) this.#forget(id);
   }
