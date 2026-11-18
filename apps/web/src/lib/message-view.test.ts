@@ -111,8 +111,11 @@ describe('readValues', () => {
     // Without the check the newest one, as before.
     expect(readValues(input({ emails })).id).toBe('sent-local:1');
     // Only the reply visible (the original in Trash): a server email still represents.
-    const trashed = [email('e1', { mailboxIds: ['trash'] }), emails[1]!];
-    expect(readValues(input({ emails: trashed, pending })).id).toBe('e1');
+    const trashed = [email('e0', { mailboxIds: ['spam'] }), email('e1', { mailboxIds: ['trash'] }), emails[1]!];
+    const back = readValues(input({ emails: trashed, pending }));
+    expect(back.id).toBe('e1');
+    // Only the representative joins: other hidden emails stay hidden.
+    expect(back.msgs.map((x) => x.key)).toEqual(['e1', 'sent-local:1']);
     // No server email at all: the reply shows, but cannot be replied to.
     const alone = readValues(input({ emails: [emails[1]!], pending }));
     expect(alone).toMatchObject({ id: 'sent-local:1', canReply: false });

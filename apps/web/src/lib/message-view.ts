@@ -595,8 +595,15 @@ export function shownEmails(input: Pick<ReadInput, 'emails' | 'repId' | 'kind' |
     role === 'trash' || role === 'spam' ? [] : [roles.trash, roles.spam].filter((b): b is string => !!b),
   );
   const shown = input.emails.filter((e) => e.id === input.repId || !e.mailboxIds.some((b) => hidden.has(b)));
-  // Only a reply just sent visible (the rest in Trash): all of them, so that a server email represents.
-  const seq = shown.some((e) => !input.pending?.(e.id)) ? shown : [...input.emails];
+  const real = (e: MessageEmail) => !input.pending?.(e.id);
+  // Only a reply just sent visible (the rest in Trash or Spam): the newest server email joins it to represent,
+  // the other hidden ones stay hidden.
+  const rep = shown.length && !shown.some(real) ? input.emails.findLast(real) : undefined;
+  const seq = !shown.length
+    ? [...input.emails]
+    : rep
+      ? input.emails.filter((e) => e === rep || shown.includes(e))
+      : shown;
   const rm =
     seq.find((e) => e.id === input.repId && !input.pending?.(e.id)) ??
     seq.findLast((e) => !input.pending?.(e.id)) ??

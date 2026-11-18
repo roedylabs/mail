@@ -1164,7 +1164,7 @@
     if (!source || !conversation) return [];
     // Card from the row (`listEmail`): only the list knows the conversation's other emails.
     if (conversation.status !== 'ready' && listRow)
-      return listRow.members.filter((e) => inSource(e.mailboxIds, source));
+      return listRow.members.filter((e) => confirmed(e) && inSource(e.mailboxIds, source));
     return (readEmails ?? []).filter((e) => confirmed(e) && inSource(e.mailboxIds, source)).map(actionEmail);
   });
 
