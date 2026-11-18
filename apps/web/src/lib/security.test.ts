@@ -426,23 +426,84 @@ describe('Authenticator apps', () => {
     expect(calls.filter((c) => c.path === 'auth/totp/devices/enroll')).toHaveLength(2);
   });
 
-  it('shows invalid characters in the app name below the field', async () => {
-    const { p, v } = await loaded({
+  it('checks the app name before password and code, without a request', async () => {
+    const { p, v, calls } = await loaded({ 'POST auth/totp/devices/enroll': [{ body: ENROLL }] });
+    await p.addApp();
+    v().onTName('Lap\u200Btop');
+    // Without password and code the name error comes first, and only it.
+    await p.confirmTotp();
+    expect(v()).toMatchObject({
+      tNameErr: 'The name contains invalid characters.',
+      hasTNameErr: true,
+      tErr: '',
+      hasTErr: false,
+    });
+    v().onTPw('Secret-123');
+    v().onTCode('123456');
+    await p.confirmTotp();
+    expect(v().hasTNameErr).toBe(true);
+    expect(calls.filter((c) => c.path === 'auth/totp/devices/confirm')).toHaveLength(0);
+    expect(ui.toast).toBeNull();
+    // A change to the name clears the error; then password and code are checked as before.
+    v().onTName('Laptop');
+    v().onTPw('');
+    expect(v()).toMatchObject({ tNameErr: '', hasTNameErr: false });
+    await p.confirmTotp();
+    expect(v()).toMatchObject({ tErr: 'Please enter your password.', hasTNameErr: false });
+  });
+
+  it.each([
+    ['a control character', 'Lap\u0007top'],
+    ['a tab at the end', 'Laptop\t'],
+    ['a line break at the start', '\nLaptop'],
+    ['a C1 control character', 'Lap\u0085top'],
+    ['a soft hyphen', 'Lap\u00ADtop'],
+    ['an Arabic letter mark', 'Lap\u061Ctop'],
+    ['a Mongolian vowel separator', 'Lap\u180Etop'],
+    ['a right-to-left mark', 'Lap\u200Ftop'],
+    ['a line separator', 'Lap\u2028top'],
+    ['a direction override', 'Lap\u202Etop'],
+    ['a word joiner', 'Lap\u2060top'],
+    ['a byte order mark', '\uFEFFLaptop'],
+  ])('rejects an app name with %s before sending', async (_, name) => {
+    const { p, v, calls } = await loaded({ 'POST auth/totp/devices/enroll': [{ body: ENROLL }] });
+    await p.addApp();
+    v().onTName(name);
+    v().onTPw('Secret-123');
+    v().onTCode('123456');
+    await p.confirmTotp();
+    expect(v().tNameErr).toBe('The name contains invalid characters.');
+    expect(calls.filter((c) => c.path === 'auth/totp/devices/confirm')).toHaveLength(0);
+  });
+
+  it('keeps the server check of the app name as a fallback', async () => {
+    const { p, v, calls } = await loaded({
       'POST auth/totp/devices/enroll': [{ body: ENROLL }],
       'POST auth/totp/devices/confirm': [
         { status: 422, body: { error: 'invalid', fields: { name: { code: 'invalid' } } } },
       ],
     });
     await p.addApp();
-    v().onTName('Lap\u200Btop');
+    // Interlinear annotation anchor: only the server rejects it.
+    v().onTName('Lap\uFFF9top');
     v().onTPw('Secret-123');
     v().onTCode('123456');
     await p.confirmTotp();
+    expect(calls.filter((c) => c.path === 'auth/totp/devices/confirm')).toHaveLength(1);
     expect(v()).toMatchObject({ tNameErr: 'The name contains invalid characters.', hasTNameErr: true });
     expect(ui.toast).toBeNull();
-    // A change to the name clears the error.
-    v().onTName('Laptop');
-    expect(v()).toMatchObject({ tNameErr: '', hasTNameErr: false });
+  });
+
+  it('does not check the name when removing an app', async () => {
+    const after: MfaOverview = { devices: [LAPTOP], recovery: MFA.recovery };
+    const { p, v } = await loaded({ 'DELETE auth/totp/devices/t1': [{ body: after }] });
+    v().tfaEntries[0]?.onRemove();
+    p.tName = 'Lap\u200Btop';
+    v().onTPw('Secret-123');
+    v().onTCode('654321');
+    await p.confirmTotp();
+    expect(v().hasTNameErr).toBe(false);
+    expect(ui.toast?.text).toBe('iPhone removed');
   });
 
   it('removes an app with password and code', async () => {

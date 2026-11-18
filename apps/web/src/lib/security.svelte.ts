@@ -85,6 +85,15 @@ interface Enrollment {
 /** Add or remove an app. */
 export type TotpMode = 'setup' | 'off';
 
+/**
+ * Characters an app name must not contain, checked before anything is sent:
+ * control characters, line and paragraph separators and invisible format
+ * characters (soft hyphen, direction marks and overrides, zero width, BOM).
+ * The name is checked as typed, so a tab or line break at either end counts
+ * too. The server (`api::mfa::check_name`) stays the fallback.
+ */
+const APP_NAME_BAD = /[\p{Cc}\u00AD\u061C\u180E\u200B-\u200F\u2028-\u202E\u2060-\u206F\uFEFF]/u;
+
 /** Time from the API in ms; now without a valid value. */
 function ms(value: string | null | undefined, now: number): number {
   const t = value ? Date.parse(value) : NaN;
@@ -375,6 +384,11 @@ export class SecurityPage {
   async confirmTotp(): Promise<void> {
     const mode = this.totpMode;
     if (!mode || this.tBusy) return;
+    // The name comes first, before password and code; nothing is sent.
+    if (mode === 'setup' && APP_NAME_BAD.test(this.tName)) {
+      this.tNameErr = m.error_name_invalid();
+      return;
+    }
     if (!this.tPw) {
       this.tErr = m.security_password_required();
       return;

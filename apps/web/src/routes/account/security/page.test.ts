@@ -159,7 +159,7 @@ describe('Security page', () => {
     await view.findByText('Safari on iPhone');
     await fireEvent.click(view.getByRole('button', { name: 'Add authenticator app' }));
     expect(await view.findByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
-    await fireEvent.input(view.getByPlaceholderText('e.g. iPhone'), { target: { value: 'Lap\u200Btop' } });
+    await fireEvent.input(view.getByPlaceholderText('e.g. iPhone'), { target: { value: 'Lap\uFFF9top' } });
     await fireEvent.input(view.getAllByLabelText('Current password')[1] as HTMLElement, {
       target: { value: 'Secret-123' },
     });
@@ -176,6 +176,23 @@ describe('Security page', () => {
     expect(await view.findByText('KRSX G5CT MVRX EZLU KRSX G5CT MVRX EZLU')).toBeInTheDocument();
     expect(view.getByPlaceholderText('e.g. iPhone')).toHaveValue('Laptop');
     expect(view.queryByRole('button', { name: 'Start over' })).toBeNull();
+  });
+
+  it('shows invalid characters in the app name at the name field before asking for the password', async () => {
+    const view = renderPage({
+      'POST auth/totp/devices/enroll': [
+        { body: { id: 't1', secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP', uri: 'otpauth://totp/x' } },
+      ],
+    });
+    await view.findByText('Safari on iPhone');
+    await fireEvent.click(view.getByRole('button', { name: 'Add authenticator app' }));
+    expect(await view.findByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    await fireEvent.input(view.getByPlaceholderText('e.g. iPhone'), { target: { value: 'Lap\u200Btop' } });
+    await fireEvent.click(view.getByRole('button', { name: 'Add' }));
+    const field = view.getByPlaceholderText('e.g. iPhone').closest('label') as HTMLElement;
+    expect(await within(field).findByRole('alert')).toHaveTextContent('The name contains invalid characters.');
+    expect(view.queryByText('Please enter your password.')).toBeNull();
+    expect(view.calls.some((c) => c.path === 'auth/totp/devices/confirm')).toBe(false);
   });
 
   it('signs out a device with undo', async () => {
