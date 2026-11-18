@@ -79,6 +79,8 @@ function fakeMailServer(capabilities?: Record<string, unknown>) {
     showsCode: false,
     /** After creating, before the response. */
     onCreate: null as ((id: string) => void) | null,
+    /** Before every method call is answered. */
+    onCall: null as ((name: string) => void) | null,
     names: () => seen.map(([name]) => name),
     client: null as unknown as JmapClient,
   };
@@ -116,6 +118,7 @@ function fakeMailServer(capabilities?: Record<string, unknown>) {
     const { methodCalls } = JSON.parse(init.body as string) as { methodCalls: Invocation[] };
     const methodResponses = methodCalls.map(([name, args, id]) => {
       seen.push([name, args]);
+      server.onCall?.(name);
       return [name, answer(name, args), id];
     });
     return Promise.resolve(Response.json({ methodResponses, sessionState: 's1' }));
@@ -687,8 +690,49 @@ describe('mailPush', () => {
         return Promise.resolve(server.client);
       });
       await later.resume();
+      expect(later.of('m1')).toBe('off');
       expect(server.entries.has(old as string)).toBe(true);
       expect(verified()).toEqual({});
+    });
+
+    it('shows an account deselected while renewing as off', async () => {
+      await enabled(mailPushWith(browser, 1000));
+      const [id, entry] = [...server.entries.entries()][0] ?? [];
+      server.entries.set(id as string, { ...(entry as Entry), expires: new Date(Date.now() + DAY).toISOString() });
+      const later = mailPushWith(browser);
+      server.onCall = (name) => {
+        if (name === 'PushSubscription/set') localStorage.removeItem(MAIL_PUSH_KEY);
+      };
+      await later.resume();
+      expect(server.names()).toEqual(['PushSubscription/get', 'PushSubscription/set']);
+      expect(later.of('m1')).toBe('off');
+    });
+
+    it('stays on from Stalwart v1.1.0 if the storage remembers nothing', async () => {
+      server.showsCode = true;
+      await enabled(mailPushWith(browser, 1000));
+      localStorage.removeItem(MAIL_PUSH_KEY);
+      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new DOMException('full', 'QuotaExceededError');
+      });
+      const later = mailPushWith(browser);
+      await later.resume();
+      setItem.mockRestore();
+      expect(later.of('m1')).toBe('on');
+      expect(server.names()).toEqual(['PushSubscription/get']);
+    });
+
+    it('writes no record from a check of an earlier session', async () => {
+      server.showsCode = true;
+      await enabled(mailPushWith(browser, 1000));
+      localStorage.removeItem(MAIL_PUSH_KEY);
+      const later = mailPushWith(browser);
+      server.onCall = (name) => {
+        if (name === 'PushSubscription/get') later.reset();
+      };
+      await later.resume();
+      expect(verified()).toEqual({ m1: null });
+      expect(later.of('m1')).toBe('off');
     });
 
     it('counts a confirmation without anyone waiting, but only for selected accounts', async () => {
