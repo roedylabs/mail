@@ -15,7 +15,7 @@
  */
 import { api, fieldsOf, isApiError, retryAfter } from '#lib/api.ts';
 import { isEmail } from '#lib/email.ts';
-import { failText } from '#lib/errors.ts';
+import { failText, isOffline } from '#lib/errors.ts';
 import type { KeyInput } from '#lib/keys.ts';
 import { formatOtp } from '#lib/login.svelte.ts';
 import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
@@ -40,6 +40,9 @@ interface ProfileResponse {
   user: ProfileUser;
   email_change?: EmailChange;
 }
+
+/** "Resend link" sends two mails; after this long the page shows the server's state. */
+export const RESEND_TIMEOUT_MS = 60_000;
 
 /** Result of reading `auth/me` again (`#reread`). */
 type Read = { me: Me } | { error: unknown } | null;
@@ -342,13 +345,17 @@ export class ProfilePage {
     this.pendErr = null;
     try {
       await ui.toasts.flush();
-      const open = await api<EmailChange>('POST', 'auth/me/email/resend');
+      const open = await api<EmailChange>('POST', 'auth/me/email/resend', undefined, {
+        signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
+      });
       // A newer link (or another account) in the meantime: its state and notice stay.
       const user = session.user;
       if (!user || !this.#unchanged(before)) return;
       session.user = { ...user, email_change: open };
       ui.toasts.show(m.profile_link_resent());
     } catch (error) {
+      // A newer link (or another account) in the meantime: the message would not apply to it.
+      if (!this.#unchanged(before)) return;
       if (isApiError(error, 502, 'mail_failed')) {
         this.pendErr =
           error.body.previous_link_valid === true ? m.profile_resend_failed_valid() : m.profile_resend_failed();
@@ -361,6 +368,8 @@ export class ProfilePage {
         // No pending change anymore (confirmed or discarded elsewhere, also while sending).
         await this.#gone(before);
       } else {
+        // No answer in time: the server may still have sent the link, so show its state.
+        if (isOffline(error)) await this.#reread(before);
         this.#unexpected(error);
       }
     } finally {
@@ -395,13 +404,17 @@ export class ProfilePage {
       this.#reportGone(clicked, read.me);
       return;
     }
-    // A different change replaced the clicked one: show it, discard nothing.
-    if (read.me.email_change.email !== clicked.email) return;
+    // A different change replaced the clicked one: show it, discard nothing; the clicked one is gone.
+    if (read.me.email_change.email !== clicked.email) {
+      this.#reportGone(clicked, read.me);
+      return;
+    }
     // A new link is being sent: its notice would send this discard and remove the new change.
     if (this.sending) return;
     const user = session.user;
     const open = user?.email_change;
-    if (!user || !open) return;
+    // A change installed in the meantime replaces the clicked one: discard nothing.
+    if (!user || !open || open.email !== clicked.email) return;
     this.pendErr = null;
     session.user = { ...user, email_change: null };
     ui.toasts.defer({
@@ -477,7 +490,8 @@ export class ProfilePage {
       const now = { ...before, ...session.user, email_change: null };
       session.user = now;
       this.#reportGone(before.email_change, now);
-    } else if (!read.me.email_change) {
+    } else if (read.me.email_change?.email !== before.email_change?.email) {
+      // Also with a new change from elsewhere: it shows, the resent one is gone.
       this.#reportGone(before.email_change, read.me);
     }
   }
