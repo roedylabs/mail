@@ -595,7 +595,8 @@ export function shownEmails(input: Pick<ReadInput, 'emails' | 'repId' | 'kind' |
     role === 'trash' || role === 'spam' ? [] : [roles.trash, roles.spam].filter((b): b is string => !!b),
   );
   const shown = input.emails.filter((e) => e.id === input.repId || !e.mailboxIds.some((b) => hidden.has(b)));
-  const seq = shown.length ? shown : [...input.emails];
+  // Only a reply just sent visible (the rest in Trash): all of them, so that a server email represents.
+  const seq = shown.some((e) => !input.pending?.(e.id)) ? shown : [...input.emails];
   const rm =
     seq.find((e) => e.id === input.repId && !input.pending?.(e.id)) ??
     seq.findLast((e) => !input.pending?.(e.id)) ??
@@ -717,7 +718,8 @@ export function readValues(input: ReadInput): ReadValues {
   // Also per the mailbox of the email (e.g. a scheduled message in a tag view).
   const rmIn = (box: string | null) => !!box && rm.mailboxIds.includes(box);
   const sched = scheduled || rmIn(roles.scheduled);
-  const canReply = !(drafts || sched || isTrash || rmIn(roles.drafts));
+  // Not to a reply just sent while no server email represents the conversation.
+  const canReply = !(drafts || sched || isTrash || rmIn(roles.drafts) || !!input.pending?.(rm.id));
   // "Move" and "Report spam" by the view's role; in folder and tag views, which do not
   // name the mailbox, per the mailbox of the shown email (like `outboxOf` in the list).
   const perBox = !('role' in kind);

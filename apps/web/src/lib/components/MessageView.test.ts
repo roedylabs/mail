@@ -659,26 +659,29 @@ describe('reading view', () => {
     }
   });
 
-  it('stays at the end while the content still grows, until the user scrolls or the time is up', () => {
+  it('stays at the end while the content still grows, until the user scrolls, another conversation or the time is up', async () => {
     vi.useFakeTimers();
-    const observers: { fire: () => void; on: boolean }[] = [];
+    const observers: { cb: () => void; targets: Element[] }[] = [];
     vi.stubGlobal(
       'ResizeObserver',
       class {
-        #o: { fire: () => void; on: boolean };
+        #o: { cb: () => void; targets: Element[] };
         constructor(cb: () => void) {
-          this.#o = { fire: () => this.#o.on && cb(), on: true };
+          this.#o = { cb, targets: [] };
           observers.push(this.#o);
         }
-        observe() {}
+        observe(target: Element) {
+          this.#o.targets.push(target);
+        }
         disconnect() {
-          this.#o.on = false;
+          this.#o.targets = [];
         }
       },
     );
     try {
-      const { view } = setup({ rd: values() });
+      const { view } = setup({ rd: values(), conversationKey: 'a' });
       const scroller = view.container.querySelector<HTMLElement>('.scroll')!;
+      const article = scroller.querySelector('article')!;
       let height = 1800;
       let top = 0;
       Object.defineProperty(scroller, 'scrollHeight', { configurable: true, get: () => height });
@@ -688,23 +691,38 @@ describe('reading view', () => {
         set: (v: number) => (top = v),
       });
       const toEnd = () => (view.component as unknown as { toEnd: () => void }).toEnd();
+      // A resize of the content reaches only observers registered on it.
       const grow = (to: number) => {
         height = to;
-        observers.at(-1)!.fire();
+        for (const o of observers) if (o.targets.some((t) => t.contains(article))) o.cb();
       };
       toEnd();
+      expect(top).toBe(1800);
       // An HTML email gets its height later: the view follows.
       grow(5000);
       expect(top).toBe(5000);
       // The user scrolls themselves: no more following.
-      scroller.dispatchEvent(new WheelEvent('wheel'));
+      scroller.dispatchEvent(new WheelEvent('wheel', { bubbles: true }));
       grow(6000);
       expect(top).toBe(5000);
+      // Also when dragging the overlay scrollbar, the scroll area's sibling.
+      const overlay = document.createElement('div');
+      scroller.after(overlay);
+      toEnd();
+      overlay.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+      grow(6500);
+      expect(top).toBe(6000);
+      // Another conversation starts at the top and does not follow the previous end.
+      toEnd();
+      await view.rerender({ conversationKey: 'b' });
+      expect(top).toBe(0);
+      grow(6800);
+      expect(top).toBe(0);
       // At most `END_FOLLOW_MS`.
       toEnd();
       vi.advanceTimersByTime(END_FOLLOW_MS);
       grow(7000);
-      expect(top).toBe(6000);
+      expect(top).toBe(6800);
       view.unmount();
     } finally {
       vi.unstubAllGlobals();

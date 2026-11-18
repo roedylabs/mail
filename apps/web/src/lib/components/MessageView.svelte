@@ -174,18 +174,21 @@
     if (key === shownKey) return;
     shownKey = key;
     untrack(() => {
+      // The previous conversation no longer follows its end (`toEnd`).
+      unfollow();
       if (scroller) scroller.scrollTop = 0;
     });
   });
 
-  /** Stop following the end (`toEnd`): the user scrolls, the time is up or the view goes. */
+  /** Stop following the end (`toEnd`): the user scrolls, the time is up, another conversation or the view goes. */
   let unfollow = () => {};
   $effect(() => () => unfollow());
 
   /**
    * To the end of the conversation, without animation (after sending a reply: `scrollTop = scrollHeight`).
    * While the content still grows (an HTML email gets its height only once its document loaded), the view
-   * stays at the end, until the user scrolls themselves or at most `END_FOLLOW_MS`.
+   * stays at the end, until the user scrolls themselves (also on the overlay scrollbar next to the scroll area)
+   * or at most `END_FOLLOW_MS`.
    */
   export function toEnd(): void {
     const el = scroller;
@@ -195,15 +198,17 @@
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(() => (el.scrollTop = el.scrollHeight));
     for (const child of el.children) observer.observe(child);
+    // Input on the scroll area and on the overlay scrollbar, its sibling (`scrollbar`).
+    const area = el.parentElement ?? el;
     const own = ['wheel', 'touchstart', 'pointerdown', 'keydown'] as const;
     const timer = setTimeout(() => unfollow(), END_FOLLOW_MS);
     unfollow = () => {
       observer.disconnect();
       clearTimeout(timer);
-      for (const type of own) el.removeEventListener(type, unfollow);
+      for (const type of own) area.removeEventListener(type, unfollow);
       unfollow = () => {};
     };
-    for (const type of own) el.addEventListener(type, unfollow, { passive: true });
+    for (const type of own) area.addEventListener(type, unfollow, { passive: true });
   }
 
   /** Root of the view; mounted again after the skeleton while paging, `focusNav` gets focus back. */

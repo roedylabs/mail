@@ -110,6 +110,12 @@ describe('readValues', () => {
     expect(readValues(input({ emails, pending, repId: 'sent-local:1' })).id).toBe('e1');
     // Without the check the newest one, as before.
     expect(readValues(input({ emails })).id).toBe('sent-local:1');
+    // Only the reply visible (the original in Trash): a server email still represents.
+    const trashed = [email('e1', { mailboxIds: ['trash'] }), emails[1]!];
+    expect(readValues(input({ emails: trashed, pending })).id).toBe('e1');
+    // No server email at all: the reply shows, but cannot be replied to.
+    const alone = readValues(input({ emails: [emails[1]!], pending }));
+    expect(alone).toMatchObject({ id: 'sent-local:1', canReply: false });
   });
 
   it('shows a simple email with its attachment', () => {

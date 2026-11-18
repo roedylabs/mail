@@ -691,9 +691,13 @@
     const cancel = () => (req.delay > 0 ? clearTimeout(id) : cancelAnimationFrame(id as number));
     jumps.push(cancel);
   });
-  $effect(() => () => {
-    for (const cancel of jumps) cancel();
-    jumps = [];
+  // Another conversation (also A → B → A) or leaving the page cancels waiting jumps (pre: before the new one is taken).
+  $effect.pre(() => {
+    void replyKey;
+    return () => {
+      for (const cancel of jumps) cancel();
+      jumps = [];
+    };
   });
 
   // --- Actions: star, read, delete, spam, restore ---
@@ -1174,6 +1178,8 @@
       kind: view.kind,
       roles: rolesOf(opened.account),
     });
+    // No server email represents the conversation (only a reply just sent): no actions.
+    if (pending(rm.id)) return null;
     const card = conversation?.status !== 'ready' && viewEmails.length > 0;
     return {
       account: opened.account,
