@@ -327,8 +327,9 @@ async fn unlock(
     Ok(Json(json!({ "user": row })))
 }
 
-/// "Remove" after confirmation (without undo); afterwards the
-/// token broker revokes the grants of the mail accounts.
+/// "Remove" after confirmation (the web app sends it once the toast with
+/// "Undo" has expired); afterwards the token broker revokes the grants of
+/// the mail accounts.
 async fn remove(
     State(state): State<AppState>,
     AdminUser(admin): AdminUser,

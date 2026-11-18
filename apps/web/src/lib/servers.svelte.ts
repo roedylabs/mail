@@ -7,8 +7,10 @@
  * registration of the OAuth client (`POST admin/servers/register-client`,
  * before saving).
  *
- * Removal runs immediately after confirmation, without undo. Errors show the
- * error toast; diagnosis and registration texts depend on the reason.
+ * Removal after confirmation has undo: `DELETE` goes out when the toast
+ * expires (`ui.toasts.defer`) or immediately when leaving the page; if it
+ * fails, the row returns. Errors show the error toast; diagnosis and
+ * registration texts depend on the reason.
  *
  * List and policy stay for the session (`keptServers`): a reopened page shows
  * them at once and loads again in the background; if that fails, they stay
@@ -43,6 +45,7 @@ import { onForget } from '#lib/state/forget.ts';
 import { Kept } from '#lib/state/kept.ts';
 import { session } from '#lib/state/session.svelte.ts';
 import { Loading, ui } from '#lib/state/ui.svelte.ts';
+import type { DeferredAction } from '#lib/undo.ts';
 import { MAX_DOMAINS, domainsOf, hostOf, httpOther, isDomain, localHttp } from '#lib/url.ts';
 import { clockText, waitText } from '#lib/wait.ts';
 
@@ -231,6 +234,8 @@ export class ServersPage {
   #queue: string[] = [];
   #policySeq = 0;
   #disposed = false;
+  /** Last removal with undo: leaving the page sends it immediately. */
+  #final: DeferredAction | null = null;
   /** Reopened with the kept list: the next load reports a failure only as "Couldn’t update the list.". */
   #reopened = false;
   readonly #keep = keptServers.keeper();
@@ -306,7 +311,9 @@ export class ServersPage {
 
   /**
    * Leave the page: keep list and policy as the server knows them (servers
-   * whose removal may yet fail stay in it); late responses change nothing any more.
+   * whose removal may yet fail stay in it); late responses change nothing any
+   * more. A removal still waiting in the toast goes out immediately; the toast
+   * closes with its undo.
    */
   dispose(): void {
     if (this.status === 'ready' && !this.#disposed) {
@@ -319,6 +326,8 @@ export class ServersPage {
     this.#regSeq++;
     this.regLock.stop();
     this.testWait.stop();
+    if (ui.toasts.waiting(this.#final)) void ui.toasts.flush();
+    this.#final = null;
   }
 
   /** Remaining time after a throttled test in seconds; changes at most once per second. */
@@ -332,10 +341,14 @@ export class ServersPage {
     return this.regLock.active('reg') && (this.regThrottled === null || this.regThrottled === url);
   }
 
-  /** Error toast, reload the list; without a session or role reload the account. */
-  #failed(error: unknown): void {
-    if (this.#disposed) return;
+  /**
+   * Error toast, reload the list; without a session or role reload the account.
+   * After leaving the page nothing, except for `late` the error toast (a removal sent when leaving).
+   */
+  #failed(error: unknown, late = false): void {
+    if (this.#disposed && !late) return;
     ui.toasts.error(failText(error));
+    if (this.#disposed) return;
     if (error instanceof ApiError && (error.status === 401 || error.status === 403)) {
       void session.refreshUser().catch(() => {});
       return;
@@ -410,7 +423,7 @@ export class ServersPage {
     }
   }
 
-  /** "Remove" with confirmation; then immediately, without undo. */
+  /** "Remove" with confirmation; then with undo. */
   remove(server: AdminServer): void {
     const n = server.accounts ?? 0;
     const sys = server.id === this.systemServer;
@@ -429,24 +442,34 @@ export class ServersPage {
         this.rows = before.filter((s) => s.id !== server.id);
         this.diag.delete(server.id);
         this.#edited(server.id);
-        ui.toasts.show(m.server_removed({ label: server.label }));
-        api('DELETE', `admin/servers/${server.id}`).then(
-          () => this.#removed(server.id, sys),
-          (error: unknown) => {
-            // Already gone (e.g. removed by another person): treat as removed.
-            if (isApiError(error, 404)) {
-              this.#removed(server.id, sys);
-              return;
-            }
+        const action: DeferredAction = {
+          text: m.server_removed({ label: server.label }),
+          // After "Undo" or a failed call: back at its place.
+          revert: () => {
             this.#removing = this.#removing.filter((x) => x !== server.id);
             this.#removingRows = this.#removingRows.filter((s) => s.id !== server.id);
             keptServers.changed();
-            if (!this.rows.some((s) => s.id === server.id)) {
-              this.rows = [...this.rows, ...before.filter((s) => s.id === server.id)];
-            }
-            this.#failed(error);
+            if (this.rows.some((s) => s.id === server.id)) return;
+            const at = before.findIndex((s) => s.id === server.id);
+            const after = before.slice(at + 1).map((s) => s.id);
+            const next = this.rows.findIndex((s) => after.includes(s.id));
+            const rows = [...this.rows];
+            rows.splice(next < 0 ? rows.length : next, 0, server);
+            this.rows = rows;
           },
-        );
+          commit: async (keepalive) => {
+            try {
+              await api('DELETE', `admin/servers/${server.id}`, undefined, { keepalive });
+            } catch (error) {
+              // Already gone (e.g. removed by another person): treat as removed.
+              if (!isApiError(error, 404)) throw error;
+            }
+            this.#removed(server.id, sys);
+          },
+          onError: (error) => this.#failed(error, true),
+        };
+        this.#final = action;
+        ui.toasts.defer(action);
       },
     });
   }

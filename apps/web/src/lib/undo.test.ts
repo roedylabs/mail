@@ -73,6 +73,21 @@ describe('Toasts', () => {
     expect(a.revert).not.toHaveBeenCalled();
   });
 
+  it('knows whether an action is still waiting in the toast', async () => {
+    const a = action();
+    const b = action();
+    expect(toasts.waiting(null)).toBe(false);
+    toasts.defer(a);
+    expect([toasts.waiting(a), toasts.waiting(b)]).toEqual([true, false]);
+    toasts.defer(b);
+    expect([toasts.waiting(a), toasts.waiting(b)]).toEqual([false, true]);
+    toasts.undo();
+    expect(toasts.waiting(b)).toBe(false);
+    toasts.defer(a);
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(toasts.waiting(a)).toBe(false);
+  });
+
   it('hides notices when hiding and sends a pending action', async () => {
     toasts.show('Redirect URI copied');
     toasts.dismiss();

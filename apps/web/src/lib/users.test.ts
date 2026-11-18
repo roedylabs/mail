@@ -387,7 +387,7 @@ describe('Selection', () => {
       'POST users/bulk': [
         { body: { changed: ['u1', 'u2'] } },
         { body: { changed: ['u1'] } },
-        { body: { changed: [] } },
+        { body: { changed: ['u1', 'i2'] } },
       ],
     });
     p.toggleSelect('u1');
@@ -417,11 +417,32 @@ describe('Selection', () => {
       ok: 'Remove',
     });
     ui.confirmOk();
-    // Immediately after confirmation, without undo.
-    expect(ui.toast).toMatchObject({ text: '2 people removed', undo: false });
+    // With undo: sent only after the toast expires.
+    expect(ui.toast).toMatchObject({ text: '2 people removed', undo: true });
     expect(p.selected).toEqual([]);
     expect(listed(p, 'u1')).toBeUndefined();
-    await vi.waitFor(() => expect(calls.at(-1)?.body).toEqual({ action: 'remove', ids: ['u1', 'i2'] }));
+    const before = calls.length;
+    ui.toasts.undo();
+    expect([listed(p, 'u1')?.id, listed(p, 'i2')?.id]).toEqual(['u1', 'i2']);
+    expect(calls).toHaveLength(before);
+    p.selected = ['u1', 'i2'];
+    v().uBulkRemove();
+    ui.confirmOk();
+    await ui.toasts.flush();
+    expect(calls.at(-1)?.body).toEqual({ action: 'remove', ids: ['u1', 'i2'] });
+    expect(listed(p, 'u1')).toBeUndefined();
+  });
+
+  it('brings back rows, selection and toast after a failed bulk removal', async () => {
+    const { p, v } = await loaded({ 'POST users/bulk': [{ status: 500, body: { error: 'internal' } }] });
+    p.selected = ['u1', 'u2'];
+    v().uBulkRemove();
+    ui.confirmOk();
+    expect(p.selected).toEqual([]);
+    await ui.toasts.flush();
+    expect([listed(p, 'u1')?.id, listed(p, 'u2')?.id]).toEqual(['u1', 'u2']);
+    expect(p.selected).toEqual(['u1', 'u2']);
+    expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true });
   });
 
   it('asks before withdrawing a single invitation and reports it as removed', async () => {
@@ -844,10 +865,16 @@ describe('Actions per row', () => {
   });
 
   it('keeps changes the server does not know yet when reloading', async () => {
+    let removed: (reply: { status: number }) => void = () => {};
     const { p, v, calls } = await loaded({
-      'GET users': [{ body: { users: USERS } }, { body: { users: USERS } }, { body: { users: USERS } }],
+      'GET users': [
+        { body: { users: USERS } },
+        { body: { users: USERS } },
+        { body: { users: USERS } },
+        { body: { users: USERS } },
+      ],
       'POST users/u2/lock': [{ body: {} }],
-      'DELETE users/u1': [() => new Promise(() => {})],
+      'DELETE users/u1': [() => new Promise((resolve) => (removed = resolve))],
     });
     row(v(), 'Luke Walker').lock();
     ui.confirmOk();
@@ -859,11 +886,17 @@ describe('Actions per row', () => {
     // Afterwards the server state applies (the mock responds unchanged).
     await p.load();
     expect(listed(p, 'u2')?.status).toBe('active');
-    // A removal still on its way does not bring the row back.
+    // A removal waiting in the toast or still on its way does not bring the row back.
     row(v(), 'Anna Baker').remove();
     ui.confirmOk();
     await p.load();
     expect(listed(p, 'u1')).toBeUndefined();
+    const sending = ui.toasts.flush();
+    await p.load();
+    expect(listed(p, 'u1')).toBeUndefined();
+    expect(sent(calls)).toContain('DELETE users/u1');
+    removed({ status: 204 });
+    await sending;
   });
 
   it('reverts a failed change and reloads', async () => {
@@ -943,7 +976,7 @@ describe('Actions per row', () => {
     expect(sent(calls).slice(-2)).toEqual(['POST users/u2/lock', 'POST users/u3/unlock']);
   });
 
-  it('removes immediately after confirmation, without undo, and reverts it on an error', async () => {
+  it('removes after confirmation with undo, sends after expiry and reverts it on an error', async () => {
     const { p, v, calls } = await loaded({
       'DELETE users/u2': [{ status: 204 }],
       'DELETE invites/i2': [{ status: 500, body: { error: 'internal' } }],
@@ -959,17 +992,68 @@ describe('Actions per row', () => {
     ui.confirmOk();
     expect(listed(p, 'u2')).toBeUndefined();
     expect(p.open).toBeNull();
-    expect(ui.toast).toMatchObject({ text: 'Luke Walker removed', undo: false });
+    expect(ui.toast).toMatchObject({ text: 'Luke Walker removed', undo: true });
+    // "Undo" brings the row back and sends nothing.
+    ui.toasts.undo();
+    expect(listed(p, 'u2')).toBeDefined();
+    expect(sent(calls)).not.toContain('DELETE users/u2');
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    expect(sent(calls)).not.toContain('DELETE users/u2');
+    // A new toast sends the waiting removal first.
+    p.toggleOpen('i2');
     row(v(), 'paul.long@example.com').remove();
     expect(ui.confirm?.title).toBe('Revoke invitation?');
     ui.confirmOk();
-    expect(ui.toast?.text).toBe('Invitation revoked');
-    await vi.waitFor(() => expect(listed(p, 'i2')).toBeDefined());
+    expect(sent(calls)).toContain('DELETE users/u2');
+    expect(ui.toast).toMatchObject({ text: 'Invitation revoked', undo: true });
+    expect(sent(calls)).not.toContain('DELETE invites/i2');
+    await ui.toasts.flush();
+    // Failed: the row returns, expanded again, with the error toast.
+    expect(listed(p, 'i2')).toBeDefined();
+    expect(p.open).toBe('i2');
     expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true });
     expect(sent(calls)).toEqual(expect.arrayContaining(['DELETE users/u2', 'DELETE invites/i2']));
+    expect(listed(p, 'u2')).toBeUndefined();
   });
 
-  it('resets multi-factor immediately after confirmation, without undo', async () => {
+  it('sends a waiting removal immediately when leaving the page, not an action of another page', async () => {
+    const { p, v, calls } = await loaded({
+      'DELETE users/u2': [{ status: 204 }],
+      'POST users/u3/unlock': [{ body: {} }],
+    });
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    p.dispose();
+    // The toast closes: "Undo" no longer applies.
+    expect(ui.toast).toBeNull();
+    expect(sent(calls)).toContain('DELETE users/u2');
+    const { p: q, v: w } = await loaded();
+    row(w(), 'Sophie Hamilton').unlock();
+    // Unlocking keeps its toast after leaving the page.
+    q.dispose();
+    expect(ui.toast).toMatchObject({ text: 'Sophie Hamilton reactivated', undo: true });
+    const other = { text: 'Elsewhere', revert: vi.fn(), commit: vi.fn(() => Promise.resolve()) };
+    const { p: r, v: x } = await loaded();
+    row(x(), 'Anna Baker').mfaReset();
+    ui.confirmOk();
+    ui.toasts.defer(other);
+    r.dispose();
+    expect(other.commit).not.toHaveBeenCalled();
+    expect(ui.toast?.text).toBe('Elsewhere');
+  });
+
+  it('reports a removal that fails after leaving the page, without loading again', async () => {
+    const { p, v, calls } = await loaded({ 'DELETE users/u2': [{ status: 500, body: { error: 'internal' } }] });
+    row(v(), 'Luke Walker').remove();
+    ui.confirmOk();
+    p.dispose();
+    await ui.toasts.flush();
+    expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true });
+    expect(sent(calls).filter((c) => c === 'GET users')).toHaveLength(1);
+  });
+
+  it('resets multi-factor after confirmation with undo and reverts it on an error', async () => {
     const { p, v, calls } = await loaded({
       'POST users/u2/reset-mfa': [{ body: {} }],
       'POST users/u1/reset-mfa': [{ status: 409, body: { error: 'mfa_disabled' } }],
@@ -984,11 +1068,22 @@ describe('Actions per row', () => {
     });
     ui.confirmOk();
     expect(row(v(), 'Luke Walker')).toMatchObject({ mfa: false, canMfaReset: false });
-    expect(ui.toast).toMatchObject({ text: 'Multi-factor reset for Luke Walker', undo: false });
+    expect(ui.toast).toMatchObject({ text: 'Multi-factor reset for Luke Walker', undo: true });
+    ui.toasts.undo();
+    expect(listed(p, 'u2')?.mfa).toBe(true);
+    expect(sent(calls)).not.toContain('POST users/u2/reset-mfa');
+    row(v(), 'Luke Walker').mfaReset();
+    ui.confirmOk();
+    await ui.toasts.flush();
+    expect(sent(calls)).toContain('POST users/u2/reset-mfa');
+    expect(listed(p, 'u2')?.mfa).toBe(false);
     row(v(), 'Anna Baker').mfaReset();
     ui.confirmOk();
-    await vi.waitFor(() => expect(listed(p, 'u1')?.mfa).toBe(true));
-    expect(sent(calls)).toEqual(expect.arrayContaining(['POST users/u2/reset-mfa', 'POST users/u1/reset-mfa']));
+    expect(listed(p, 'u1')?.mfa).toBe(false);
+    await ui.toasts.flush();
+    expect(listed(p, 'u1')?.mfa).toBe(true);
+    expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true });
+    expect(sent(calls)).toContain('POST users/u1/reset-mfa');
   });
 
   it('resends an invitation and shows a failed mail in the row', async () => {
@@ -1096,6 +1191,7 @@ describe('Actions per row', () => {
     });
     row(v(), 'Luke Walker').remove();
     ui.confirmOk();
+    await ui.toasts.flush();
     await vi.waitFor(() => expect(session.isAdmin).toBe(false));
     // Instead of reloading the list, the layout then shows "Access denied".
     expect(sent(calls).filter((c) => c === 'GET users')).toHaveLength(1);
@@ -1148,9 +1244,10 @@ describe('Reopening', () => {
   });
 
   it('keeps changes the server confirmed, not those still on their way', async () => {
+    let removed: (reply: { status: number }) => void = () => {};
     const { p } = await loaded({
       'DELETE users/u3': [{ status: 204 }],
-      'DELETE users/u2': [() => new Promise(() => {})],
+      'DELETE users/u2': [() => new Promise((resolve) => (removed = resolve))],
     });
     const row = (id: string) => {
       const u = p.rows.find((x) => x.id === id);
@@ -1159,12 +1256,13 @@ describe('Reopening', () => {
     };
     p.remove(row('u3'));
     ui.confirmOk();
-    // Response of the server.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Sent and confirmed by the server.
+    await ui.toasts.flush();
     p.remove(row('u2'));
     ui.confirmOk();
-    expect(p.rows.map((u) => u.id)).not.toContain('u2');
+    // Sent by the next toast, still on its way.
     p.setRole(row('u1'), 'user');
+    expect(p.rows.map((u) => u.id)).not.toContain('u2');
     p.dispose();
     const kept = new UsersPage().rows;
     expect(kept.map((u) => u.id)).not.toContain('u3');
@@ -1172,6 +1270,9 @@ describe('Reopening', () => {
     expect(kept.map((u) => u.id)).toContain('u2');
     // Role change with undo not sent yet: the role the server knows.
     expect(kept.find((u) => u.id === 'u1')?.role).toBe('admin');
+    removed({ status: 204 });
+    ui.toasts.discard();
+    await ui.toasts.flush();
   });
 
   it('a reload that started before a confirmed removal does not bring the user back', async () => {
@@ -1189,8 +1290,8 @@ describe('Reopening', () => {
     if (!u3) throw new Error('no u3');
     q.remove(u3);
     ui.confirmOk();
-    // Response of the server.
-    await new Promise((resolve) => setTimeout(resolve, 0));
+    // Sent and confirmed by the server.
+    await ui.toasts.flush();
     answer({ body: { users: USERS } });
     await load;
     await vi.waitFor(() => expect(q.rows.map((u) => u.id)).toEqual(later.map((u) => u.id)));
@@ -1205,6 +1306,7 @@ describe('Reopening', () => {
     if (!u3) throw new Error('no u3');
     p.remove(u3);
     ui.confirmOk();
+    // Leaving the page sends the removal right away.
     p.dispose();
     mockApi({ 'GET users': [() => new Promise((resolve) => (answer = resolve)), { body: { users: later } }] });
     const q = new UsersPage();
