@@ -31,10 +31,12 @@ interface Entry {
   id: string;
   deviceClientId: string;
   url: string;
-  verificationCode: null;
+  verificationCode: string | null;
   expires: string;
   types: string[];
   emailPush?: unknown;
+  /** Only internally: confirmed with the code from the `PushVerification`. */
+  verified?: boolean;
 }
 
 function sessionJson(
@@ -53,13 +55,20 @@ function sessionJson(
   };
 }
 
-function readable(entry: Entry): Partial<Entry> {
-  const copy: Partial<Entry> = { ...entry };
+/** Code of every entry in the `PushVerification`. */
+const CODE = 'c';
+
+function readable(entry: Entry, showsCode: boolean): Partial<Entry> {
+  const copy: Partial<Entry> = { ...entry, verificationCode: showsCode && entry.verified ? CODE : null };
   delete copy.url;
+  delete copy.verified;
   return copy;
 }
 
-/** Mail server behind `fetch`, as Stalwart shows it for `PushSubscription` (`url` only internally). */
+/**
+ * Mail server behind `fetch`, as Stalwart shows it for `PushSubscription` (`url` only internally).
+ * `verificationCode` of a confirmed entry only with `showsCode` (from v1.1.0), up to v1.0.x always `null`.
+ */
 function fakeMailServer(capabilities?: Record<string, unknown>) {
   const entries = new Map<string, Entry>();
   const seen: [string, Record<string, unknown>][] = [];
@@ -67,6 +76,7 @@ function fakeMailServer(capabilities?: Record<string, unknown>) {
     entries,
     seen,
     down: false,
+    showsCode: false,
     /** After creating, before the response. */
     onCreate: null as ((id: string) => void) | null,
     names: () => seen.map(([name]) => name),
@@ -79,7 +89,7 @@ function fakeMailServer(capabilities?: Record<string, unknown>) {
         return { accountId: 'a1', ids: ['inbox'] };
       case 'PushSubscription/get':
         // `url` and `keys` are not readable.
-        return { list: [...entries.values()].map(readable), notFound: [] };
+        return { list: [...entries.values()].map((entry) => readable(entry, server.showsCode)), notFound: [] };
       default: {
         const created: Record<string, { id: string; expires: string }> = {};
         for (const [key, value] of Object.entries((args.create ?? {}) as Record<string, Entry>)) {
@@ -91,7 +101,8 @@ function fakeMailServer(capabilities?: Record<string, unknown>) {
         const updated: Record<string, null> = {};
         for (const [id, patch] of Object.entries((args.update ?? {}) as Record<string, Partial<Entry>>)) {
           const entry = entries.get(id);
-          if (entry) entries.set(id, { ...entry, ...patch, verificationCode: null });
+          if (entry)
+            entries.set(id, { ...entry, ...patch, verified: entry.verified || patch.verificationCode === CODE });
           updated[id] = null;
         }
         const destroyed = (args.destroy ?? []) as string[];
@@ -468,9 +479,16 @@ describe('mailPush', () => {
     vi.restoreAllMocks();
   });
 
+  /** The service worker confirms at the mail server and reports it to the windows. */
+  function confirm(id: string) {
+    const entry = server.entries.get(id);
+    if (entry) entry.verified = true;
+    browser.verified('m1', id);
+  }
+
   /** Turning on with a service worker that confirms immediately. */
   async function enabled(module: MailPush) {
-    server.onCreate = (id) => browser.verified('m1', id);
+    server.onCreate = confirm;
     const status = await module.enable('m1');
     server.onCreate = null;
     server.seen.length = 0;
@@ -601,15 +619,76 @@ describe('mailPush', () => {
       expect(server.entries.size).toBe(1);
     });
 
-    it('replaces an entry without a record', async () => {
+    it('replaces an entry without a record up to Stalwart v1.0.x', async () => {
       await enabled(mailPushWith(browser, 1000));
       const [old] = [...server.entries.keys()];
       localStorage.removeItem(MAIL_PUSH_KEY);
       const later = mailPushWith(browser, 1000);
-      server.onCreate = (id) => browser.verified('m1', id);
+      server.onCreate = confirm;
+      await later.resume();
+      expect(later.of('m1')).toBe('on');
+      expect(server.entries.has(old as string)).toBe(false);
+      expect(server.entries.size).toBe(1);
+      expect(verified()).toEqual({ m1: [...server.entries.keys()][0] });
+    });
+
+    it('only renews a confirmed entry without a record from Stalwart v1.1.0', async () => {
+      server.showsCode = true;
+      await enabled(mailPushWith(browser, 1000));
+      const [id, entry] = [...server.entries.entries()][0] ?? [];
+      server.entries.set(id as string, { ...(entry as Entry), expires: new Date(Date.now() + DAY).toISOString() });
+      localStorage.removeItem(MAIL_PUSH_KEY);
+      const later = mailPushWith(browser);
+      await later.resume();
+      expect(later.of('m1')).toBe('on');
+      expect(server.names()).toEqual(['PushSubscription/get', 'PushSubscription/set']);
+      expect(server.entries.size).toBe(1);
+      expect(Date.parse(server.entries.get(id as string)?.expires ?? '')).toBeGreaterThan(Date.now() + 6 * DAY);
+      expect(verified()).toEqual({ m1: id });
+    });
+
+    it('replaces an unconfirmed entry without a record from Stalwart v1.1.0', async () => {
+      server.showsCode = true;
+      await enabled(mailPushWith(browser, 1000));
+      const [old, entry] = [...server.entries.entries()][0] ?? [];
+      server.entries.set(old as string, { ...(entry as Entry), verified: false });
+      localStorage.removeItem(MAIL_PUSH_KEY);
+      const later = mailPushWith(browser, 1000);
+      server.onCreate = confirm;
+      await later.resume();
+      expect(later.of('m1')).toBe('on');
+      expect(server.entries.has(old as string)).toBe(false);
+      expect(server.entries.size).toBe(1);
+    });
+
+    it('replaces a confirmed but expired entry from Stalwart v1.1.0', async () => {
+      server.showsCode = true;
+      await enabled(mailPushWith(browser, 1000));
+      const [old, entry] = [...server.entries.entries()][0] ?? [];
+      server.entries.set(old as string, { ...(entry as Entry), expires: new Date(Date.now() - 1000).toISOString() });
+      localStorage.removeItem(MAIL_PUSH_KEY);
+      const later = mailPushWith(browser, 1000);
+      server.onCreate = confirm;
       await later.resume();
       expect(server.entries.has(old as string)).toBe(false);
       expect(server.entries.size).toBe(1);
+    });
+
+    it('keeps an account deselected that the mail server still shows as confirmed', async () => {
+      server.showsCode = true;
+      await enabled(mailPushWith(browser, 1000));
+      localStorage.removeItem(MAIL_PUSH_KEY);
+      const later = mailPushWith(browser);
+      server.onCreate = null;
+      const [old] = [...server.entries.keys()];
+      // Deselected in another tab while the check runs.
+      vi.spyOn(accounts, 'client').mockImplementationOnce(() => {
+        localStorage.removeItem(MAIL_PUSH_KEY);
+        return Promise.resolve(server.client);
+      });
+      await later.resume();
+      expect(server.entries.has(old as string)).toBe(true);
+      expect(verified()).toEqual({});
     });
 
     it('counts a confirmation without anyone waiting, but only for selected accounts', async () => {

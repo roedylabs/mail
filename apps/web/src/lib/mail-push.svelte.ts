@@ -22,8 +22,10 @@
  *   It names the app user; `resume` and `share` remove the copy of another
  *   user who signed in before in this browser.
  *
- * The device remembers selection and confirmation (`PushSubscription/get`
- * does not show them) in local storage.
+ * The device remembers selection and confirmation in local storage.
+ * `PushSubscription/get` shows the confirmation from Stalwart v1.1.0 on
+ * (`verificationCode` of a confirmed entry, otherwise `null`); up to v1.0.x
+ * it is always `null`, so there only the local record tells.
  */
 import { dev } from '$app/env';
 import { destroyPushSubscriptions } from '@roedy/jmap';
@@ -142,7 +144,7 @@ function readChoices(): Record<string, string | null> {
   }
 }
 
-/** Locked storage counts like a missing record: the next start replaces the entry. */
+/** Locked storage counts like a missing record: up to Stalwart v1.0.x the next start replaces the entry. */
 function writeChoices(next: Record<string, string | null>): void {
   try {
     if (Object.keys(next).length > 0) localStore()?.setItem(MAIL_PUSH_KEY, JSON.stringify(next));
@@ -506,14 +508,19 @@ export class MailPush {
     const registration = await this.env.register(mailPushScope(accountId));
     const subscription = await browserSubscription(registration.pushManager, key);
     const entries = await ownEntries(client, subscription.endpoint);
-    const verified = readChoices()[accountId];
+    const recorded = readChoices()[accountId];
     // `get` shows expired entries once more, `set` no longer knows them.
-    const current = entries.find((entry) => entry.id === verified && !isExpired(entry));
+    const usable = entries.filter((entry) => !isExpired(entry));
+    // Confirmed per record or, from Stalwart v1.1.0 on, per `verificationCode`; up to v1.0.x it is always `null`.
+    const current =
+      usable.find((entry) => entry.id === recorded) ?? usable.find((entry) => entry.verificationCode !== null);
     if (current) {
+      // Accounts deselected in the meantime stay deselected.
+      if (current.id !== recorded && accountId in readChoices()) markChosen(accountId, current.id);
       await renewIfDue(client, current);
       return 'on';
     }
-    // Without a record it is unclear whether the entry was ever confirmed: replace it. Stalwart only confirms the newest.
+    // Neither record nor code: unclear whether the entry was ever confirmed, replace it. Stalwart only confirms the newest.
     await destroyPushSubscriptions(
       client,
       entries.map((entry) => entry.id),
