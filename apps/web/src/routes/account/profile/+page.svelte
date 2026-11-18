@@ -9,6 +9,7 @@
 <script lang="ts">
   import { tooltip } from '#lib/actions/tooltip.ts';
   import { autofocus } from '#lib/actions/autofocus.ts';
+  import { focusback } from '#lib/actions/focusback.ts';
   import DirtyBar from '#lib/components/DirtyBar.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { MAX_NAME } from '#lib/name.ts';
@@ -84,7 +85,7 @@
 
 <!-- "Confirmation pending" (confirmation pending, `acctRows[].pend`). -->
 {#snippet pending(r: AcctRowValues)}
-  <div role="status" class="pend">
+  <div role="status" class="pend" use:focusback={'button.edit'}>
     <div class="pend-head">
       <span class="pend-tile"><Icon name="ti-mail-forward" /></span>
       <div class="pend-text">

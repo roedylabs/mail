@@ -41,6 +41,9 @@ interface ProfileResponse {
   email_change?: EmailChange;
 }
 
+/** Result of reading `auth/me` again (`#reread`). */
+type Read = { me: Me } | { error: unknown } | null;
+
 /** User name like the backend (`^[a-z0-9][a-z0-9._-]{1,31}$`). */
 const USERNAME = /^[a-z0-9][a-z0-9._-]{1,31}$/;
 
@@ -332,8 +335,10 @@ export class ProfilePage {
     try {
       await ui.toasts.flush();
       const open = await api<EmailChange>('POST', 'auth/me/email/resend');
+      // A newer link (or another account) in the meantime: its state and notice stay.
       const user = session.user;
-      if (user?.id === before.id) session.user = { ...user, email_change: open };
+      if (!user || !this.#unchanged(before)) return;
+      session.user = { ...user, email_change: open };
       ui.toasts.show(m.profile_link_resent());
     } catch (error) {
       if (isApiError(error, 502, 'mail_failed')) {
@@ -358,7 +363,8 @@ export class ProfilePage {
   /**
    * "Discard change" with undo: `DELETE auth/me/email` only after the toast
    * expires. The toast says "Change discarded" only if the change is still
-   * pending, so `auth/me` is read first.
+   * pending, so `auth/me` is read first; without an answer the change stays
+   * and the error toast appears.
    */
   async discardChange(): Promise<void> {
     const before = session.user;
@@ -366,20 +372,25 @@ export class ProfilePage {
     if (!before?.email_change || this.resending || this.checking) return;
     const clicked = before.email_change;
     this.checking = true;
-    let read: Me | 'stale' | 'failed';
+    let read: Read;
     try {
       read = await this.#reread(before);
     } finally {
       this.checking = false;
     }
-    if (read === 'stale') return;
-    if (read !== 'failed' && !read.email_change) {
-      this.#reportGone(clicked, read);
+    if (!read) return;
+    if ('error' in read) {
+      if (!isApiError(read.error, 401)) ui.toasts.error(failText(read.error));
+      return;
+    }
+    if (!read.me.email_change) {
+      this.#reportGone(clicked, read.me);
       return;
     }
     // A different change replaced the clicked one: show it, discard nothing.
-    if (read !== 'failed' && read.email_change?.email !== clicked.email) return;
-    // Without an answer the discard goes ahead; if sending fails, the change comes back.
+    if (read.me.email_change.email !== clicked.email) return;
+    // A new link is being sent: its notice would send this discard and remove the new change.
+    if (this.sending) return;
     const user = session.user;
     const open = user?.email_change;
     if (!user || !open) return;
@@ -422,43 +433,44 @@ export class ProfilePage {
   }
 
   /**
-   * Reads `auth/me` for "Confirmation pending" and applies it. `stale`: the page
-   * changed in the meantime (another account, a new link, "Discard change")
-   * or the session ended, the newer state stays and decides; `failed`: no
-   * answer, nothing changed.
+   * Reads `auth/me` for "Confirmation pending" and applies address and pending
+   * change (other fields may have been saved in the meantime). `null`: the
+   * page changed in the meantime (another account, a new link, "Discard
+   * change"), the newer state stays and decides; `error`: no answer, nothing
+   * changed. Without a session the account reloads, the layout then shows the
+   * sign-in.
    */
-  async #reread(before: Me): Promise<Me | 'stale' | 'failed'> {
+  async #reread(before: Me): Promise<Read> {
     let me: Me;
     try {
       me = await api<Me>('GET', 'auth/me', undefined, { signal: AbortSignal.timeout(CONFIG_TIMEOUT_MS) });
     } catch (error) {
-      // Without a session the layout leads to the sign-in.
-      if (isApiError(error, 401)) {
-        void session.refreshUser().catch(() => {});
-        return 'stale';
-      }
-      return this.#unchanged(before) ? 'failed' : 'stale';
+      if (isApiError(error, 401)) void session.refreshUser().catch(() => {});
+      return this.#unchanged(before) ? { error } : null;
     }
-    if (!this.#unchanged(before)) return 'stale';
+    const now = session.user;
+    if (!now || !this.#unchanged(before)) return null;
     if (me.id !== before.id) {
       void session.refreshUser().catch(() => {});
-      return 'stale';
+      return null;
     }
-    session.user = me;
-    return me;
+    const merged = { ...now, email: me.email, email_change: me.email_change };
+    session.user = merged;
+    return { me: merged };
   }
 
   /** "Resend link" found no pending change anymore: reload the account, then report it. */
   async #gone(before: Me): Promise<void> {
     const read = await this.#reread(before);
-    if (read === 'stale') return;
-    if (read === 'failed') {
+    if (!read) return;
+    if ('error' in read) {
+      if (isApiError(read.error, 401)) return;
       // Without an answer the 404 still counts: nothing is pending anymore.
       const now = { ...before, ...session.user, email_change: null };
       session.user = now;
       this.#reportGone(before.email_change, now);
-    } else if (!read.email_change) {
-      this.#reportGone(before.email_change, read);
+    } else if (!read.me.email_change) {
+      this.#reportGone(before.email_change, read.me);
     }
   }
 

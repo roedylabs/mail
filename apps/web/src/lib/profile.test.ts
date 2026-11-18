@@ -582,6 +582,64 @@ describe('confirmation pending', () => {
     expect(calls).toHaveLength(1);
   });
 
+  it('"Discard change" discards nothing while a new link is being sent', async () => {
+    let release: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({
+      'GET auth/me': [() => new Promise((resolve) => (release = resolve))],
+      'PATCH auth/me': [
+        { body: { status: 'reauth_required', user: USER } },
+        { body: { status: 'email_sent', user: USER, email_change: { ...OPEN, email: 'two@example.com' } } },
+      ],
+    });
+    const p = new ProfilePage();
+    p.edit('email');
+    p.setField('email', 'two@example.com');
+    await p.save();
+    p.setEaPw('Secret-123');
+    const discarding = p.discardChange();
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    const sending = p.sendLink();
+    release({ body: { ...ME, email_change: OPEN } });
+    await discarding;
+    await sending;
+    expect(ui.toast?.text).toBe('Confirmation link sent');
+    await ui.toasts.flush();
+    expect(sent(calls).map((c) => c.call)).not.toContain('DELETE auth/me/email');
+    expect(session.user?.email_change?.email).toBe('two@example.com');
+  });
+
+  it('keeps a name saved while "Discard change" reads `auth/me`', async () => {
+    let release: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({
+      'GET auth/me': [() => new Promise((resolve) => (release = resolve))],
+      'PATCH auth/me': [{ body: { status: 'ok', user: { ...USER, display_name: 'Max Rivera' } } }],
+    });
+    const p = new ProfilePage();
+    const discarding = p.discardChange();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    p.editName();
+    p.setName('Max Rivera');
+    await p.save();
+    release({ body: { ...ME, email_change: OPEN } });
+    await discarding;
+    expect(session.user?.display_name).toBe('Max Rivera');
+    expect(ui.toast).toMatchObject({ text: 'Change discarded', undo: true });
+  });
+
+  it('drops a late "Resend link" answer after a newer link', async () => {
+    const newer = { ...OPEN, email: 'two@example.com' };
+    let release: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({ 'POST auth/me/email/resend': [() => new Promise((resolve) => (release = resolve))] });
+    const p = new ProfilePage();
+    const resending = p.resend();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    session.user = { ...ME, email_change: newer };
+    release({ body: { ...OPEN, expires_at: '2026-10-28T12:00:00Z' } });
+    await resending;
+    expect(session.user?.email_change).toEqual(newer);
+    expect(ui.toast).toBeNull();
+  });
+
   it('discards with undo only after the toast expires', async () => {
     const pending = { body: { ...ME, email_change: OPEN } };
     const { calls } = mockApi({
@@ -626,14 +684,18 @@ describe('confirmation pending', () => {
     });
   });
 
-  it('names "No connection" for a failed discard without a connection', async () => {
-    // No response for `DELETE auth/me/email`: `fetch` fails.
-    mockApi({});
+  it('keeps the change and shows the error toast if `auth/me` cannot be read', async () => {
+    const { calls } = mockApi({ 'GET auth/me': [{ status: 500, body: {} }] });
     const p = new ProfilePage();
     await p.discardChange();
+    expect(rowOf(profileValues(p), 'Email').pend).toBe(true);
+    expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true, undo: false });
+    // No answer at all: `fetch` fails.
+    await p.discardChange();
+    expect(ui.toast).toMatchObject({ text: 'No connection. Please try again.', error: true });
     await ui.toasts.flush();
     expect(session.user?.email_change).toEqual(OPEN);
-    expect(ui.toast).toMatchObject({ text: 'No connection. Please try again.', error: true });
+    expect(sent(calls).map((c) => c.call)).toEqual(['GET auth/me', 'GET auth/me']);
   });
 });
 
