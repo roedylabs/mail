@@ -252,6 +252,7 @@
           setupRequired: session.setupRequired,
           authed: session.authed,
           mailAccounts: mailAccountCount,
+          leavingSetup: ui.setupLeaving,
         })
       : null,
   );

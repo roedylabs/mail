@@ -157,6 +157,8 @@ export class Ui {
   pageDialog = $state.raw<(() => PageDialog | null) | null>(null);
   /** Document title of the open setup step ("Setup token · Setup"); `null` outside the setup wizard. */
   setupTitle = $state<string | null>(null);
+  /** The setup has signed the administrator in and opens Administration › Mail servers: `/setup` stays until then. */
+  setupLeaving = $state(false);
   /** "Add mail server" from the command palette: the page opens the dialog as soon as it is there. */
   serverAdd = $state(false);
   /** "Set up push notifications" from the command palette: Settings › Notifications opens the push dialog. */
@@ -284,6 +286,7 @@ export class Ui {
     this.pick = null;
     this.pageDialog = null;
     this.setupTitle = null;
+    this.setupLeaving = false;
     this.serverAdd = false;
     this.pushOpen = false;
     this.userInvite = false;

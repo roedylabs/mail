@@ -6,7 +6,11 @@ import { BRAND0, session } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import Page from './+page.svelte';
 
+const nav = vi.hoisted(() => ({ goto: vi.fn(() => Promise.resolve()) }));
+vi.mock('$app/navigation', () => ({ goto: nav.goto }));
+
 afterEach(() => {
+  nav.goto.mockClear();
   vi.unstubAllGlobals();
   vi.useRealTimers();
   session.config = null;
@@ -46,6 +50,17 @@ async function atPassword() {
   await type('Email address', 'anna@example.com');
   await next();
   await vi.waitFor(() => expect(view.getByLabelText(/^Password$/)).toHaveFocus());
+  return view;
+}
+
+/** Opens the wizard at the review step (via the token, administrator and password steps). */
+async function atReview() {
+  const view = await atPassword();
+  await type(/^Password$/, 'Safe-enough1');
+  await type('Confirm password', 'Safe-enough1');
+  await next();
+  await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
+  expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
   return view;
 }
 
@@ -409,22 +424,59 @@ describe('Setup page', () => {
     expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'false');
     await next();
 
-    // 5: overview and completion
+    // 5: summary and completion
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
     expect(view.getByRole('img', { name: 'Step 5 of 5' })).toBeInTheDocument();
-    expect(view.getByText('Anna Becker · anna@example.com')).toBeInTheDocument();
-    // No field in the overview: the focus moves to its heading.
+    expect(ui.setupTitle).toBe('Review · Setup');
+    const summary = view.getByRole('list', { name: 'Your details' });
+    const rows = within(summary).getAllByRole('listitem');
+    // (The page renders at mobile width here: "Change" is a pencil with its label.)
+    expect(rows.map((r) => r.textContent?.replace(/\s+/g, ' ').trim())).toEqual([
+      'Language and appearance System · Dark · Sage',
+      'AB Administrator Anna Becker anna@example.com',
+      'Password •••••••••• Set',
+    ]);
+    expect(summary).not.toHaveTextContent('Safe-enough1');
+    expect(view.getByText('Next, connect the mail server.')).toBeInTheDocument();
+    // No field in the summary: the focus moves to its heading.
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
-    await fireEvent.click(view.getByRole('button', { name: 'Change Administrator' }));
-    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator');
-    await vi.waitFor(() => expect(view.getByLabelText('Your name')).toHaveFocus());
-    // On through 3 and 4 again: both passwords are still there.
+    // Focus order: Change × 3, Back, Finish setup.
+    const order = [...view.container.querySelectorAll<HTMLElement>('button:not([tabindex="-1"])')].map(
+      (b) => b.getAttribute('aria-label') ?? b.textContent?.trim(),
+    );
+    expect(order).toEqual([
+      'Change Language and appearance',
+      'Change Administrator',
+      'Change Password',
+      'Back',
+      'Finish setup',
+    ]);
+    // "Change" walks forward again through the following steps; the accepted token needs no new check.
+    await fireEvent.click(view.getByRole('button', { name: 'Change Language and appearance' }));
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome');
+    await next('Get started');
+    expect(view.getByLabelText('Setup token')).toHaveValue('ABCD-EFGH-JKLM');
     await next();
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator'));
+    expect(calls.filter((c) => c.path === 'setup/token')).toHaveLength(1);
+    await next();
+    // On through 4 again: both passwords are still there.
     expect(view.getByLabelText('Confirm password')).toHaveValue('Safe-enough1');
     await next();
-    await next('Finish setup');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?'));
+    // Enter on the heading finishes.
+    await fireEvent.keyDown(view.getByRole('heading', { level: 1 }), { key: 'Enter' });
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
-    expect(view.getByText('Roedy Mail is set up. Signing you in …')).toBeInTheDocument();
+    expect(view.getByText('Roedy Mail is set up.')).toBeInTheDocument();
+    expect(view.getByText('Signing you in …')).toBeInTheDocument();
+    expect(view.getByRole('img', { name: 'Setup complete' })).toBeInTheDocument();
+    const chips = view.getByRole('list', { name: 'Done' });
+    expect(
+      within(chips)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.trim()),
+    ).toEqual(['Administrator created', 'Setup token revoked']);
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
     const complete = calls.find((c) => c.path === 'setup/complete');
     expect(complete?.headers['X-Setup-Token']).toBe('ABCD-EFGH-JKLM');
     expect(complete?.body).toEqual({
@@ -437,9 +489,111 @@ describe('Setup page', () => {
     // The done screen has read the first name: the session keys go.
     expect(Object.keys(sessionStorage).filter((k) => k.startsWith('roedy-setup-'))).toEqual([]);
 
+    // The look chosen on step 1 stays applied without the session keys.
+    expect([prefs.values.mode, prefs.values.accent]).toEqual(['dark', 'sage']);
+    expect(nav.goto).not.toHaveBeenCalled();
     await vi.advanceTimersByTimeAsync(2700);
-    await vi.waitFor(() => expect(session.authed).toBe(true));
+    await vi.waitFor(() => expect(nav.goto).toHaveBeenCalledWith('/admin/mail-servers', { replace: true }));
+    expect(session.authed).toBe(true);
+    // The layout keeps the setup until Administration › Mail servers is there.
+    expect(ui.setupLeaving).toBe(true);
     expect(calls.map((c) => c.path)).toContain('settings');
+  });
+});
+
+describe('Step 5: review', () => {
+  it('locks Back and "Change" while setting up and shows a server error in place of the note', async () => {
+    let answer: (a: { status: number; body: unknown }) => void = () => {};
+    const view = await atReview();
+    const { calls } = mockApi({
+      'POST setup/complete': [{ status: 500, body: {} }, () => new Promise((resolve) => (answer = resolve))],
+    });
+    await next('Finish setup');
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Something went wrong.'));
+    expect(view.getByRole('alert')).toHaveTextContent('Setup couldn’t be finished. Details are in the container log.');
+    // The note stays in its slot, invisible (the card keeps its size).
+    expect(view.container.querySelector('.note')).toHaveAttribute('aria-hidden', 'true');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
+
+    // The next Finish removes the message; while it runs Back and "Change" are locked.
+    await next('Finish setup');
+    expect(view.queryByRole('alert')).toBeNull();
+    const busy = view.getByRole('button', { name: 'Setting up …' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    const back = view.getByRole('button', { name: 'Back' });
+    expect(back).toHaveAttribute('aria-disabled', 'true');
+    await fireEvent.click(back);
+    await fireEvent.click(view.getByRole('button', { name: 'Change Administrator' }));
+    expect(view.getByRole('button', { name: 'Change Administrator' })).toHaveAttribute('aria-disabled', 'true');
+    expect(view.getByRole('list', { name: 'Your details' })).toHaveClass('busy');
+    await fireEvent.click(busy);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
+    expect(calls.filter((c) => c.path === 'setup/complete')).toHaveLength(2);
+    answer({ status: 201, body: {} });
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
+  });
+
+  it('reloads to the sign-in when the setup was finished meanwhile', async () => {
+    const view = await atReview();
+    mockApi({
+      'POST setup/complete': [{ status: 409, body: { error: 'setup_done' } }],
+      'GET public/config': [
+        {
+          body: {
+            name: 'Roedy Mail',
+            branding: BRAND0,
+            org: {},
+            maintenance: { on: false, message: null },
+            version: '0.2.0',
+            update: null,
+            setup_required: false,
+          },
+        },
+      ],
+      'GET auth/me': [{ status: 401, body: { error: 'unauthorized' } }],
+    });
+    await next('Finish setup');
+    await vi.waitFor(() => expect(session.status).toBe('ready'));
+    expect(session.setupRequired).toBe(false);
+    expect(session.authed).toBe(false);
+    expect(ui.setupLeaving).toBe(false);
+    expect(view.queryByRole('alert')).toBeNull();
+  });
+
+  it('shows "No connection" when Finish gets no answer', async () => {
+    const view = await atReview();
+    mockApi({});
+    await next('Finish setup');
+    await vi.waitFor(() => expect(view.getByRole('alertdialog')).toHaveTextContent('No connection'));
+    // The step stays behind it as it was, nothing in place of the note.
+    expect(view.container.querySelector('h1')).toHaveTextContent('All set?');
+    expect(view.container.querySelector('.err.live')).toBeNull();
+  });
+
+  it('speaks German, with the pencil for "Change" on narrow screens', async () => {
+    sessionStorage.setItem('roedy-setup-lang', 'de');
+    sessionStorage.setItem('roedy-setup-accent', 'custom');
+    sessionStorage.setItem('roedy-setup-accentHex', '#4a7bd0');
+    mockApi({ 'POST setup/token': [{ body: {} }] });
+    atToken();
+    const view = render(Page);
+    await vi.waitFor(() => expect(view.getByLabelText('Setup-Token')).toHaveFocus());
+    await type('Setup-Token', 'abcd-efgh-jklm');
+    await next('Weiter');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Administrator anlegen'));
+    await type('Ihr Name', 'Anna Becker');
+    await type('E-Mail-Adresse', 'anna@example.com');
+    await next('Weiter');
+    await type(/^Passwort$/, 'Safe-enough1');
+    await type('Passwort wiederholen', 'Safe-enough1');
+    await next('Weiter');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Alles bereit?'));
+    expect(ui.setupTitle).toBe('Überprüfen · Einrichtung');
+    expect(view.getByRole('list', { name: 'Ihre Angaben' })).toHaveTextContent('Deutsch · System · Eigene #4A7BD0');
+    const change = view.getByRole('button', { name: 'Sprache und Design ändern' });
+    expect(change).toHaveAttribute('title', 'Sprache und Design ändern');
+    expect(change).not.toHaveTextContent('Ändern');
+    expect(view.getByText('Festgelegt')).toBeInTheDocument();
   });
 });
 

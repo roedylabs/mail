@@ -2,8 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import {
   DONE_MS,
+  MASKED_PW,
   SetupFlow,
   choicesOf,
+  choicesSummary,
   clearSession,
   customHexOf,
   formatToken,
@@ -33,6 +35,7 @@ function hooks() {
     entered: vi.fn<(step: Step, focus: Focus | null) => void>(),
     error: vi.fn<(text: string) => void>(),
     reload: vi.fn(() => Promise.resolve()),
+    signedIn: vi.fn(() => Promise.resolve()),
   };
 }
 
@@ -451,19 +454,64 @@ describe('Steps 3 and 4', () => {
 });
 
 describe('Step 5: completion', () => {
-  it('shows the overview and sets up with the stored appearance, then reloads the session', async () => {
-    vi.useFakeTimers();
-    storeChoice({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
+  it('summarises the steps, never the password', () => {
+    storeChoice({ lang: 'en', mode: 'dark', accent: 'apricot' });
+    const { flow } = at(5);
+    const rows = flow.review.map((r) => [r.step, r.icon, r.ini, r.label, r.value, r.sub, r.masked]);
+    expect(rows).toEqual([
+      [1, 'ti-palette', '', 'Language and appearance', 'English · Dark · Apricot', '', false],
+      [3, 'ti-user-shield', 'AB', 'Administrator', 'Anna Baker', 'anna@example.com', false],
+      [4, 'ti-lock', '', 'Password', MASKED_PW, 'Set', true],
+    ]);
+    expect(JSON.stringify(flow.review)).not.toContain(flow.pw);
+  });
+
+  it('names the language by its own name, the theme and the accent', () => {
+    expect(choicesSummary({ lang: 'system', mode: 'system', accent: 'sage' })).toBe('System · System · Sage');
+    expect(choicesSummary({ lang: 'de', mode: 'light', accent: 'rose' })).toBe('Deutsch · Light · Rose');
+    // A custom colour: its preset name or "Custom #RRGGBB".
+    expect(choicesSummary({ lang: 'en', mode: 'dark', accent: '#4a7bd0' })).toBe('English · Dark · Custom #4A7BD0');
+    expect(choicesSummary({ lang: 'en', mode: 'dark', accent: '#f08a7e' })).toBe('English · Dark · Coral');
+  });
+
+  it('reads the choices fresh after "Change" on step 1', () => {
+    storeChoice({ lang: 'en', mode: 'dark', accent: 'apricot' });
+    const { flow } = at(5);
+    expect(flow.review[0]?.value).toBe('English · Dark · Apricot');
+    flow.revisit(1);
+    storeChoice({ mode: 'light', accent: 'sky' });
+    expect(flow.review[0]?.value).toBe('English · Light · Sky');
+  });
+
+  it('walks forward from "Change" keeping the accepted token and the passwords', async () => {
+    const { calls } = mockApi({});
     const { flow, h } = at(5);
-    // A tab from a copied table cell: checked and sent as a space.
-    flow.name = ' Anna\tBaker ';
-    const { calls } = mockApi({ 'POST setup/complete': [{ status: 201, body: { user: {} } }] });
-    expect(flow.review.map((r) => [r.label, r.value])).toEqual([['Administrator', 'Anna Baker · anna@example.com']]);
+    flow.revisit(1);
+    expect(h.entered).toHaveBeenLastCalledWith(1, 'lang');
+    flow.start();
+    // The accepted token goes on without a new check.
+    await flow.submitToken();
+    expect(flow.step).toBe(3);
+    flow.submitAdmin();
+    expect(flow.step).toBe(4);
+    expect([flow.pw, flow.pw2]).toEqual(['Safe-enough1', 'Safe-enough1']);
+    flow.submitPw();
+    expect(flow.step).toBe(5);
+    expect(calls).toHaveLength(0);
     flow.revisit(3);
     expect(h.entered).toHaveBeenLastCalledWith(3, 'name');
     flow.revisit(4);
     expect(h.entered).toHaveBeenLastCalledWith(4, 'pw');
-    flow.step = 5;
+  });
+
+  it('sets up with the stored appearance, shows the done screen, then signs in', async () => {
+    vi.useFakeTimers();
+    storeChoice({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
+    const signedIn = vi.fn(() => Promise.resolve());
+    const { flow, h } = at(5, { ...hooks(), signedIn });
+    // A tab from a copied table cell: checked and sent as a space.
+    flow.name = ' Anna\tBaker ';
+    const { calls } = mockApi({ 'POST setup/complete': [{ status: 201, body: { user: {} } }] });
     await flow.finish();
     expect(calls[0]?.headers['X-Setup-Token']).toBe(TOKEN);
     expect(calls[0]?.body).toEqual({
@@ -473,42 +521,39 @@ describe('Step 5: completion', () => {
       settings: { lang: 'de', mode: 'dark', accent: '#4a7bd0' },
     });
     expect(flow.view).toBe('done');
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'heading');
     expect(flow.firstName).toBe('Anna');
-    expect(flow.pw).toBe('');
+    expect([flow.pw, flow.pw2, flow.token]).toEqual(['', '', '']);
+    vi.advanceTimersByTime(DONE_MS - 1);
+    expect(signedIn).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+    expect(signedIn).toHaveBeenCalledOnce();
     expect(h.reload).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(DONE_MS);
-    expect(h.reload).toHaveBeenCalled();
   });
 
-  it('jumps to the first affected step on field errors', async () => {
+  it('shows any other answer in place, with the shake, until the next "Finish setup"', async () => {
     const { flow, h } = at(5);
-    const invalid = (fields: Record<string, unknown>) => ({ status: 422, body: { error: 'invalid', fields } });
+    let answer: (a: { status: number; body: unknown }) => void = () => {};
     mockApi({
       'POST setup/complete': [
-        invalid({ password: { code: 'policy', rules: ['num'] }, email: { code: 'invalid' } }),
-        invalid({ name: { code: 'too_long' } }),
-        invalid({ name: { code: 'invalid' } }),
-        invalid({ password: { code: 'too_long' } }),
-        invalid({ 'settings.lang': { code: 'invalid' } }),
+        { status: 500, body: {} },
+        { status: 422, body: { error: 'invalid', fields: { name: { code: 'invalid' } } } },
+        () => new Promise((resolve) => (answer = resolve)),
       ],
     });
-    const finish = async (): Promise<[number, unknown]> => {
-      flow.step = 5;
-      await flow.finish();
-      return [flow.step, flow.err];
-    };
-    expect(await finish()).toEqual([3, { pw: true, email: 'Please check the email address.' }]);
-    expect(h.fail).toHaveBeenLastCalledWith('email');
-    // The focus follows from `fail`, not from entering the step.
-    expect(h.entered).toHaveBeenLastCalledWith(3, null);
-    expect(await finish()).toEqual([3, { name: 'The name is too long.' }]);
-    expect(h.fail).toHaveBeenLastCalledWith('name');
-    expect(await finish()).toEqual([3, { name: 'Use letters, spaces, hyphens and apostrophes only.' }]);
-    expect(await finish()).toEqual([4, { pw: 'The password is too long (1024 bytes at most).' }]);
+    await flow.finish();
+    expect([flow.step, flow.finishErr, flow.loading]).toEqual([5, true, false]);
+    expect(h.fail).toHaveBeenCalledOnce();
     expect(h.error).not.toHaveBeenCalled();
-    // A field without text: error toast, the overview stays.
-    expect((await finish())[0]).toBe(5);
-    expect(h.error).toHaveBeenCalledWith('That didn’t work. Please try again.');
+    // Steps 3 and 4 already checked the fields with the server's rules: a field error is just another answer.
+    await flow.finish();
+    expect([flow.step, flow.finishErr, flow.err]).toEqual([5, true, {}]);
+    const pending = flow.finish();
+    expect([flow.finishErr, flow.loading]).toEqual([false, true]);
+    answer({ status: 201, body: {} });
+    await pending;
+    expect(flow.view).toBe('done');
+    flow.dispose();
   });
 
   it('allows neither going back nor to a step during completion', async () => {
@@ -517,6 +562,8 @@ describe('Step 5: completion', () => {
     mockApi({ 'POST setup/complete': [() => new Promise((resolve) => (answer = resolve))] });
     const pending = flow.finish();
     expect(flow.loading).toBe(true);
+    // Back stays (locked, not hidden).
+    expect(flow.canBack).toBe(true);
     flow.back();
     flow.revisit(3);
     expect(flow.step).toBe(5);
@@ -526,23 +573,12 @@ describe('Step 5: completion', () => {
     flow.dispose();
   });
 
-  it('reloads on setup_done and reports other errors and network errors as a toast', async () => {
+  it('reloads on setup_done (the layout then shows the sign-in)', async () => {
     const { flow, h } = at(5);
-    mockApi({
-      'POST setup/complete': [
-        { status: 409, body: { error: 'setup_done' } },
-        { status: 500, body: {} },
-      ],
-    });
+    mockApi({ 'POST setup/complete': [{ status: 409, body: { error: 'setup_done' } }] });
     await flow.finish();
-    expect(h.reload).toHaveBeenCalled();
-    await flow.finish();
-    expect(h.error).toHaveBeenCalledWith('That didn’t work. Please try again.');
-    expect(flow.loading).toBe(false);
-    // No response any more: `fetch` fails; without the "No connection" message a toast.
-    await flow.finish();
-    expect(h.error).toHaveBeenLastCalledWith('No connection. Please try again.');
-    expect(flow.loading).toBe(false);
+    expect(h.reload).toHaveBeenCalledOnce();
+    expect([flow.view, flow.finishErr, flow.loading]).toEqual(['form', false, false]);
   });
 
   it('shows "No connection" when a request gets no answer, everything entered stays', async () => {

@@ -188,12 +188,14 @@ export function inNoAccountView(path: string): boolean {
  * Redirect after loading the session, otherwise `null`: without an
  * administrator only setup (`setup_required`), without sign-in only guest
  * pages, when signed in no longer sign-in or setup; "/" leads to the start page.
+ * The setup that has just signed the administrator in (`leavingSetup`) stays
+ * until it has opened Administration › Mail servers itself.
  * With a known number of mail accounts (`mailAccounts`), the start page and
  * mailboxes go to "No account" without an account, and "No account" goes to the start page with one.
  */
 export function redirectFor(
   path: string,
-  state: { setupRequired: boolean; authed: boolean; mailAccounts?: number | null },
+  state: { setupRequired: boolean; authed: boolean; mailAccounts?: number | null; leavingSetup?: boolean },
 ): EntryPath | null {
   if (state.setupRequired) return path === SETUP_PATH ? null : SETUP_PATH;
   if (!state.authed) {
@@ -201,6 +203,7 @@ export function redirectFor(
     // Unknown paths show the router's 404, not the login.
     return isGuestPath(path) || !isAppPath(path) ? null : LOGIN_PATH;
   }
+  if (path === SETUP_PATH && state.leavingSetup) return null;
   const known = state.mailAccounts !== undefined && state.mailAccounts !== null;
   const none = known && state.mailAccounts === 0;
   const home = none ? NO_ACCOUNT_PATH : START_PATH;

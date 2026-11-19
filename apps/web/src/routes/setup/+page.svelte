@@ -1,12 +1,14 @@
 <!--
   Setup wizard: one route, the step comes from the wizard's state
   (`#lib/setup.svelte.ts`). Each step is its own component inside the shared
-  frame (`SetupShell`); the done screen signs in via `session.load()` (the
-  layout redirects to the start page). "No connection" covers every step
+  frame (`SetupShell`); the done screen signs in via `session.load()` and
+  opens Administration › Mail servers. "No connection" covers every step
   and the loading of the setup status before the first one.
 -->
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import NoConnection from '#lib/components/setup/NoConnection.svelte';
   import SetupDone from '#lib/components/setup/SetupDone.svelte';
   import StepAdmin from '#lib/components/setup/StepAdmin.svelte';
@@ -48,14 +50,22 @@
     },
     error: (text) => ui.toasts.error(text),
     offline: () => net.show(),
-    reload: async () => {
+    reload: () => session.load(),
+    signedIn: async () => {
+      // The done screen stays until Administration › Mail servers is there (no detour via the start page).
+      ui.setupLeaving = true;
       await session.load();
-      if (!session.authed) return;
+      if (!session.authed) {
+        // No session (cookie rejected): the layout shows the sign-in.
+        ui.setupLeaving = false;
+        return;
+      }
       try {
         await prefs.load();
       } catch {
-        // Without settings the defaults apply.
+        // The look chosen in the wizard stays applied.
       }
+      await goto(resolve('/admin/mail-servers'), { replace: true });
     },
   });
 
@@ -127,6 +137,7 @@
   onDestroy(() => {
     flow.dispose();
     net.close();
+    ui.setupLeaving = false;
   });
 </script>
 
