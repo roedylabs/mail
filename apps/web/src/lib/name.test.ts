@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_NAME, initials, limitName, nameError, normalizeName } from './name.ts';
+import { MAX_NAME, initials, limitName, limitNameEdit, nameError, nameLength, normalizeName } from './name.ts';
 
 describe('normalizeName', () => {
   it('collapses control characters and repeated spaces into one', () => {
@@ -74,11 +74,31 @@ describe('limitName', () => {
     expect(limitName('a'.repeat(140))).toBe('a'.repeat(100));
   });
 
-  it('never cuts a character in half', () => {
-    // U+20000 is a letter outside the BMP (two UTF-16 units).
-    const name = `${'a'.repeat(99)}\u{20000}`;
-    expect(limitName(name)).toBe('a'.repeat(99));
-    expect(nameError(limitName(name))).toBe('');
+  it('counts characters as the name rule does, not UTF-16 units', () => {
+    // U+20BB7 is a letter outside the BMP (two UTF-16 units).
+    const sixty = '\u{20BB7}'.repeat(60);
+    expect(nameLength(sixty)).toBe(60);
+    expect(limitName(sixty)).toBe(sixty);
+    expect(nameError(sixty)).toBe('');
+    expect(limitName('\u{20BB7}'.repeat(101))).toBe('\u{20BB7}'.repeat(100));
+  });
+});
+
+describe('limitNameEdit', () => {
+  it('keeps an edit within the limit as it is', () => {
+    expect(limitNameEdit('Anna', 'Anna B')).toEqual({ value: 'Anna B', caret: null });
+  });
+
+  it('cuts what is typed or pasted, never the rest of the name', () => {
+    const full = 'a'.repeat(98);
+    // Pasted at the end: cut to the two characters left.
+    expect(limitNameEdit(full, `${full}Becker`)).toEqual({ value: `${full}Be`, caret: 100 });
+    // Typed in the middle of a full name: nothing is inserted, the end stays.
+    const at = `${'a'.repeat(50)}Z${'a'.repeat(49)}`;
+    expect(limitNameEdit(at, `${'a'.repeat(50)}x${'Z'}${'a'.repeat(49)}`)).toEqual({ value: at, caret: 50 });
+    // Characters outside the BMP count as one.
+    const wide = '\u{20BB7}'.repeat(99);
+    expect(limitNameEdit(wide, `${wide}\u{20BB7}\u{20BB7}`).value).toBe('\u{20BB7}'.repeat(100));
   });
 });
 

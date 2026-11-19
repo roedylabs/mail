@@ -631,6 +631,20 @@ describe('Step 3: administrator', () => {
     expect(view.queryByRole('alert')).toBeNull();
   });
 
+  it('shows the message for an invalid name kept from before (reload)', async () => {
+    sessionStorage.setItem('roedy-setup-name', 'Anna 1');
+    sessionStorage.setItem('roedy-setup-email', 'anna@example.com');
+    const view = await atAdmin();
+    expect(view.getByLabelText('Your name')).toHaveValue('Anna 1');
+    expect(view.getByRole('alert')).toHaveTextContent('Invalid name.');
+    expect(view.getByLabelText('Your name')).toHaveAttribute('aria-invalid', 'true');
+    // Back and forth keeps it too.
+    await fireEvent.click(view.getByRole('button', { name: 'Back' }));
+    await next();
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator'));
+    expect(view.getByRole('alert')).toHaveTextContent('Invalid name.');
+  });
+
   it('moves Enter to an invalid address without a message', async () => {
     const view = await atAdmin();
     await type('Your name', 'Anna Becker');

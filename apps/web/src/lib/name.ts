@@ -37,14 +37,34 @@ export function nameErrorText(error: 'too_long' | 'invalid'): string {
 /** Length from which the setup shows a live counter next to the name's label. */
 export const NAME_WARN = 80;
 
-/**
- * A typed or pasted name cut at `MAX_NAME` characters (as the field's
- * `maxlength` counts them), never in the middle of a character.
- */
+/** Length of a name in characters (code points), as `nameError` and the backend count it. */
+export function nameLength(value: string): number {
+  return [...value].length;
+}
+
+/** A name cut at `MAX_NAME` characters (code points, never half a character). */
 export function limitName(value: string): string {
-  if (value.length <= MAX_NAME) return value;
-  const cut = value.slice(0, MAX_NAME);
-  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+  const chars = [...value];
+  return chars.length <= MAX_NAME ? value : chars.slice(0, MAX_NAME).join('');
+}
+
+/**
+ * An edit of the name field limited like `maxlength`, but in characters:
+ * what was typed or pasted is cut so that the name keeps at most `MAX_NAME`
+ * (the rest of the name stays as it was). Returns the value and the caret
+ * position (UTF-16 units) after the inserted text.
+ */
+export function limitNameEdit(before: string, after: string): { value: string; caret: number | null } {
+  const b = [...after];
+  if (b.length <= MAX_NAME) return { value: after, caret: null };
+  const a = [...before];
+  let p = 0;
+  while (p < a.length && p < b.length && a[p] === b[p]) p++;
+  let s = 0;
+  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
+  const inserted = b.slice(p, b.length - s).slice(0, Math.max(0, MAX_NAME - p - s));
+  const head = [...b.slice(0, p), ...inserted].join('');
+  return { value: limitName(head + b.slice(b.length - s).join('')), caret: head.length };
 }
 
 /** First letter (with its marks) of the first and the last word, in upper case; empty without a name. */

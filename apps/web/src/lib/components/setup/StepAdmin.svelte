@@ -11,7 +11,7 @@
   import Icon from '#lib/components/Icon.svelte';
   import SetupShell from '#lib/components/setup/SetupShell.svelte';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
-  import { MAX_NAME, NAME_WARN, initials, normalizeName } from '#lib/name.ts';
+  import { MAX_NAME, NAME_WARN, initials, limitNameEdit, nameError, nameLength, normalizeName } from '#lib/name.ts';
   import { m } from '#lib/paraglide/messages.js';
   import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
   import type { SetupFlow } from '#lib/setup.svelte.ts';
@@ -43,10 +43,17 @@
   const name = $derived(normalizeName(flow.name));
   const email = $derived(flow.email.trim());
   const ini = $derived(initials(flow.name));
-  const len = $derived(flow.name.length);
+  const len = $derived(nameLength(flow.name));
   const counted = $derived(len >= NAME_WARN);
   const full = $derived(len >= MAX_NAME);
-  const nameErr = $derived(typeof flow.err.name === 'string' ? flow.err.name : '');
+  /** The message of a rejected name; also for an invalid name kept from before (back, reload). */
+  const nameErr = $derived(
+    typeof flow.err.name === 'string'
+      ? flow.err.name
+      : nameError(flow.name) === 'invalid'
+        ? m.setup_name_invalid_text()
+        : '',
+  );
   /** Only from the server (`setup/complete`): while typing the address shows no message. */
   const emailErr = $derived(typeof flow.err.email === 'string' ? flow.err.email : '');
   const nameDescribed = $derived([nameErr ? 'su-name-err' : '', counted ? 'su-name-count' : ''].join(' ').trim());
@@ -125,13 +132,17 @@
             type="text"
             name="name"
             autocomplete="name"
-            maxlength={MAX_NAME}
             placeholder={m.setup_name_placeholder()}
             value={flow.name}
             oninput={(e) => {
-              flow.edit('name', e.currentTarget.value);
-              // A pasted name over the limit: the field shows the cut value too.
-              if (e.currentTarget.value !== flow.name) e.currentTarget.value = flow.name;
+              // At most 100 characters like `maxlength`, but counted as the name rule counts them (code points).
+              const el = e.currentTarget;
+              const { value, caret } = limitNameEdit(flow.name, el.value);
+              flow.edit('name', value);
+              if (el.value !== flow.name) {
+                el.value = flow.name;
+                if (caret !== null) el.setSelectionRange(caret, caret);
+              }
             }}
             aria-invalid={nameErr ? 'true' : 'false'}
             aria-describedby={nameDescribed || undefined}
