@@ -27,6 +27,9 @@
   import { ui } from '#lib/state/ui.svelte.ts';
 
   const targets = new SetupTargets();
+  /** Pending focus timers of entered steps (see `entered`); cleared when the page goes. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping only, no state
+  const enterTimers = new Set<ReturnType<typeof setTimeout>>();
   let netBox: HTMLDivElement | undefined = $state();
 
   const flow = new SetupFlow({
@@ -43,10 +46,12 @@
       // card themselves in the meantime (fast typing, autofill), the focus stays
       // there instead of jumping in the middle of the input.
       const before = document.activeElement;
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        enterTimers.delete(timer);
         const now = document.activeElement;
         if (now === before || !targets.get('card')?.contains(now)) focus(target);
       }, 40);
+      enterTimers.add(timer);
     },
     error: (text) => ui.toasts.error(text),
     offline: () => net.show(),
@@ -135,6 +140,7 @@
     } else flow.enter();
   });
   onDestroy(() => {
+    for (const timer of enterTimers) clearTimeout(timer);
     flow.dispose();
     net.close();
     ui.setupLeaving = false;
