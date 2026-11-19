@@ -369,19 +369,18 @@ describe('Setup page', () => {
     const { calls } = mockApi({
       'POST setup/token': [{ body: {} }],
       'POST setup/complete': [{ status: 201, body: { user: {} } }],
-      'GET public/config': [
-        {
-          body: {
-            name: 'Roedy Mail',
-            branding: BRAND0,
-            org: {},
-            maintenance: { on: false, message: null },
-            version: '0.2.0',
-            update: null,
-            setup_required: false,
-          },
+      // The check that the server answers, then the session.
+      'GET public/config': Array.from({ length: 2 }, () => ({
+        body: {
+          name: 'Roedy Mail',
+          branding: BRAND0,
+          org: {},
+          maintenance: { on: false, message: null },
+          version: '0.2.0',
+          update: null,
+          setup_required: false,
         },
-      ],
+      })),
       'GET auth/me': [{ body: { id: '1', email: 'anna@example.com', display_name: 'Anna Becker', role: 'admin' } }],
       'GET settings': [{ body: { version: 1, settings: {} } }],
     });
@@ -558,6 +557,71 @@ describe('Step 5: review', () => {
     expect(session.authed).toBe(false);
     expect(ui.setupLeaving).toBe(false);
     expect(view.queryByRole('alert')).toBeNull();
+  });
+
+  it('signs in once the server answers again after the done screen', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = await atReview();
+    const config = {
+      body: {
+        name: 'Roedy Mail',
+        branding: BRAND0,
+        org: {},
+        maintenance: { on: false, message: null },
+        version: '0.2.0',
+        update: null,
+        setup_required: false,
+      },
+    };
+    const configs: { body: unknown }[] = [];
+    mockApi({
+      'POST setup/complete': [{ status: 201, body: {} }],
+      'GET public/config': configs,
+      'GET auth/me': Array.from({ length: 3 }, () => ({
+        body: { id: '1', email: 'anna@example.com', display_name: 'Anna Becker', role: 'admin' },
+      })),
+      'GET settings': Array.from({ length: 2 }, () => ({ body: { version: 1, settings: {} } })),
+    });
+    await next('Finish setup');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
+    // No answer to the sign-in: "No connection" over the done screen, no navigation.
+    await vi.advanceTimersByTimeAsync(2700);
+    await view.findByRole('alertdialog', { name: 'No connection' });
+    expect(nav.goto).not.toHaveBeenCalled();
+    expect(view.container.querySelector('h1')).toHaveTextContent('Welcome, Anna');
+    // The server answers again: the sign-in goes on.
+    configs.push(...Array.from({ length: 4 }, () => config));
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(nav.goto).toHaveBeenCalledWith('/admin/mail-servers', { replace: true }));
+    expect(session.authed).toBe(true);
+  });
+
+  it('lets the layout redirect again when opening Administration fails', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    nav.goto.mockRejectedValueOnce(new Error('navigation aborted'));
+    const view = await atReview();
+    const config = {
+      body: {
+        name: 'Roedy Mail',
+        branding: BRAND0,
+        org: {},
+        maintenance: { on: false, message: null },
+        version: '0.2.0',
+        update: null,
+        setup_required: false,
+      },
+    };
+    mockApi({
+      'POST setup/complete': [{ status: 201, body: {} }],
+      'GET public/config': [config, config],
+      'GET auth/me': [{ body: { id: '1', email: 'anna@example.com', display_name: 'Anna Becker', role: 'admin' } }],
+      'GET settings': [{ body: { version: 1, settings: {} } }],
+    });
+    await next('Finish setup');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
+    await vi.advanceTimersByTimeAsync(2700);
+    await vi.waitFor(() => expect(nav.goto).toHaveBeenCalled());
+    await vi.waitFor(() => expect(ui.setupLeaving).toBe(false));
   });
 
   it('shows "No connection" when Finish gets no answer', async () => {

@@ -56,22 +56,7 @@
     error: (text) => ui.toasts.error(text),
     offline: () => net.show(),
     reload: () => session.load(),
-    signedIn: async () => {
-      // The done screen stays until Administration › Mail servers is there (no detour via the start page).
-      ui.setupLeaving = true;
-      await session.load();
-      if (!session.authed) {
-        // No session (cookie rejected): the layout shows the sign-in.
-        ui.setupLeaving = false;
-        return;
-      }
-      try {
-        await prefs.load();
-      } catch {
-        // The look chosen in the wizard stays applied.
-      }
-      await goto(resolve('/admin/mail-servers'), { replace: true });
-    },
+    signedIn: () => signIn(),
   });
 
   /**
@@ -119,12 +104,54 @@
     }
   }
 
+  /**
+   * After the done screen: load the signed-in session and open Administration › Mail servers. The done screen stays
+   * until that page is there (no detour via the start page). The server is asked first within the deadline of an
+   * attempt (a failed session load would replace the page): without an answer "No connection" shows, and the sign-in
+   * goes on once the server answers.
+   */
+  async function signIn(): Promise<void> {
+    ui.setupLeaving = true;
+    try {
+      await api<PublicConfig>('GET', 'public/config', undefined, { signal: deadline(NET_PROBE_MS) });
+    } catch (error) {
+      if (error instanceof NetworkError) {
+        signInOnAnswer = true;
+        net.show();
+        return;
+      }
+    }
+    await session.load();
+    if (!session.authed) {
+      // No session (cookie rejected) or a server error: the layout shows the sign-in or the error page.
+      ui.setupLeaving = false;
+      return;
+    }
+    try {
+      await prefs.load();
+    } catch {
+      // The look chosen in the wizard stays applied.
+    }
+    try {
+      await goto(resolve('/admin/mail-servers'), { replace: true });
+    } catch {
+      // Navigation failed: the layout's usual redirect applies again.
+      ui.setupLeaving = false;
+    }
+  }
+
   /** The wizard opened with "No connection" (no step entered yet): enter it once the server answers. */
   let enterOnAnswer = false;
+  /** The sign-in after the done screen got no answer: go on once the server answers. */
+  let signInOnAnswer = false;
   const net = new Reconnect({
     probe,
     stayed: () => shake(netBox, undefined),
     answered: () => {
+      if (signInOnAnswer) {
+        signInOnAnswer = false;
+        void signIn();
+      }
       if (!enterOnAnswer) return;
       enterOnAnswer = false;
       flow.enter();
