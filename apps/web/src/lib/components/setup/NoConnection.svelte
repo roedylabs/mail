@@ -219,6 +219,7 @@
   }
 
   .retry {
+    position: relative;
     margin-top: 12px;
     width: 100%;
     height: 52px;
@@ -248,6 +249,14 @@
   }
 
   @media (hover: hover) and (pointer: fine) {
+    /* Hit area down to where the button was: no hover flicker at its lower edge. */
+    .retry:not([aria-busy='true']):hover::after {
+      content: '';
+      position: absolute;
+      inset: 0 0 -2px;
+      border-radius: inherit;
+    }
+
     .retry:not([aria-busy='true']):hover {
       transform: translateY(-2px);
       box-shadow:

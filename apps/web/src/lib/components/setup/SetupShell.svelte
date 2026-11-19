@@ -769,6 +769,20 @@
       var(--sh2);
   }
 
+  /* The lifted button keeps its hit area down to where it was, so a resting pointer at its lower edge does not flicker between hover and not. */
+  .lift,
+  .lift-sh {
+    position: relative;
+  }
+
+  [data-input='mouse'] .lift:hover::after,
+  [data-input='mouse'] .lift-sh:not(.off, [aria-busy='true']):hover::after {
+    content: '';
+    position: absolute;
+    inset: 0 0 -2px;
+    border-radius: inherit;
+  }
+
   .press:not(.off, [aria-busy='true']):active {
     transform: scale(0.98);
   }
