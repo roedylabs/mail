@@ -50,6 +50,15 @@ impl Failure {
             Self::Unreachable => "unreachable",
         }
     }
+
+    /// Passes on its own: the next check tries again. A token or access
+    /// problem needs the administrator.
+    pub fn temporary(self) -> bool {
+        match self {
+            Self::Token | Self::NoAccess => false,
+            Self::RateLimited | Self::Unreachable => true,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

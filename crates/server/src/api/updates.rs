@@ -33,7 +33,7 @@ use crate::{
     },
     rate_limit::{Key, Policy},
     settings::{self, Clock},
-    updates::{self, Day, Every, Failure, Pat, Release, github},
+    updates::{self, Day, Every, Pat, Release, github},
 };
 
 /// Requests to GitHub per administrator (check and new token): enough for the
@@ -189,9 +189,10 @@ async fn verify(state: &AppState, pat: &str) -> Result<Option<Release>, ApiError
     github::newest(&state.http, &state.github_api, Some(pat))
         .await
         .map_err(|failure| {
-            let code = match failure {
-                Failure::Token | Failure::NoAccess => "invalid",
-                Failure::RateLimited | Failure::Unreachable => "unavailable",
+            let code = if failure.temporary() {
+                "unavailable"
+            } else {
+                "invalid"
             };
             let mut errors = FieldErrors::default();
             errors.code("pat", code);

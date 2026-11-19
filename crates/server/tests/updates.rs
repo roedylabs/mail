@@ -4,6 +4,7 @@
 
 use std::{
     future::IntoFuture as _,
+    io,
     net::SocketAddr,
     sync::{Arc, Mutex},
 };
@@ -618,6 +619,61 @@ async fn a_failed_check_stays_in_the_status() {
     let view = env.check().await;
     assert_eq!(view["status"], "err");
     assert_eq!(view["reason"], "rate_limited");
+}
+
+/// Collects the log of a test.
+#[derive(Clone, Default)]
+struct Log(Arc<Mutex<Vec<u8>>>);
+
+impl io::Write for Log {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+/// A rate limit or GitHub being away passes on its own and is no warning
+/// (E2E fails on any WARN); a token or access problem needs the
+/// administrator and is one. The status shows every failure.
+#[tokio::test]
+async fn only_failures_to_fix_are_warnings() {
+    let env = env().await;
+    for (status, reason, level) in [
+        // 403 with the rate limit headers.
+        (StatusCode::FORBIDDEN, "rate_limited", "INFO"),
+        (StatusCode::TOO_MANY_REQUESTS, "rate_limited", "INFO"),
+        (StatusCode::BAD_GATEWAY, "unreachable", "INFO"),
+        (StatusCode::UNAUTHORIZED, "token", "WARN"),
+        (StatusCode::NOT_FOUND, "no_access", "WARN"),
+    ] {
+        if status == StatusCode::FORBIDDEN {
+            env.github.rate_limited();
+        } else {
+            env.github.answer(status);
+        }
+        let log = Log::default();
+        let writer = log.clone();
+        let subscriber = tracing_subscriber::fmt()
+            .with_max_level(tracing::Level::INFO)
+            .with_ansi(false)
+            .with_writer(move || writer.clone())
+            .finish();
+        let guard = tracing::subscriber::set_default(subscriber);
+        updates::check(&env.state).await.unwrap();
+        drop(guard);
+
+        let out = String::from_utf8(log.0.lock().unwrap().clone()).unwrap();
+        let line = out
+            .lines()
+            .find(|line| line.contains("update check failed"))
+            .unwrap_or_else(|| panic!("{reason}: {out}"));
+        assert!(line.contains(&format!(" {level} ")), "{line}");
+        assert!(line.contains(&format!("reason=\"{reason}\"")), "{line}");
+        assert_eq!(env.get().await["reason"], reason);
+    }
 }
 
 #[tokio::test]
