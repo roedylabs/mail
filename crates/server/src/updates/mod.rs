@@ -291,8 +291,15 @@ pub async fn check(state: &AppState) -> anyhow::Result<()> {
             Err(Failure::Token)
         }
     };
-    if let Err(failure) = result {
-        tracing::warn!(reason = failure.code(), "update check failed");
+    // Administration › Updates shows every failure; the log warns only about
+    // the ones the administrator has to fix (a rate limit on a shared address
+    // is no reason to act).
+    match result {
+        Err(failure) if failure.temporary() => {
+            tracing::info!(reason = failure.code(), "update check failed");
+        }
+        Err(failure) => tracing::warn!(reason = failure.code(), "update check failed"),
+        Ok(_) => {}
     }
     let instance = state.instance.clone();
     db::call(&state.db, move |conn| {

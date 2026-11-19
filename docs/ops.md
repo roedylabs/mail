@@ -316,7 +316,7 @@ Messages that matter in operation:
 | `Sending account not usable` | INFO | Check of the sender account failed, reason in `reason` |
 | `refresh failed`, `early refresh failed: …` | WARN | Stalwart not reachable or throttling; the accounts recover by themselves |
 | `push service not reached: …` | WARN | Outgoing connection to a push service blocked ([`notifications.md`](setup/notifications.md#troubleshooting)) |
-| `update check failed` | WARN | GitHub not reachable or token invalid |
+| `update check failed` | WARN, INFO | Reason in `reason`: WARN for `token` (token invalid or expired) and `no_access`, INFO for `rate_limited` and `unreachable`, which pass by themselves; Administration › Updates shows every failure |
 | `checkpoint blocked, the -wal file stays large for now` | WARN | a long read held on to the database; harmless if it does not persist |
 | `internal error: …` | ERROR | Error of a request (500), with cause |
 | `response failed` | ERROR | Companion line for every response with 5xx, also for `/readyz` with 503; the cause is in the line before |
