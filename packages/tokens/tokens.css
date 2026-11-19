@@ -40,6 +40,7 @@
   --sh1: 0 1px 2px rgba(0,0,0,0.3), 0 4px 12px -2px rgba(0,0,0,0.25);
   --sh2: 0 2px 4px rgba(0,0,0,0.25), 0 24px 56px -16px rgba(0,0,0,0.55);
   --sh3: 0 2px 6px rgba(0,0,0,0.3), 0 40px 90px -24px rgba(0,0,0,0.7);
+  --sh-edge: inset 0 -3px 0 rgba(0,0,0,0.08);
   --accsoft: color-mix(in oklab, var(--acc) 22%, var(--surface));
   --deep: color-mix(in oklab, var(--acc) 80%, white);
   --toastacc: color-mix(in oklab, var(--acc) 45%, #2b1405);
@@ -66,6 +67,7 @@
   --sh1: 0 1px 2px rgba(60,35,10,0.06), 0 4px 12px -2px rgba(60,35,10,0.07);
   --sh2: 0 2px 4px rgba(60,35,10,0.04), 0 24px 56px -16px rgba(60,35,10,0.2);
   --sh3: 0 2px 6px rgba(60,35,10,0.06), 0 40px 90px -24px rgba(60,35,10,0.38);
+  --sh-edge: inset 0 -3px 0 rgba(0,0,0,0.08);
   --accsoft: color-mix(in oklab, var(--acc) 26%, var(--surface));
   --deep: color-mix(in oklab, var(--acc) 55%, #2b1405);
   --toastacc: var(--acc);
@@ -93,6 +95,7 @@
     --sh1: 0 1px 2px rgba(60,35,10,0.06), 0 4px 12px -2px rgba(60,35,10,0.07);
     --sh2: 0 2px 4px rgba(60,35,10,0.04), 0 24px 56px -16px rgba(60,35,10,0.2);
     --sh3: 0 2px 6px rgba(60,35,10,0.06), 0 40px 90px -24px rgba(60,35,10,0.38);
+    --sh-edge: inset 0 -3px 0 rgba(0,0,0,0.08);
     --accsoft: color-mix(in oklab, var(--acc) 26%, var(--surface));
     --deep: color-mix(in oklab, var(--acc) 55%, #2b1405);
     --toastacc: var(--acc);
