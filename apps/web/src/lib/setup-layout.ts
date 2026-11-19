@@ -51,6 +51,8 @@ export interface DeskLevel {
   pm: string;
   pfs: string;
   root: string;
+  /** Space above the fields in one column (default `btn`). */
+  fieldsTop?: string;
 }
 
 /** Mobile height level of a step. */
@@ -63,6 +65,8 @@ export interface MobLevel {
   intro: 'block' | 'none';
   /** Short intro. */
   short?: boolean;
+  /** Space above the fields (default `gapM`). */
+  fieldsTop?: string;
 }
 
 /** Desktop height level of the done screen (one column). */
@@ -330,7 +334,7 @@ export function stepLook(
       pfs: '15px',
       cols: 'minmax(0, 1fr)',
       colGap: '0',
-      fieldsTop: W.gapM,
+      fieldsTop: W.fieldsTop ?? W.gapM,
       btnTop: W.gap,
       listTop: '0',
       listGap: '0',
@@ -362,7 +366,7 @@ export function stepLook(
     pfs: L.pfs,
     cols: two ? (full ? 'minmax(0, 1fr) minmax(0, 1.5fr)' : 'minmax(0, 1fr) minmax(0, 1.8fr)') : 'minmax(0, 1fr)',
     colGap,
-    fieldsTop: two ? '0' : L.btn,
+    fieldsTop: two ? '0' : (L.fieldsTop ?? L.btn),
     btnTop: L.btn,
     listTop: two ? L.list[0] : '0',
     listGap: two ? L.list[1] : '0',

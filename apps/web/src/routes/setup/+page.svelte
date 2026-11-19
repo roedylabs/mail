@@ -34,6 +34,7 @@
         if (field) focus(field, false);
       });
     },
+    focus: (field) => focus(field, false),
     entered: (_step, target) => {
       if (!target) return;
       // Only after the step has switched; if someone has chosen a field of the

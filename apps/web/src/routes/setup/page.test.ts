@@ -26,6 +26,19 @@ async function next(name: string | RegExp = 'Continue') {
   await fireEvent.click(screen.getByRole('button', { name }));
 }
 
+/** Opens the wizard at the administrator step (via the token step). */
+async function atAdmin() {
+  mockApi({ 'POST setup/token': [{ body: {} }] });
+  atToken();
+  const view = render(Page);
+  // After the focus of entering step 2 (40 ms), as a person would.
+  await vi.waitFor(() => expect(view.getByLabelText('Setup token')).toHaveFocus());
+  await type('Setup token', 'abcd-efgh-jklm');
+  await next();
+  await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator'));
+  return view;
+}
+
 /** Opens the wizard at the token step (a reload there after step 1). */
 function atToken() {
   sessionStorage.setItem('roedy-setup-step', '2');
@@ -361,9 +374,11 @@ describe('Setup page', () => {
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator'));
     expect(view.getByRole('img', { name: 'Step 3 of 5' })).toBeInTheDocument();
 
-    // 3: administrator
+    // 3: administrator (incomplete: Continue greyed out, a click only moves to the empty field)
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
     await next();
-    expect(view.getByText('Please enter your name.')).toBeInTheDocument();
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(view.getByLabelText('Your name')).toHaveFocus();
     await type('Your name', 'Anna Becker');
     await type('Email address', 'anna@example.com');
     await next();
@@ -556,5 +571,88 @@ describe('Step 1: language and appearance', () => {
     const layer = editor.closest<HTMLElement>('[aria-hidden="true"]');
     expect(layer).not.toBeNull();
     expect(layer?.inert).toBe(true);
+  });
+});
+
+describe('Step 3: administrator', () => {
+  it('shows a live preview of the account with the initials', async () => {
+    const view = await atAdmin();
+    expect(ui.setupTitle).toBe('Administrator · Setup');
+    await vi.waitFor(() => expect(view.getByLabelText('Your name')).toHaveFocus());
+    const preview = view.container.querySelector<HTMLElement>('.acct');
+    expect(preview).toHaveAttribute('aria-hidden', 'true');
+    // Empty: a person icon and placeholders.
+    expect(preview?.querySelector('.avatar-icon')).not.toBeNull();
+    expect(preview?.querySelector('.who-name')).toHaveTextContent('Your name');
+    expect(preview?.querySelector('.who-email')).toHaveTextContent('name@example.com');
+    expect(preview).toHaveTextContent('Administrator');
+    expect(preview).toHaveTextContent('Manage users');
+    expect(preview).toHaveTextContent('Change settings');
+    await type('Your name', 'anna maria becker');
+    await type('Email address', 'anna@example.com');
+    expect(preview?.querySelector('.avatar')).toHaveTextContent('AB');
+    expect(preview?.querySelector('.who-name')).toHaveTextContent('anna maria becker');
+    expect(preview?.querySelector('.who-email')).toHaveTextContent('anna@example.com');
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  it('shows the invalid name at once and shakes on Enter', async () => {
+    const view = await atAdmin();
+    await type('Email address', 'anna@example.com');
+    await type('Your name', 'Anna Becker (Admin 1)');
+    const alert = view.getByRole('alert');
+    expect(alert).toHaveTextContent('Invalid name.');
+    expect(alert).toHaveTextContent('Use letters, spaces, hyphens and apostrophes only.');
+    const name = view.getByLabelText('Your name');
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(name).toHaveAttribute('aria-describedby', 'su-name-err');
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
+    view.getByLabelText('Email address').focus();
+    await fireEvent.keyDown(view.getByLabelText('Email address'), { key: 'Enter' });
+    await vi.waitFor(() => expect(name).toHaveFocus());
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator');
+    await type('Your name', 'Anna Becker');
+    expect(view.queryByRole('alert')).toBeNull();
+  });
+
+  it('counts from 80 characters and stops at 100', async () => {
+    const view = await atAdmin();
+    const count = view.container.querySelector('#su-name-count');
+    await type('Your name', 'a'.repeat(79));
+    expect(count).not.toHaveClass('on');
+    await type('Your name', 'a'.repeat(85));
+    expect(count).toHaveClass('on');
+    expect(count).toHaveTextContent('85 / 100');
+    expect(count).not.toHaveClass('full');
+    await type('Your name', 'a'.repeat(140));
+    expect(view.getByLabelText('Your name')).toHaveValue('a'.repeat(100));
+    expect(count).toHaveTextContent('100 / 100');
+    expect(count).toHaveClass('full');
+    expect(view.queryByRole('alert')).toBeNull();
+  });
+
+  it('moves Enter to an invalid address without a message', async () => {
+    const view = await atAdmin();
+    await type('Your name', 'Anna Becker');
+    await type('Email address', 'anna@example');
+    await fireEvent.keyDown(view.getByLabelText('Your name'), { key: 'Enter' });
+    await vi.waitFor(() => expect(view.getByLabelText('Email address')).toHaveFocus());
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(view.getByLabelText('Email address')).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('speaks German', async () => {
+    sessionStorage.setItem('roedy-setup-lang', 'de');
+    mockApi({ 'POST setup/token': [{ body: {} }] });
+    atToken();
+    const view = render(Page);
+    await vi.waitFor(() => expect(view.getByLabelText('Setup-Token')).toHaveFocus());
+    await type('Setup-Token', 'abcd-efgh-jklm');
+    await next('Weiter');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Administrator anlegen'));
+    expect(ui.setupTitle).toBe('Administrator · Einrichtung');
+    expect(view.getByLabelText('E-Mail-Adresse')).toHaveAttribute('placeholder', 'name@beispiel.example');
+    await type('Ihr Name', 'Anna 1');
+    expect(view.getByRole('alert')).toHaveTextContent('Name ungültig.');
   });
 });

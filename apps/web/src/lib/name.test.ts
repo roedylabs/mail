@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_NAME, nameError, normalizeName } from './name.ts';
+import { MAX_NAME, initials, limitName, nameError, normalizeName } from './name.ts';
 
 describe('normalizeName', () => {
   it('collapses control characters and repeated spaces into one', () => {
@@ -64,5 +64,39 @@ describe('nameError', () => {
     expect(nameError('Jordan\u0000Smith')).toBe('');
     // After collapsing, the length of the normalized name applies.
     expect(nameError(`${'a'.repeat(50)}\t\t\t${'b'.repeat(49)}`)).toBe('');
+  });
+});
+
+describe('limitName', () => {
+  it('cuts a typed or pasted name at 100 characters', () => {
+    expect(limitName('Anna Becker')).toBe('Anna Becker');
+    expect(limitName('a'.repeat(100))).toHaveLength(MAX_NAME);
+    expect(limitName('a'.repeat(140))).toBe('a'.repeat(100));
+  });
+
+  it('never cuts a character in half', () => {
+    // U+20000 is a letter outside the BMP (two UTF-16 units).
+    const name = `${'a'.repeat(99)}\u{20000}`;
+    expect(limitName(name)).toBe('a'.repeat(99));
+    expect(nameError(limitName(name))).toBe('');
+  });
+});
+
+describe('initials', () => {
+  it('takes the first letter of the first and the last word', () => {
+    expect(initials('Anna Becker')).toBe('AB');
+    expect(initials('anna maria von becker')).toBe('AB');
+    expect(initials('  Anna  ')).toBe('A');
+    expect(initials('O’Brien Müller-Lüdenscheidt')).toBe('OM');
+    expect(initials('élodie ørsted')).toBe('ÉØ');
+  });
+
+  it('keeps combining marks with their letter', () => {
+    expect(initials('Ångström Zoë')).toBe('ÅZ');
+  });
+
+  it('is empty without a name', () => {
+    expect(initials('')).toBe('');
+    expect(initials('   ')).toBe('');
   });
 });

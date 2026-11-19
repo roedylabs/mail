@@ -33,3 +33,24 @@ export function nameError(value: string): '' | 'too_long' | 'invalid' {
 export function nameErrorText(error: 'too_long' | 'invalid'): string {
   return error === 'too_long' ? m.error_name_long() : m.error_name_invalid();
 }
+
+/** Length from which the setup shows a live counter next to the name's label. */
+export const NAME_WARN = 80;
+
+/**
+ * A typed or pasted name cut at `MAX_NAME` characters (as the field's
+ * `maxlength` counts them), never in the middle of a character.
+ */
+export function limitName(value: string): string {
+  if (value.length <= MAX_NAME) return value;
+  const cut = value.slice(0, MAX_NAME);
+  return /[\uD800-\uDBFF]$/.test(cut) ? cut.slice(0, -1) : cut;
+}
+
+/** First letter (with its marks) of the first and the last word, in upper case; empty without a name. */
+export function initials(value: string): string {
+  const words = normalizeName(value).split(' ').filter(Boolean);
+  const first = (word: string | undefined) => /^.\p{M}*/su.exec(word ?? '')?.[0] ?? '';
+  if (words.length === 0) return '';
+  return (first(words[0]) + (words.length > 1 ? first(words.at(-1)) : '')).toUpperCase();
+}
