@@ -186,6 +186,24 @@ describe('session', () => {
     expect(calls[0]?.headers['X-Requested-With']).toBe('roedy-mail');
   });
 
+  it('ends a hanging load at the given signal as offline', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_input: string, init: RequestInit = {}) =>
+          new Promise<Response>((_resolve, reject) => {
+            init.signal?.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError')));
+          }),
+      ),
+    );
+    const session = new Session();
+    const ctrl = new AbortController();
+    const pending = session.load(undefined, ctrl.signal);
+    ctrl.abort();
+    await pending;
+    expect([session.status, session.failure]).toEqual(['error', 'offline']);
+  });
+
   it('does not query the account without an administrator', async () => {
     const { calls } = mockApi({ 'GET public/config': [{ body: { ...CONFIG, setup_required: true } }] });
     const session = new Session();

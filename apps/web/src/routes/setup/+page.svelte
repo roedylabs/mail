@@ -15,7 +15,7 @@
   import StepToken from '#lib/components/setup/StepToken.svelte';
   import { SetupTargets } from '#lib/components/setup/targets.ts';
   import { NetworkError, api } from '#lib/api.ts';
-  import { Reconnect } from '#lib/no-connection.svelte.ts';
+  import { NET_PROBE_MS, Reconnect } from '#lib/no-connection.svelte.ts';
   import { isMobileWidth } from '#lib/setup-layout.ts';
   import { choicesOf, SetupFlow, type Focus } from '#lib/setup.svelte.ts';
   import { shake } from '#lib/shake.ts';
@@ -75,9 +75,10 @@
   /** Session load of an attempt; a later attempt waits for it instead of starting a second one that could finish first. */
   let loading: Promise<boolean> | null = null;
   async function probe(signal: AbortSignal): Promise<boolean> {
+    // Shared by the attempts, so its own deadline: a request that hangs counts as no answer.
     const loaded = () =>
       (loading ??= session
-        .load()
+        .load(undefined, AbortSignal.timeout(NET_PROBE_MS))
         .then(() => session.status !== 'error' || session.failure !== 'offline')
         .finally(() => (loading = null)));
     // The status could not be loaded before the first step: load the session again (a server error then shows the error page).

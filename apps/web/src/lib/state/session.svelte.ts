@@ -185,12 +185,15 @@ export class Session {
    * copy applies, if there is one: `restore` takes over its rest before the pages
    * appear, otherwise they would try to load themselves.
    */
-  async load(restore?: (copy: StartCopy) => void): Promise<void> {
+  async load(restore?: (copy: StartCopy) => void, signal?: AbortSignal): Promise<void> {
     // Reloading (after the setup or "Try again" on the error page)
     // leaves the page in place until the response is there.
     if (this.status === 'idle') this.status = 'loading';
     const copy = readStartCopy();
-    const options: ApiOptions = copy ? { signal: AbortSignal.timeout(START_TIMEOUT_MS) } : {};
+    const start = copy ? AbortSignal.timeout(START_TIMEOUT_MS) : undefined;
+    // `signal` ends the requests early (the setup's "No connection" attempts); without an answer it counts as offline.
+    const both = signal && start ? AbortSignal.any([signal, start]) : (signal ?? start);
+    const options: ApiOptions = both ? { signal: both } : {};
     try {
       const config = await api<PublicConfig>('GET', 'public/config', undefined, options);
       // As in `refreshUser`: only the most recent query takes over the account.
