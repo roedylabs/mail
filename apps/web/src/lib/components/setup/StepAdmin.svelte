@@ -137,7 +137,7 @@
             oninput={(e) => {
               // At most 100 characters like `maxlength`, but counted as the name rule counts them (code points).
               const el = e.currentTarget;
-              const { value, caret } = limitNameEdit(flow.name, el.value);
+              const { value, caret } = limitNameEdit(flow.name, el.value, el.selectionEnd);
               flow.edit('name', value);
               if (el.value !== flow.name) {
                 el.value = flow.name;

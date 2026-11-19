@@ -92,13 +92,32 @@ describe('limitNameEdit', () => {
   it('cuts what is typed or pasted, never the rest of the name', () => {
     const full = 'a'.repeat(98);
     // Pasted at the end: cut to the two characters left.
-    expect(limitNameEdit(full, `${full}Becker`)).toEqual({ value: `${full}Be`, caret: 100 });
+    expect(limitNameEdit(full, `${full}Becker`, 104)).toEqual({ value: `${full}Be`, caret: 100 });
     // Typed in the middle of a full name: nothing is inserted, the end stays.
     const at = `${'a'.repeat(50)}Z${'a'.repeat(49)}`;
-    expect(limitNameEdit(at, `${'a'.repeat(50)}x${'Z'}${'a'.repeat(49)}`)).toEqual({ value: at, caret: 50 });
+    expect(limitNameEdit(at, `${'a'.repeat(50)}xZ${'a'.repeat(49)}`, 51)).toEqual({ value: at, caret: 50 });
     // Characters outside the BMP count as one.
     const wide = '\u{20BB7}'.repeat(99);
-    expect(limitNameEdit(wide, `${wide}\u{20BB7}\u{20BB7}`).value).toBe('\u{20BB7}'.repeat(100));
+    expect(limitNameEdit(wide, `${wide}\u{20BB7}\u{20BB7}`, 202).value).toBe('\u{20BB7}'.repeat(100));
+  });
+
+  it('takes the edit range from the caret, also among repeated characters', () => {
+    // 99 × a, "aZ" pasted after the tenth: only the "a" fits.
+    const name = 'a'.repeat(99);
+    expect(limitNameEdit(name, `${'a'.repeat(10)}aZ${'a'.repeat(89)}`, 12)).toEqual({
+      value: 'a'.repeat(100),
+      caret: 11,
+    });
+    // A pasted selection: what replaces it is cut, the rest stays.
+    const sel = `${'a'.repeat(90)}bb${'c'.repeat(8)}`;
+    expect(limitNameEdit(sel, `${'a'.repeat(90)}xyzxyz${'c'.repeat(8)}`, 96)).toEqual({
+      value: `${'a'.repeat(90)}xy${'c'.repeat(8)}`,
+      caret: 92,
+    });
+  });
+
+  it('cuts at the end without a usable caret', () => {
+    expect(limitNameEdit('b', 'a'.repeat(120)).value).toBe('a'.repeat(100));
   });
 });
 

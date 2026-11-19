@@ -51,20 +51,27 @@ export function limitName(value: string): string {
 /**
  * An edit of the name field limited like `maxlength`, but in characters:
  * what was typed or pasted is cut so that the name keeps at most `MAX_NAME`
- * (the rest of the name stays as it was). Returns the value and the caret
- * position (UTF-16 units) after the inserted text.
+ * (the rest of the name stays as it was). `caret` is the field's caret after
+ * the edit (UTF-16 units, the end of the inserted text): everything after it
+ * is the unchanged rest. Returns the value and the caret after the kept part
+ * of the insertion (`null` when nothing was cut).
  */
-export function limitNameEdit(before: string, after: string): { value: string; caret: number | null } {
-  const b = [...after];
-  if (b.length <= MAX_NAME) return { value: after, caret: null };
-  const a = [...before];
+export function limitNameEdit(
+  before: string,
+  after: string,
+  caret: number | null = null,
+): { value: string; caret: number | null } {
+  if (nameLength(after) <= MAX_NAME) return { value: after, caret: null };
+  const at = caret ?? after.length;
+  const rest = after.slice(at);
+  // Without the unchanged rest at the end of the old value: cut at the end.
+  if (!before.endsWith(rest)) return { value: limitName(after), caret: null };
+  const old = [...before.slice(0, before.length - rest.length)];
+  const head = [...after.slice(0, at)];
   let p = 0;
-  while (p < a.length && p < b.length && a[p] === b[p]) p++;
-  let s = 0;
-  while (s < a.length - p && s < b.length - p && a[a.length - 1 - s] === b[b.length - 1 - s]) s++;
-  const inserted = b.slice(p, b.length - s).slice(0, Math.max(0, MAX_NAME - p - s));
-  const head = [...b.slice(0, p), ...inserted].join('');
-  return { value: limitName(head + b.slice(b.length - s).join('')), caret: head.length };
+  while (p < old.length && p < head.length && old[p] === head[p]) p++;
+  const kept = [...head.slice(0, p), ...head.slice(p).slice(0, Math.max(0, MAX_NAME - p - nameLength(rest)))].join('');
+  return { value: limitName(kept + rest), caret: kept.length };
 }
 
 /** First letter (with its marks) of the first and the last word, in upper case; empty without a name. */
