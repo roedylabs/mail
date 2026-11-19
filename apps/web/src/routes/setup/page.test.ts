@@ -471,4 +471,16 @@ describe('Step 1: language and appearance', () => {
     expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'false');
     expect(prefs.values.accent).toBe('sky');
   });
+
+  it('hides an open colour editor behind "No connection"', async () => {
+    mockApi({});
+    render(Page);
+    await fireEvent.click(group('Accent color').option('More'));
+    const editor = screen.getByRole('dialog', { name: 'More colors' });
+    window.dispatchEvent(new Event('offline'));
+    expect(await screen.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
+    const layer = editor.closest<HTMLElement>('[aria-hidden="true"]');
+    expect(layer).not.toBeNull();
+    expect(layer?.inert).toBe(true);
+  });
 });

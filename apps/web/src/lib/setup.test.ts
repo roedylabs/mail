@@ -20,7 +20,9 @@ const TOKEN = 'ABCD-EFGH-JKLM';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.useRealTimers();
+  clearSession();
   sessionStorage.clear();
 });
 
@@ -119,6 +121,23 @@ describe('Session of the tab', () => {
     expect(resumeStep()).toBe(1);
     writeSession('step', '4');
     expect(resumeStep()).toBe(2);
+  });
+
+  it('keeps the choices in memory when the storage refuses them, and sends them on completion', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    });
+    storeChoice({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
+    expect(sessionStorage.length).toBe(0);
+    expect(choicesOf()).toEqual({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
+    expect(customHexOf()).toBe('#4a7bd0');
+    const { flow } = at(5);
+    const { calls } = mockApi({ 'POST setup/complete': [{ status: 201, body: { user: {} } }] });
+    await flow.finish();
+    expect(calls[0]?.body).toMatchObject({ settings: { lang: 'de', mode: 'dark', accent: '#4a7bd0' } });
+    flow.dispose();
+    clearSession();
+    expect(choicesOf()).toEqual({ lang: 'system', mode: 'system', accent: 'apricot' });
   });
 
   it('removes all setup keys and nothing else', () => {

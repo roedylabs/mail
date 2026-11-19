@@ -7,7 +7,7 @@
   "Get started" does); the sixth accent ("Custom") opens the colour editor.
 -->
 <script lang="ts">
-  import { ACCENTS, type AccentName } from '@roedy/tokens';
+  import { ACCENTS, MODE_PREV, type AccentName } from '@roedy/tokens';
   import type { Attachment } from 'svelte/attachments';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { accentInk, isHexColor, type HexColor } from '#lib/color.ts';
@@ -299,8 +299,12 @@
               type="button"
               role="radio"
               aria-checked={on}
-              class="card mode-{c.value}"
+              class="card"
               class:on
+              style:--mp-bg={MODE_PREV[c.value].bg}
+              style:--mp-panel={MODE_PREV[c.value].panel}
+              style:--mp-line={MODE_PREV[c.value].line}
+              style:--mp-ink={MODE_PREV[c.value].inkc}
               onclick={() => choose({ mode: c.value })}
             >
               {#if look.mobile}
@@ -598,28 +602,7 @@
     box-shadow: 0 5px 12px -6px rgba(40, 25, 10, 0.45);
   }
 
-  /* Theme previews: fixed colours per card, each shows its own theme */
-  .mode-light {
-    --mp-bg: #f3eee7;
-    --mp-panel: #fffdfa;
-    --mp-line: rgba(70, 45, 20, 0.14);
-    --mp-ink: #2b221c;
-  }
-
-  .mode-dark {
-    --mp-bg: #181411;
-    --mp-panel: #2a241f;
-    --mp-line: rgba(255, 240, 220, 0.16);
-    --mp-ink: #f4ece2;
-  }
-
-  .mode-system {
-    --mp-bg: linear-gradient(115deg, #f3eee7 0 50%, #181411 50% 100%);
-    --mp-panel: rgba(150, 130, 110, 0.3);
-    --mp-line: rgba(150, 130, 110, 0.45);
-    --mp-ink: #8a7a6c;
-  }
-
+  /* Theme previews in the fixed colours of their mode (`MODE_PREV`): each card shows its own theme */
   .prev {
     position: relative;
     height: var(--pv-h);

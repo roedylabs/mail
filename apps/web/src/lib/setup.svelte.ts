@@ -68,7 +68,14 @@ function store(): Storage | null {
   }
 }
 
+/**
+ * Values whose write failed (storage full or blocked): kept for the life of
+ * the page, so the wizard and `setup/complete` still see what was chosen.
+ */
+let unsaved: Partial<Record<SessionKey, string | null>> = {};
+
 export function readSession(key: SessionKey): string | null {
+  if (key in unsaved) return unsaved[key] ?? null;
   try {
     return store()?.getItem(SESSION_PREFIX + key) ?? null;
   } catch {
@@ -80,16 +87,22 @@ export function readSession(key: SessionKey): string | null {
 export function writeSession(key: SessionKey, value: string | null): void {
   try {
     const s = store();
-    if (!s) return;
-    if (value === null) s.removeItem(SESSION_PREFIX + key);
-    else s.setItem(SESSION_PREFIX + key, value);
+    if (s) {
+      if (value === null) s.removeItem(SESSION_PREFIX + key);
+      else s.setItem(SESSION_PREFIX + key, value);
+      delete unsaved[key];
+      return;
+    }
   } catch {
-    // Storage full or blocked: the values stay in memory only.
+    // Storage full or blocked: below.
   }
+  // The value stays in memory only (lost on a reload).
+  unsaved[key] = value;
 }
 
 /** Removes all `roedy-setup-*` keys (the done screen, once it has read the first name). */
 export function clearSession(): void {
+  unsaved = {};
   try {
     const s = store();
     if (!s) return;

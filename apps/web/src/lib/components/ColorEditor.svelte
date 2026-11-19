@@ -1,8 +1,8 @@
 <!--
   Colour editor for a custom accent ("More colors", `#lib/color-editor.svelte.ts`),
   shared by the setup wizard and Settings › Appearance. Desktop: a popover at
-  the swatch that opened it (`anchor`), placed inside the parent element,
-  which must be positioned. Mobile (`sheet`): a bottom sheet above the
+  the swatch that opened it (`anchor`), placed inside its positioned
+  container. Mobile (`sheet`): a bottom sheet above the
   on-screen keyboard (visual viewport) that closes when dragged down.
 
   A radio group of 18 preset colours (arrows move and select through six
@@ -61,9 +61,14 @@
   const ink = $derived(accentInk(draft.hex));
   const cancelLight = $derived(sheet || ui.dark);
 
+  /** The positioned container the popover is placed in. */
+  function container(): Element | null {
+    return pop ? (pop.offsetParent ?? pop.parentElement) : null;
+  }
+
   function measure() {
     if (sheet || !pop) return;
-    const box = pop.parentElement;
+    const box = container();
     if (!box) return;
     const d = box.getBoundingClientRect();
     const b = anchor?.getBoundingClientRect();
@@ -83,7 +88,7 @@
   $effect(() => {
     if (sheet) return;
     measure();
-    const box = pop?.parentElement;
+    const box = container();
     const ro = typeof ResizeObserver === 'function' && box ? new ResizeObserver(() => measure()) : null;
     if (ro && box) ro.observe(box);
     window.addEventListener('resize', measure);

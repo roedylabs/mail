@@ -72,7 +72,7 @@
     reg: (key: 'heading' | 'card') => Attachment<HTMLElement>;
     /** Fields of the step (right column) or the done screen's content, with the current values and level. */
     fields: Snippet<[look: Look, level: number]>;
-    /** Layer above the page (a popover or sheet of the step), positioned in the whole window. */
+    /** Layer above the page (a popover or sheet of the step), positioned in the stage; hidden with the page (`hidden`). */
     overlay?: Snippet<[look: Look]>;
   }
 
@@ -352,7 +352,10 @@
   {#if swipe}
     <div class="chip" data-setup-chip aria-hidden="true"><Icon name="ti-chevron-left" /></div>
   {/if}
-  {@render overlay?.(look)}
+  {#if overlay}
+    <!-- Hidden with the page while "No connection" covers it; `display: contents`, so the layer is placed in the stage. -->
+    <div class="overlay" aria-hidden={hidden ? 'true' : undefined} inert={hidden}>{@render overlay(look)}</div>
+  {/if}
 </div>
 
 <style>
@@ -798,6 +801,10 @@
 
   .press:not(.off, [aria-busy='true']):active {
     transform: scale(0.98);
+  }
+
+  .overlay {
+    display: contents;
   }
 
   /* Arrow chip of the swipe back */
