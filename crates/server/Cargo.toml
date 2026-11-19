@@ -31,6 +31,9 @@ hmac = "0.13.0"
 # Tag names in NFC (mailbox names are Net-Unicode); already comes
 # with url/idna.
 icu_normalizer = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
+# Letters and marks in display names (general category); already comes
+# with url/idna.
+icu_properties = { version = "2.4.0", default-features = false, features = ["compiled_data"] }
 # Times in mails in the recipient's time zone. The image
 # (`scratch`) has no time zone database, so it is embedded.
 jiff = { version = "0.2.38", default-features = false, features = ["std", "tzdb-bundle-always"] }

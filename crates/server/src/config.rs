@@ -25,8 +25,8 @@ pub struct Config {
     pub listen: SocketAddr,
     /// Directory for database and key (`ROEDY_DATA_DIR`).
     pub data_dir: PathBuf,
-    /// Public address of the app (`ROEDY_PUBLIC_URL`). If set, it is fixed for
-    /// the initial setup; otherwise the setup asks for it.
+    /// Public address of the app (`ROEDY_PUBLIC_URL`). `serve` requires it
+    /// unless an older initial setup stored one (`app::serve`).
     #[serde(deserialize_with = "public_url")]
     pub public_url: Option<Url>,
     /// Log filter in the format of `tracing_subscriber::EnvFilter` (`ROEDY_LOG`).

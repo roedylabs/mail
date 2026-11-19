@@ -125,6 +125,7 @@ async function start(file: string, name: string, port: number, outputDir: string
   const env = {
     ...cleanEnv(),
     ROEDY_LISTEN: `127.0.0.1:${port}`,
+    ROEDY_PUBLIC_URL: url,
     ROEDY_DATA_DIR: dataDir,
     ROEDY_SECRET_KEY: randomBytes(32).toString('hex'),
     ROEDY_LOG: 'info',

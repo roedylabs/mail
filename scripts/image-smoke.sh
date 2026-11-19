@@ -29,6 +29,7 @@ trap cleanup EXIT
 # /data and a tmpfs on /tmp, no capabilities, no privilege escalation.
 docker run -d --name "$name" -p 127.0.0.1::8080 -v "$volume:/data" \
   --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges:true \
+  -e ROEDY_PUBLIC_URL=https://mail.example.com \
   "$image" >/dev/null
 url="http://$(docker port "$name" 8080/tcp | head -n 1)"
 

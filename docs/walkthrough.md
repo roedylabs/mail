@@ -26,17 +26,17 @@ Open the app's address in the browser. As long as there is no administrator, Roe
 
 The next two steps create your own account: name and email address, then a password. The password has to meet the rules shown below the field before you can continue.
 
-### 4. Connect the mail server
+### 4. Summary
 
-Enter the address of your Stalwart server, a name and the email domains it serves. Under **OAuth client**, choose **Automatic** and sign in once with an administrator's app password: Roedy Mail registers its OAuth client with Stalwart and does not keep these credentials. **Test connection** then checks the JMAP session, the CORS headers and the OAuth client. The public URL is the address under which people open Roedy Mail. Details and the manual alternative: [Preparing Stalwart › OAuth client](setup/stalwart.md#oauth-client).
-
-![Setup wizard: connecting the mail server with diagnostics](screenshots/setup-server.png)
-
-### 5. System emails and summary
-
-System emails are optional: with a sender account (ideally with an app password), Roedy Mail sends invitations, password reset links and notices by email ([Sender account](setup/stalwart.md#sender-account-for-system-emails)). The last step shows everything at a glance; **Finish setup** signs you in as the administrator.
+The last step shows everything at a glance; **Finish setup** signs you in as the administrator.
 
 ![Setup wizard: summary before finishing](screenshots/setup-review.png)
+
+### 5. Connect the mail server and system emails
+
+Under **Administration › Mail servers**, add your Stalwart server with the email domains it serves. Under **OAuth client**, choose **Automatic** and sign in once with an administrator's app password: Roedy Mail registers its OAuth client with Stalwart and does not keep these credentials. **Test connection** checks the JMAP session, the CORS headers and the OAuth client. Details and the manual alternative: [Preparing Stalwart › OAuth client](setup/stalwart.md#oauth-client).
+
+System emails are optional: with a sender account (ideally with an app password) under **Administration › Email**, Roedy Mail sends invitations, password reset links and notices by email ([Sender account](setup/stalwart.md#sender-account-for-system-emails)).
 
 Afterwards, back up the instance key and check the backup schedule, as listed in [Operations › Initial setup](ops.md#initial-setup).
 

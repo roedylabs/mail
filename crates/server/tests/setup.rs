@@ -1,9 +1,7 @@
-//! Initial setup via the API (without network apart from the local test
-//! server `fake_stalwart`): setup token with lockout per client IP, steps
-//! only with token, completion in one transaction with a session, locked
-//! afterwards – also for `roedy-mail setup-token`.
-
-mod fake_stalwart;
+//! Initial setup via the API: setup token with lockout per client IP,
+//! completion only with token in one transaction with a session and the
+//! administrator's appearance, locked afterwards – also for `roedy-mail
+//! setup-token`.
 
 use std::{net::SocketAddr, process::Command, sync::Arc};
 
@@ -13,11 +11,7 @@ use axum::{
     extract::connect_info::MockConnectInfo,
     http::{HeaderMap, HeaderValue, Method, Request, StatusCode, header},
 };
-use fake_stalwart::{
-    ADMIN, ADMIN_PASSWORD, CLIENT_ID, CLIENT_SECRET, MAIL_PASSWORD, MAIL_USER, Options, Server,
-};
 use http_body_util::BodyExt as _;
-use roedy_jmap as jmap;
 use roedy_mail_server::{
     api::{self, setup::TOKEN_HEADER},
     app::{AppState, router},
@@ -29,7 +23,7 @@ use roedy_mail_server::{
     config::Config,
     db::{
         self, Db,
-        repo::{app_settings, notifications, servers as server_repo},
+        repo::{app_settings, notifications},
     },
     mailer::system_mail,
     setup_token,
@@ -39,7 +33,6 @@ use serde_json::{Value, json};
 use tower::ServiceExt as _;
 use url::Url;
 
-const APP: &str = "https://app.example.com";
 const CLIENT: [u8; 4] = [203, 0, 113, 9];
 
 struct Setup {
@@ -152,19 +145,12 @@ fn session_cookie(reply: &Reply) -> String {
         .to_owned()
 }
 
-fn complete_body(fake: &Server) -> Value {
+fn complete_body() -> Value {
     json!({
         "name": "Max Mustermann",
         "email": "Max@Example.com",
         "password": "Summer2026!",
-        "server": {
-            "label": "",
-            "url": fake.url,
-            "domains": ["example.com"],
-            "client_id": CLIENT_ID,
-        },
-        "public_url": APP,
-        "system_mail": { "user": MAIL_USER, "app_password": MAIL_PASSWORD },
+        "settings": { "lang": "de", "mode": "dark", "accent": "sage" },
     })
 }
 
@@ -221,9 +207,9 @@ async fn token_locks_after_five_failures_per_client() {
     assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
     let reply = post(
         &s.state,
-        "/api/v1/setup/servers/test",
+        "/api/v1/setup/complete",
         Some(&s.token),
-        json!({ "url": "https://mail.example.com" }),
+        complete_body(),
     )
     .await;
     assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
@@ -240,7 +226,7 @@ async fn token_locks_after_five_failures_per_client() {
     )
     .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    assert_eq!(reply.json(), json!({ "public_url": null }));
+    assert_eq!(reply.json(), json!({}));
     assert_eq!(reply.headers[header::CACHE_CONTROL], "no-store");
 }
 
@@ -268,48 +254,30 @@ async fn correct_tokens_do_not_count() {
 }
 
 #[tokio::test]
-async fn steps_need_the_token() {
+async fn completion_needs_the_token() {
     let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let steps = [
-        ("/api/v1/setup/servers/test", json!({ "url": fake.url })),
-        (
-            "/api/v1/setup/servers/register-client",
-            json!({ "url": fake.url, "username": ADMIN, "password": ADMIN_PASSWORD }),
-        ),
-        (
-            "/api/v1/setup/system-mail/test",
-            json!({ "url": fake.url, "user": MAIL_USER, "app_password": MAIL_PASSWORD }),
-        ),
-        ("/api/v1/setup/complete", complete_body(&fake)),
-    ];
-    for (path, body) in &steps {
-        let reply = post(&s.state, path, None, body.clone()).await;
-        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{path}");
-        assert_eq!(reply.json()["error"], "bad_request", "{path}");
-    }
+    let path = "/api/v1/setup/complete";
+    let reply = post(&s.state, path, None, complete_body()).await;
+    assert_eq!(reply.status, StatusCode::BAD_REQUEST);
+    assert_eq!(reply.json()["error"], "bad_request");
     // A wrong token counts here too, and nothing is checked before the body.
-    for (n, (path, body)) in steps.iter().enumerate() {
-        let reply = post(&s.state, path, Some("ABCD-EFGH-JKLM"), body.clone()).await;
-        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{path}");
-        assert_eq!(reply.json()["remaining"], 4 - n, "{path}");
+    for remaining in [4, 3] {
+        let reply = post(
+            &s.state,
+            path,
+            Some("ABCD-EFGH-JKLM"),
+            json!({ "broken": 1 }),
+        )
+        .await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(reply.json()["remaining"], remaining);
     }
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/complete",
-        Some("x"),
-        json!({ "broken": 1 }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
-    assert!(fake.registrations().is_empty());
-    assert_eq!(fake.mail().requests(), 0);
     // A header that is not text is a failed attempt, not a missing header.
-    let request = Request::post("/api/v1/setup/servers/test")
+    let request = Request::post(path)
         .header(api::CSRF_HEADER, "fetch")
         .header(header::CONTENT_TYPE, "application/json")
         .header(TOKEN_HEADER, HeaderValue::from_bytes(b"ABCD-\xff").unwrap())
-        .body(Body::from(json!({ "url": fake.url }).to_string()))
+        .body(Body::from(complete_body().to_string()))
         .unwrap();
     let reply = read_reply(
         app(&s.state, [192, 0, 2, 7])
@@ -336,193 +304,41 @@ async fn steps_need_the_token() {
 }
 
 #[tokio::test]
-async fn tests_and_registers_the_server() {
+async fn mail_server_and_system_mail_steps_are_gone() {
     let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let reply = post(
-        &s.state,
+    for path in [
         "/api/v1/setup/servers/test",
-        Some(&s.token),
-        json!({ "url": format!("{}/", fake.url), "client_id": CLIENT_ID, "public_url": APP }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    let host = fake.url.trim_start_matches("http://");
-    assert_eq!(
-        reply.json(),
-        json!({
-            "url": fake.url, "host": host,
-            "reach": "ok", "cors": "ok", "oauth": "ok", "reasons": {},
-        })
-    );
-    // Without a client ID the diagnostics report that; nothing is stored.
+        "/api/v1/setup/servers/register-client",
+        "/api/v1/setup/system-mail/test",
+    ] {
+        let reply = post(
+            &s.state,
+            path,
+            Some(&s.token),
+            json!({ "url": "https://mail.example.com" }),
+        )
+        .await;
+        assert_eq!(reply.status, StatusCode::NOT_FOUND, "{path}");
+    }
+    // Neither counted towards the lockout.
     let reply = post(
         &s.state,
-        "/api/v1/setup/servers/test",
-        Some(&s.token),
-        json!({ "url": fake.url, "public_url": APP }),
+        "/api/v1/setup/token",
+        None,
+        json!({ "token": "x" }),
     )
     .await;
-    assert_eq!(reply.json()["oauth"], "err");
-    assert_eq!(reply.json()["reasons"], json!({ "oauth": "no_client_id" }));
-    let servers = db::call(&s.state.db, |conn| {
-        Ok(roedy_mail_server::db::repo::servers::list(conn)?.len())
-    })
-    .await
-    .unwrap();
-    assert_eq!(servers, 0);
-
-    // Fields as in the registry; without `ROEDY_PUBLIC_URL` the public URL
-    // belongs to them (redirect URI, CORS).
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/servers/test",
-        Some(&s.token),
-        json!({ "url": "http://stalwart:8080" }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        reply.json()["fields"],
-        json!({ "url": { "code": "invalid" }, "public_url": { "code": "required" } })
-    );
-
-    let path = "/api/v1/setup/servers/register-client";
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake.url, "username": ADMIN, "password": "incorrect", "public_url": APP }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        reply.json(),
-        json!({ "error": "registration_failed", "reason": "auth_failed" })
-    );
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake.url, "username": ADMIN, "password": ADMIN_PASSWORD, "public_url": APP }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    assert_eq!(
-        reply.json(),
-        json!({
-            "client_id": CLIENT_ID,
-            "redirect_uri": "https://app.example.com/oauth/callback",
-            "has_secret": true,
-        })
-    );
-    assert!(!reply.body.contains(CLIENT_SECRET));
-    assert_eq!(
-        fake.registrations()[0]["redirect_uris"],
-        json!(["https://app.example.com/oauth/callback"])
-    );
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake.url, "username": " ", "password": "", "public_url": "ftp://x" }),
-    )
-    .await;
-    assert_eq!(
-        reply.json()["fields"],
-        json!({
-            "username": { "code": "required" },
-            "password": { "code": "required" },
-            "public_url": { "code": "invalid" },
-        })
-    );
-    // Setup only logs the completion.
-    assert!(audit(&s.state).await.is_empty());
+    assert_eq!(reply.json()["remaining"], 4);
 }
 
 #[tokio::test]
-async fn tests_the_system_mail_account() {
+async fn complete_creates_the_administrator_with_their_appearance() {
     let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let path = "/api/v1/setup/system-mail/test";
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake.url, "user": MAIL_USER, "app_password": MAIL_PASSWORD }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    assert_eq!(
-        reply.json(),
-        json!({ "identities": [
-            { "id": "i1", "name": "Example Ltd", "email": MAIL_USER },
-            { "id": "i2", "name": "Example Support", "email": "support@example.com" },
-        ] })
-    );
-    // Nothing is sent.
-    assert!(fake.mail().submitted.is_empty());
-
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake.url, "user": MAIL_USER, "app_password": "incorrect" }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        reply.json(),
-        json!({ "error": "mail_failed", "reason": "auth_failed" })
-    );
-    assert_eq!(fake.mail().failed_logins, 1);
-
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake.url, "user": MAIL_USER, "app_password": MAIL_PASSWORD, "identity": "i9" }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::BAD_GATEWAY);
-    assert_eq!(reply.json()["reason"], "no_identity");
-
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake_stalwart::unreachable_url(), "user": MAIL_USER, "app_password": "x" }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::BAD_GATEWAY);
-    assert_eq!(reply.json()["reason"], "unreachable");
-
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": "", "user": "no reply", "app_password": "" }),
-    )
-    .await;
-    assert_eq!(
-        reply.json()["fields"],
-        json!({
-            "url": { "code": "required" },
-            "user": { "code": "invalid" },
-            "app_password": { "code": "required" },
-        })
-    );
-}
-
-#[tokio::test]
-async fn complete_creates_everything_and_signs_in() {
-    let s = setup().await;
-    let fake = Server::start(Options::default()).await;
     let reply = post(
         &s.state,
         "/api/v1/setup/complete",
         Some(&s.token),
-        complete_body(&fake),
+        complete_body(),
     )
     .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
@@ -533,54 +349,33 @@ async fn complete_creates_everything_and_signs_in() {
     assert_eq!(user["role"], "admin");
     let cookie = session_cookie(&reply);
 
-    // The session is valid: administration with the server from step 4 and the
-    // redirect URI from the public URL; the CSP allows it.
+    // The session is valid; the settings are the administrator's own, with
+    // the defaults for everything else.
+    let reply = get(&s.state, "/api/v1/settings", &cookie).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    let stored = reply.json();
+    assert_eq!(stored["version"], 1);
+    assert_eq!(stored["settings"]["lang"], "de");
+    assert_eq!(stored["settings"]["mode"], "dark");
+    assert_eq!(stored["settings"]["accent"], "sage");
+    assert_eq!(stored["settings"]["density"], "normal");
+
+    // No mail server, no system mail, no public URL: they come from the
+    // administration and `ROEDY_PUBLIC_URL`.
     let reply = get(&s.state, "/api/v1/admin/servers", &cookie).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    let list = reply.json();
-    let host = fake.url.trim_start_matches("http://");
-    assert_eq!(
-        list["redirect_uri"],
-        "https://app.example.com/oauth/callback"
-    );
-    assert_eq!(list["servers"][0]["label"], host);
-    assert_eq!(list["servers"][0]["url"], fake.url);
-    assert_eq!(list["servers"][0]["domains"], json!(["example.com"]));
-    assert_eq!(list["servers"][0]["client_id"], CLIENT_ID);
-    assert_eq!(list["servers"][0]["has_secret"], false);
-    let csp = reply.headers[header::CONTENT_SECURITY_POLICY]
-        .to_str()
-        .unwrap();
-    assert!(
-        csp.contains(&format!("connect-src 'self' {}", fake.url)),
-        "{csp}"
-    );
-
-    // Sending account with encrypted app password, usable by the mailer.
-    let secrets = s.state.secrets.clone();
-    let (account, public_url, token) = db::call(&s.state.db, move |conn| {
+    assert_eq!(reply.json()["servers"], json!([]));
+    let (public_url, configured, token) = db::call(&s.state.db, |conn| {
         Ok((
-            system_mail::account(conn, &secrets)?,
             app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)?,
+            system_mail::is_configured(conn)?,
             setup_token::current(conn)?,
         ))
     })
     .await
     .unwrap();
-    let account = account.unwrap();
-    assert_eq!(account.base_url.as_str(), format!("{}/", fake.url));
-    assert_eq!(
-        account.auth,
-        jmap::Auth::Basic {
-            username: MAIL_USER.into(),
-            password: MAIL_PASSWORD.into(),
-        }
-    );
-    assert!(s.state.mailer.test(&account).await.is_ok());
-    assert_eq!(
-        public_url.map(String::from).as_deref(),
-        Some("https://app.example.com/")
-    );
+    assert_eq!(public_url, None, "no public URL stored");
+    assert!(!configured);
     assert_eq!(token, None, "setup token deleted");
     assert_eq!(
         audit(&s.state).await,
@@ -597,8 +392,7 @@ async fn complete_creates_everything_and_signs_in() {
     // Afterwards all setup endpoints are locked, also with the old token.
     for (path, body) in [
         ("/api/v1/setup/token", json!({ "token": s.token })),
-        ("/api/v1/setup/servers/test", json!({ "url": fake.url })),
-        ("/api/v1/setup/complete", complete_body(&fake)),
+        ("/api/v1/setup/complete", complete_body()),
     ] {
         let reply = post(&s.state, path, Some(&s.token), body.clone()).await;
         assert_eq!(reply.status, StatusCode::CONFLICT, "{path}");
@@ -612,12 +406,11 @@ async fn complete_creates_everything_and_signs_in() {
 #[tokio::test]
 async fn the_setup_device_is_known_without_a_notice() {
     let s = setup().await;
-    let fake = Server::start(Options::default()).await;
     let reply = post(
         &s.state,
         "/api/v1/setup/complete",
         Some(&s.token),
-        complete_body(&fake),
+        complete_body(),
     )
     .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
@@ -656,75 +449,88 @@ async fn the_setup_device_is_known_without_a_notice() {
 #[tokio::test]
 async fn complete_validates_before_storing_anything() {
     let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let mut body = complete_body(&fake);
+    let path = "/api/v1/setup/complete";
+    let mut body = complete_body();
     body["password"] = json!("summer2026");
-    body["server"]["client_id"] = json!(null);
-    body["system_mail"]["user"] = json!("no reply");
-    let reply = post(&s.state, "/api/v1/setup/complete", Some(&s.token), body).await;
+    body["name"] = json!("Max (Admin) 2");
+    let reply = post(&s.state, path, Some(&s.token), body).await;
     assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(
         reply.json()["fields"],
         json!({
+            "name": { "code": "invalid" },
             "password": { "code": "policy", "rules": ["case"] },
-            "server.client_id": { "code": "required" },
-            "system_mail.user": { "code": "invalid" },
         })
     );
     assert!(!reply.headers.contains_key(header::SET_COOKIE));
-    let token = db::call(&s.state.db, |conn| setup_token::current(conn))
-        .await
-        .unwrap();
-    assert_eq!(token.as_deref(), Some(s.token.as_str()));
-}
 
-#[tokio::test]
-async fn configured_public_url_wins_and_system_mail_can_wait() {
-    let s = setup_with(Config {
-        public_url: Some(Url::parse(&format!("{APP}/")).unwrap()),
-        ..Config::default()
-    })
-    .await;
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/token",
-        None,
-        json!({ "token": s.token }),
-    )
-    .await;
-    assert_eq!(reply.json(), json!({ "public_url": APP }));
+    // The old fields, an unknown appearance or missing settings: 400.
+    let mut old = complete_body();
+    old["public_url"] = json!("https://app.example.com");
+    let mut server = complete_body();
+    server["server"] = json!({ "url": "https://mail.example.com" });
+    let mut system_mail = complete_body();
+    system_mail["system_mail"] = json!({ "user": "noreply", "app_password": "x" });
+    let mut accent = complete_body();
+    accent["settings"]["accent"] = json!("teal");
+    let mut extra = complete_body();
+    extra["settings"]["density"] = json!("compact");
+    let mut missing = complete_body();
+    missing["settings"].as_object_mut().unwrap().remove("mode");
+    let mut without = complete_body();
+    without.as_object_mut().unwrap().remove("settings");
+    for body in [old, server, system_mail, accent, extra, missing, without] {
+        let reply = post(&s.state, path, Some(&s.token), body.clone()).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{body}");
+    }
 
-    let fake = Server::start(Options::default()).await;
-    let mut body = complete_body(&fake);
-    body["public_url"] = json!("https://other.example.com");
-    body.as_object_mut().unwrap().remove("system_mail");
-    body["server"]["client_secret"] = json!("confidential");
-    let reply = post(&s.state, "/api/v1/setup/complete", Some(&s.token), body).await;
-    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
-    let cookie = session_cookie(&reply);
-    let reply = get(&s.state, "/api/v1/admin/servers", &cookie).await;
-    assert_eq!(
-        reply.json()["redirect_uri"],
-        "https://app.example.com/oauth/callback"
-    );
-    assert_eq!(reply.json()["servers"][0]["has_secret"], true);
-    let (public_url, configured) = db::call(&s.state.db, |conn| {
+    let (token, users) = db::call(&s.state.db, |conn| {
         Ok((
-            app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)?,
-            system_mail::is_configured(conn)?,
+            setup_token::current(conn)?,
+            conn.query_row("SELECT COUNT(*) FROM users", [], |r| r.get::<_, i64>(0))?,
         ))
     })
     .await
     .unwrap();
-    assert_eq!(public_url, None, "not stored only with ROEDY_PUBLIC_URL");
-    assert!(!configured);
+    assert_eq!(token.as_deref(), Some(s.token.as_str()));
+    assert_eq!(users, 0);
+}
+
+#[tokio::test]
+async fn a_public_url_from_an_older_setup_stays() {
+    let s = setup().await;
+    db::call(&s.state.db, |conn| {
+        app_settings::set(
+            conn,
+            app_settings::PUBLIC_URL,
+            &Url::parse("https://old.example.com/")?,
+        )
+    })
+    .await
+    .unwrap();
+    let reply = post(
+        &s.state,
+        "/api/v1/setup/complete",
+        Some(&s.token),
+        complete_body(),
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!(
+        s.state
+            .public_url()
+            .await
+            .unwrap()
+            .map(String::from)
+            .as_deref(),
+        Some("https://old.example.com/")
+    );
 }
 
 #[tokio::test]
 async fn only_one_of_two_concurrent_completions_wins() {
     let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let body = complete_body(&fake);
+    let body = complete_body();
     let path = "/api/v1/setup/complete";
     let (a, b) = tokio::join!(
         post(&s.state, path, Some(&s.token), body.clone()),
@@ -742,176 +548,13 @@ async fn only_one_of_two_concurrent_completions_wins() {
 }
 
 #[tokio::test]
-async fn mailer_lock_names_the_wait() {
-    let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let path = "/api/v1/setup/system-mail/test";
-    let wrong = json!({ "url": fake.url, "user": MAIL_USER, "app_password": "incorrect" });
-    for _ in 0..5 {
-        let reply = post(&s.state, path, Some(&s.token), wrong.clone()).await;
-        assert_eq!(reply.json()["reason"], "auth_failed");
-    }
-    // After that the backend does not ask this server for 15 minutes
-    // (Fail2Ban), not even with the right password – and says for how long.
-    let reply = post(
-        &s.state,
-        path,
-        Some(&s.token),
-        json!({ "url": fake.url, "user": MAIL_USER, "app_password": MAIL_PASSWORD }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
-    assert_eq!(reply.json()["error"], "mail_failed");
-    assert_eq!(reply.json()["reason"], "auth_locked");
-    let wait = reply.json()["retry_after"].as_u64().unwrap();
-    assert!((14 * 60..=15 * 60).contains(&wait), "{wait}");
-    assert_eq!(fake.mail().failed_logins, 5);
-}
-
-#[tokio::test]
-async fn test_knows_the_secret_of_a_registered_client() {
-    // A server that only knows confidential clients.
-    let s = setup().await;
-    let fake = Server::start(Options {
-        auth_methods: Some(&["client_secret_basic"]),
-        ..Options::default()
-    })
-    .await;
-    let test = || {
-        post(
-            &s.state,
-            "/api/v1/setup/servers/test",
-            Some(&s.token),
-            json!({ "url": fake.url, "client_id": CLIENT_ID, "public_url": APP }),
-        )
-    };
-    assert_eq!(
-        test().await.json()["reasons"],
-        json!({ "oauth": "no_public_client" })
-    );
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/servers/register-client",
-        Some(&s.token),
-        json!({ "url": fake.url, "username": ADMIN, "password": ADMIN_PASSWORD, "public_url": APP }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    // The registration's secret counts without the browser knowing it.
-    let reply = test().await;
-    assert_eq!(reply.json()["oauth"], "ok", "{}", reply.body);
-}
-
-#[tokio::test]
-async fn client_registered_for_another_public_url_is_rejected() {
-    let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/servers/register-client",
-        Some(&s.token),
-        json!({ "url": fake.url, "username": ADMIN, "password": ADMIN_PASSWORD, "public_url": APP }),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-
-    // The URL was changed after the registration.
-    let mut body = complete_body(&fake);
-    body["public_url"] = json!("https://mail.example.com");
-    let reply = post(&s.state, "/api/v1/setup/complete", Some(&s.token), body).await;
-    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(
-        reply.json()["fields"],
-        json!({ "server.client_id": {
-            "code": "redirect_mismatch",
-            "redirect_uri": "https://app.example.com/oauth/callback",
-        } })
-    );
-
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/complete",
-        Some(&s.token),
-        complete_body(&fake),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
-    // The server takes over the registration's secret, which is
-    // forgotten afterwards.
-    let (sealed, id, left) = db::call(&s.state.db, |conn| {
-        let (sealed, id): (Vec<u8>, String) =
-            conn.query_row("SELECT oauth_client_secret_enc, id FROM servers", [], |r| {
-                Ok((r.get(0)?, r.get(1)?))
-            })?;
-        Ok((
-            sealed,
-            id,
-            app_settings::get::<Value>(conn, "server_registrations")?,
-        ))
-    })
-    .await
-    .unwrap();
-    assert_eq!(
-        s.state
-            .secrets
-            .open(server_repo::SECRET_PURPOSE, &id, &sealed)
-            .unwrap(),
-        CLIENT_SECRET.as_bytes()
-    );
-    assert_eq!(left, None, "forgotten after completion");
-}
-
-#[tokio::test]
-async fn conflicts_with_existing_servers_are_field_errors() {
-    let s = setup().await;
-    let fake = Server::start(Options::default()).await;
-    let url = fake.url.clone();
-    db::call(&s.state.db, move |conn| {
-        server_repo::insert(
-            conn,
-            "s0",
-            &server_repo::Fields {
-                label: "Old",
-                base_url: &url,
-                domains: &["example.com".to_owned()],
-                client_id: None,
-            },
-            None,
-        )
-    })
-    .await
-    .unwrap();
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/complete",
-        Some(&s.token),
-        complete_body(&fake),
-    )
-    .await;
-    assert_eq!(
-        reply.status,
-        StatusCode::UNPROCESSABLE_ENTITY,
-        "{}",
-        reply.body
-    );
-    assert_eq!(
-        reply.json()["fields"],
-        json!({
-            "server.url": { "code": "taken", "server": "Old" },
-            "server.domains": { "code": "taken", "domain": "example.com", "server": "Old" },
-        })
-    );
-}
-
-#[tokio::test]
 async fn setup_token_command_reports_completion() {
     let s = setup().await;
-    let fake = Server::start(Options::default()).await;
     let reply = post(
         &s.state,
         "/api/v1/setup/complete",
         Some(&s.token),
-        complete_body(&fake),
+        complete_body(),
     )
     .await;
     assert_eq!(reply.status, StatusCode::CREATED);

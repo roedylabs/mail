@@ -15,6 +15,8 @@ const BIN: &str = env!("CARGO_BIN_EXE_roedy-mail");
 const STARTUP: Duration = Duration::from_secs(20);
 /// Port 0: the system assigns a free port, the server reports it in the log.
 const ANY_PORT: &str = "127.0.0.1:0";
+/// `ROEDY_PUBLIC_URL` of the started servers; `serve` requires it.
+const PUBLIC_URL: &str = "https://mail.example.com";
 
 fn roedy(data_dir: &Path, listen: &str) -> Command {
     let mut cmd = Command::new(BIN);
@@ -59,7 +61,16 @@ struct Server {
 
 impl Server {
     fn start(data_dir: &Path) -> Self {
-        let mut child = roedy(data_dir, ANY_PORT)
+        Self::start_with(data_dir, Some(PUBLIC_URL))
+    }
+
+    /// Like [`Self::start`], `public_url` as `ROEDY_PUBLIC_URL` if given.
+    fn start_with(data_dir: &Path, public_url: Option<&str>) -> Self {
+        let mut cmd = roedy(data_dir, ANY_PORT);
+        if let Some(url) = public_url {
+            cmd.env("ROEDY_PUBLIC_URL", url);
+        }
+        let mut child = cmd
             .arg("serve")
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
@@ -237,6 +248,7 @@ fn bind_failure_is_logged_and_closes_database() {
     // Second server on the same port with a sparse log filter.
     let data_dir = tmp.path().join("second");
     let output = roedy(&data_dir, &running.listen)
+        .env("ROEDY_PUBLIC_URL", PUBLIC_URL)
         .env("ROEDY_LOG", "warn")
         .arg("serve")
         .output()
@@ -375,4 +387,55 @@ fn invalid_configuration_fails_fast() {
     let err = stderr(&output);
     assert!(err.starts_with("error: Invalid configuration"), "{err}");
     assert!(err.contains("ROEDY_LISTEN: "), "{err}");
+}
+
+#[test]
+fn serve_requires_public_url() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data_dir = tmp.path().join("data");
+    let output = roedy(&data_dir, ANY_PORT).arg("serve").output().unwrap();
+    assert!(!output.status.success());
+    let err = stderr(&output);
+    let events: Vec<Value> = err
+        .lines()
+        .map(|line| {
+            serde_json::from_str(line)
+                .unwrap_or_else(|e| panic!("log line is not JSON ({e}): {line}"))
+        })
+        .collect();
+    let error = events
+        .iter()
+        .find(|e| e["level"] == "ERROR")
+        .unwrap_or_else(|| panic!("no error in the log: {events:#?}"));
+    assert!(
+        message(error).starts_with("error: ROEDY_PUBLIC_URL is not set"),
+        "{events:#?}"
+    );
+    // Stopped before the setup token: nobody can start a setup without it.
+    assert!(!err.contains("Setup-Token: "), "{err}");
+    assert!(!err.contains("Roedy Mail started"), "{err}");
+    let conn = roedy_mail_server::db::open(&data_dir).unwrap();
+    assert_eq!(
+        roedy_mail_server::setup_token::current(&conn).unwrap(),
+        None,
+        "no setup token stored"
+    );
+}
+
+#[test]
+fn public_url_from_an_older_setup_still_starts() {
+    let tmp = tempfile::tempdir().unwrap();
+    let data_dir = tmp.path().join("data");
+    let conn = roedy_mail_server::db::open(&data_dir).unwrap();
+    conn.execute(
+        "INSERT INTO app_settings (key, json) VALUES ('public_url', '\"https://mail.example.com/\"')",
+        [],
+    )
+    .unwrap();
+    drop(conn);
+
+    let server = Server::start_with(&data_dir, None);
+    assert!(server.logged("Setup-Token: ").is_some());
+    let (success, server) = server.terminate();
+    assert!(success, "{:#?}", server.log);
 }

@@ -14,11 +14,11 @@ For larger changes, please open an issue or discussion first so we can agree on 
 
 ```sh
 pnpm install          # dependencies and Git hooks (lefthook)
-cargo run -- serve    # backend on http://localhost:8080, data in ./data
+ROEDY_PUBLIC_URL=http://localhost:5173 cargo run -- serve    # backend on :8080, data in ./data
 pnpm dev              # web app on http://localhost:5173, proxies /api to the backend
 ```
 
-The first start prints a setup token in the backend log; open the web app and follow the setup wizard. You need a Stalwart v1 server to sign in to mail accounts – `scripts/dev/stalwart.sh` starts a throwaway local one for tests.
+`ROEDY_PUBLIC_URL` is required; in development it is the address of the web app. The first start prints a setup token in the backend log; open the web app and follow the setup wizard. You need a Stalwart v1 server to sign in to mail accounts – `scripts/dev/stalwart.sh` starts a throwaway local one for tests.
 
 In a sandboxed shell with a read-only home directory, run `. scripts/dev/sandbox-env.sh` first; it moves the pnpm, npm and cargo caches to `$TMPDIR`.
 

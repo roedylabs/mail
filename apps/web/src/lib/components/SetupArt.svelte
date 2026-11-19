@@ -14,8 +14,6 @@
     token: 'ti-key',
     admin: 'ti-user-shield',
     password: 'ti-lock',
-    server: 'ti-server',
-    system: 'ti-mail-cog',
     review: 'ti-list-check',
     loading: 'ti-loader-2',
     error: 'ti-alert-circle',

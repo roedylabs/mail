@@ -25,7 +25,7 @@ Only administrators see the pages: the menu entry is missing for everyone else, 
 
 ## Email: system email
 
-Invitations, confirmation links, security notices and notifications go out through the sender account. How the account is created in Stalwart is described under [Stalwart › Sender account for system emails](stalwart.md#sender-account-for-system-emails). The setup can already create the account; the page changes it afterwards.
+Invitations, confirmation links, security notices and notifications go out through the sender account. How the account is created in Stalwart is described under [Stalwart › Sender account for system emails](stalwart.md#sender-account-for-system-emails). The initial setup only creates the administrator: set up the sender account here right after the setup, and change it here later.
 
 | Section | Content |
 |---|---|
@@ -41,7 +41,7 @@ Invitations, confirmation links, security notices and notifications go out throu
 
 **Limits:** Test emails are limited per administrator to ten at once, then one per minute; only what actually goes out after a successful check counts. After five rejected sign-ins at one server within 15 minutes, Roedy Mail stops trying there for 15 minutes ([Stalwart › Sender account](stalwart.md#sender-account-for-system-emails)).
 
-**Requirement:** System emails need the public address for their links. Without `ROEDY_PUBLIC_URL` and without an entry from the setup no system email goes out, not even a test email. It is changed via `ROEDY_PUBLIC_URL`; there is no field for it under Administration.
+**Requirement:** System emails need the public address (`ROEDY_PUBLIC_URL`) for their links. It is changed via `ROEDY_PUBLIC_URL`; there is no field for it under Administration.
 
 App password and token are stored in the database encrypted with the instance key and appear in no response, no log and no audit log entry.
 

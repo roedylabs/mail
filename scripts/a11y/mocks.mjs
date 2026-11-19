@@ -926,13 +926,7 @@ function apiAnswer(key, path, method, body, st, opts, base, miss) {
     case 'GET admin/storage':
       return ok({ database: 48_000_000, assets: 320_000, asset_name: null, compacted_at: ago(24 * 7) });
     case 'POST setup/token':
-      return ok({ public_url: null });
-    case 'POST setup/servers/test':
-      return ok({ url: JMAP, host: 'mail.example.test', ...diag });
-    case 'POST setup/servers/register-client':
-      return ok({ client_id: 'roedy-mail' });
-    case 'POST setup/system-mail/test':
-      return ok({ status: 'ok' });
+      return ok({});
   }
   let m;
   if ((m = /^invites\/([^/]+)$/.exec(bare)) && method === 'GET')

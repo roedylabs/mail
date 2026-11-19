@@ -25,7 +25,11 @@ use icu_normalizer::ComposingNormalizerBorrowed;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::{ApiError, FieldErrors, JsonBody, me::check_display_name, nullable};
+use super::{
+    ApiError, FieldErrors, JsonBody,
+    me::{MAX_NAME, is_invisible},
+    nullable,
+};
 use crate::{
     app::AppState,
     auth::CurrentUser,
@@ -191,7 +195,13 @@ fn check(
     parent: Option<&str>,
 ) -> FieldErrors {
     let mut errors = FieldErrors::default();
-    check_display_name(&mut errors, "name", name);
+    if name.is_empty() {
+        errors.code("name", "required");
+    } else if name.chars().count() > MAX_NAME {
+        errors.code("name", "too_long");
+    } else if name.chars().any(|c| c.is_control() || is_invisible(c)) {
+        errors.code("name", "invalid");
+    }
     if color.is_some_and(|color| !(0..COLORS).contains(&color)) {
         errors.code("color", "invalid");
     }
