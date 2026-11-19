@@ -2,7 +2,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACCENTS, DEFAULT_ACCENT, DEFAULT_MODE, MODES, renderTokensCss } from './index.ts';
+import { ACCENTS, DEFAULT_ACCENT, DEFAULT_MODE, FONT_MONO, MODES, renderTokensCss } from './index.ts';
 
 describe('tokens.css', () => {
   it('matches the TypeScript constants (otherwise: pnpm --filter @roedy/tokens build)', () => {
@@ -17,6 +17,12 @@ describe('tokens.css', () => {
         expect(css).toContain(`${name}: ${value};`);
       }
     }
+  });
+
+  it('defines the font tokens once, independent of the theme', () => {
+    const css = renderTokensCss();
+    expect(css).toContain(`:root {\n  --font-sans:`);
+    expect(css.split(`--font-mono: ${FONT_MONO};`)).toHaveLength(2);
   });
 
   it('applies the defaults without an attribute on <html>', () => {

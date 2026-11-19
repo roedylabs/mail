@@ -68,6 +68,8 @@
     /** Width of the action row in two columns, at its right edge (default: the right column). */
     actionsW?: string;
     onsubmit?: () => void;
+    /** Submit while the primary button is greyed out (the step is incomplete): no error, the step may move the focus. */
+    onblocked?: () => void;
     /** Registers the heading and the card for the focus and the shake. */
     reg: (key: 'heading' | 'card') => Attachment<HTMLElement>;
     /** Fields of the step (right column) or the done screen's content, with the current values and level. */
@@ -90,6 +92,7 @@
     primary,
     actionsW,
     onsubmit,
+    onblocked,
     reg,
     fields,
     overlay,
@@ -173,8 +176,9 @@
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
-    if (off || busy) return;
-    onsubmit?.();
+    if (busy) return;
+    if (off) onblocked?.();
+    else onsubmit?.();
   }
 
   /** Enter anywhere on the step does what the primary button does; links and buttons keep their own Enter. */

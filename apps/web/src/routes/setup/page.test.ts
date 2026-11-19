@@ -42,24 +42,39 @@ describe('Setup page', () => {
     expect(view.getByRole('img', { name: 'Step 2 of 5' })).toBeInTheDocument();
     expect(ui.setupTitle).toBe('Setup token · Setup');
     expect(view.getByRole('button', { name: 'Back' })).toBeInTheDocument();
-    expect(view.getByText('docker logs roedy-mail 2>&1 | grep Setup-Token')).toBeInTheDocument();
-    await fireEvent.click(view.getByRole('button', { name: 'Copy' }));
+    // One line of text with its spaces (a selection copies the command as it is).
+    expect(view.container.querySelector('.cmd-parts')?.textContent).toBe(
+      'docker logs roedy-mail 2>&1 | grep Setup-Token',
+    );
+    expect(view.getByText('Setup-Token:')).toBeInTheDocument();
+    await fireEvent.click(view.getByRole('button', { name: 'Copy: docker logs roedy-mail 2>&1 | grep Setup-Token' }));
     expect(writeText).toHaveBeenCalledWith('docker logs roedy-mail 2>&1 | grep Setup-Token');
-    expect(view.getByRole('button', { name: 'Copied' })).toBeInTheDocument();
+    expect(view.getByRole('button', { name: /^Copied:/ })).toBeInTheDocument();
   });
 
-  it('shows “Copied” only if copying worked', async () => {
+  it('keeps the log lines in English in German', () => {
+    sessionStorage.setItem('roedy-setup-lang', 'de');
+    atToken();
+    const view = render(Page);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Roedy Mail einrichten');
+    expect(ui.setupTitle).toBe('Setup-Token · Einrichtung');
+    expect(view.getByText('[setup] Not set up yet')).toBeInTheDocument();
+    expect(view.getByRole('button', { name: /^Kopieren:/ })).toBeInTheDocument();
+  });
+
+  it('shows “Copied” only if copying worked, otherwise “Couldn’t copy.”', async () => {
     vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
     const execCommand = vi.fn(() => false);
     Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
     atToken();
     const view = render(Page);
-    await fireEvent.click(view.getByRole('button', { name: 'Copy' }));
+    await fireEvent.click(view.getByRole('button', { name: /^Copy:/ }));
     expect(execCommand).toHaveBeenCalledWith('copy');
-    expect(view.queryByRole('button', { name: 'Copied' })).toBeNull();
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t copy.', error: true }));
+    expect(view.queryByRole('button', { name: /^Copied:/ })).toBeNull();
     execCommand.mockReturnValue(true);
-    await fireEvent.click(view.getByRole('button', { name: 'Copy' }));
-    await vi.waitFor(() => expect(view.getByRole('button', { name: 'Copied' })).toBeInTheDocument());
+    await fireEvent.click(view.getByRole('button', { name: /^Copy:/ }));
+    await vi.waitFor(() => expect(view.getByRole('button', { name: /^Copied:/ })).toBeInTheDocument());
     Reflect.deleteProperty(document, 'execCommand');
   });
 
@@ -210,44 +225,103 @@ describe('Setup page', () => {
     expect(screen.getByLabelText('Confirm password')).toHaveFocus();
   });
 
-  it('reports an unexpected error as an error toast', async () => {
+  it('shows a server error under the boxes, not as a toast', async () => {
     mockApi({ 'POST setup/token': [{ status: 500, body: { error: 'internal' } }] });
     atToken();
-    render(Page);
+    const view = render(Page);
     await type('Setup token', 'abcd-efgh-jklm');
     await next();
-    await vi.waitFor(() => expect(ui.toast).not.toBeNull());
-    expect(ui.toast).toMatchObject({
-      text: 'That didn’t work. Please try again.',
-      error: true,
-      undo: false,
-    });
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Something went wrong.'));
+    expect(view.getByRole('alert')).toHaveTextContent(
+      'The token couldn’t be checked. Details are in the container log.',
+    );
+    expect(view.getByLabelText('Setup token')).toHaveValue('ABCD-EFGH-JKLM');
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'false');
+    expect(ui.toast).toBeNull();
   });
 
-  it('shows the token in boxes, too short and locked', async () => {
-    vi.useFakeTimers();
-    mockApi({ 'POST setup/token': [{ status: 429, body: { error: 'rate_limited', retry_after: 30 } }] });
+  it('reports a wrong token with the attempts left', async () => {
+    mockApi({
+      'POST setup/token': [
+        { status: 422, body: { error: 'invalid_token', remaining: 4 } },
+        { status: 422, body: { error: 'invalid_token', remaining: 1 } },
+      ],
+    });
     atToken();
     const view = render(Page);
     const input = view.getByLabelText('Setup token');
-    await fireEvent.input(input, { target: { value: 'ab12' } });
-    expect(input).toHaveValue('AB12');
+    await type('Setup token', 'abcd-efgh-jklm');
+    await next();
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Invalid token.'));
+    expect(view.getByRole('alert')).toHaveTextContent('Check the token in the container log.');
+    expect(view.getByRole('alert')).toHaveTextContent('4 attempts left');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAccessibleDescription(/Invalid token\./);
+    await next();
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('1 attempt left'));
+    await type('Setup token', 'abcd-efgh-jkl');
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('keeps the accepted token when coming back; editing makes it unaccepted', async () => {
+    const { calls } = mockApi({ 'POST setup/token': [{ body: {} }] });
+    atToken();
+    const view = render(Page);
+    await type('Setup token', 'abcd-efgh-jklm');
+    await next();
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator'));
+    await fireEvent.click(view.getByRole('button', { name: 'Back' }));
+    expect(view.getByRole('status')).toHaveTextContent('Token accepted.');
+    expect(view.getByRole('status')).toHaveTextContent('Next, you’ll create the administrator account.');
+    expect(view.getByLabelText('Setup token')).toHaveAccessibleDescription(/Token accepted\./);
+    await next();
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator');
+    expect(calls).toHaveLength(1);
+    await fireEvent.click(view.getByRole('button', { name: 'Back' }));
+    await type('Setup token', 'abcd-efgh-jkl');
+    expect(view.queryByRole('status')).toBeNull();
+  });
+
+  it('shows the token in boxes, greys out Continue until complete, and locks', async () => {
+    vi.useFakeTimers();
+    const { calls } = mockApi({
+      'POST setup/token': [{ status: 429, body: { error: 'rate_limited', retry_after: 12 } }],
+    });
+    atToken();
+    const view = render(Page);
+    const input = view.getByLabelText('Setup token');
+    const cont = view.getByRole('button', { name: 'Continue' });
+    await fireEvent.input(input, { target: { value: 'ab23' } });
+    expect(input).toHaveValue('AB23');
     expect(input).not.toHaveAttribute('aria-describedby');
     // Rejected characters do not stay invisibly in the field.
-    await fireEvent.input(input, { target: { value: 'AB12!' } });
-    expect(input).toHaveValue('AB12');
+    await fireEvent.input(input, { target: { value: 'AB23!' } });
+    expect(input).toHaveValue('AB23');
+    expect(cont).toHaveAttribute('aria-disabled', 'true');
+    // Incomplete: no message, nothing sent; Enter on the heading moves the focus into the field.
+    await fireEvent.keyDown(view.getByRole('heading', { level: 1 }), { key: 'Enter' });
+    expect(input).toHaveFocus();
     await next();
-    expect(view.getByText('The token is 12 characters long.')).toBeInTheDocument();
-    expect(input).toHaveAttribute('aria-invalid', 'true');
-    expect(input).toHaveAccessibleDescription('The token is 12 characters long.');
-    await fireEvent.input(input, { target: { value: 'ab12cd34ef56' } });
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+    expect(calls).toHaveLength(0);
+    await fireEvent.input(input, { target: { value: 'Setup-Token: ab23-cd45-ef67' } });
+    expect(input).toHaveValue('AB23-CD45-EF67');
+    expect(cont).toHaveAttribute('aria-disabled', 'false');
     await next();
     await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Too many attempts.'));
-    expect(view.getByRole('alert')).toHaveTextContent('Entry is locked for 30 seconds.');
-    expect(input).toHaveAccessibleDescription(/Too many attempts\. Entry is locked for 30 seconds\./);
+    expect(view.getByRole('alert')).toHaveTextContent('Entry is locked for a moment. Then you can try again.');
+    // The countdown bar is relative to the 30 s lock.
+    expect(view.getByRole('alert')).toHaveTextContent('0:12');
+    expect(view.getByRole('alert').querySelector('.lock-bar span')).toHaveStyle({ width: '40%' });
+    expect(input).toHaveAccessibleDescription(/Too many attempts\./);
     expect(input).toBeDisabled();
-    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
-    await vi.advanceTimersByTimeAsync(30_000);
+    expect(input).toHaveValue('');
+    expect(cont).toHaveAttribute('aria-disabled', 'true');
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(view.getByRole('alert')).toHaveTextContent('0:10');
+    await vi.advanceTimersByTimeAsync(10_000);
     expect(view.queryByRole('alert')).toBeNull();
     expect(input).toBeEnabled();
   });

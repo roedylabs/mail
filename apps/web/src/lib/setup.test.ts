@@ -39,6 +39,7 @@ function hooks() {
 function at(step: 3 | 4 | 5, h = hooks()) {
   const flow = new SetupFlow(h);
   flow.token = TOKEN;
+  flow.tokOk = true;
   flow.name = 'Anna Baker';
   flow.email = 'anna@example.com';
   flow.pw = 'Safe-enough1';
@@ -172,52 +173,136 @@ describe('Session of the tab', () => {
 });
 
 describe('Step 2: setup token', () => {
-  it('requires twelve characters before asking', async () => {
+  it('does nothing until all twelve characters are there, without an error', async () => {
     const h = hooks();
     const { calls } = mockApi({});
     const flow = new SetupFlow(h);
     flow.editToken('abcd-ef');
+    expect(flow.tokFull).toBe(false);
     await flow.submitToken();
-    expect(flow.tokErr).toBe('short');
-    expect(h.fail).toHaveBeenCalledWith('token');
+    expect(flow.tokErr).toBeNull();
+    expect(h.fail).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);
+    flow.editToken('abcd-efgh-jklm');
+    expect(flow.tokFull).toBe(true);
   });
 
-  it('reports a wrong token with the remaining attempts', async () => {
+  it('takes pasted tokens with or without dashes, in any case, and Backspace', () => {
+    const flow = new SetupFlow(hooks());
+    flow.editToken('abcdefghjklm');
+    expect(flow.token).toBe(TOKEN);
+    flow.editToken('Setup-Token: abcd-EFGH-jklm');
+    expect(flow.token).toBe(TOKEN);
+    flow.editToken('ABCD-EFGH-JKL');
+    expect(flow.token).toBe('ABCD-EFGH-JKL');
+    flow.editToken('ABCD-');
+    expect(flow.token).toBe('ABCD');
+  });
+
+  it('reports a wrong token with the remaining attempts; typing clears it', async () => {
     const h = hooks();
-    mockApi({ 'POST setup/token': [{ status: 422, body: { error: 'invalid_token', remaining: 3 } }] });
+    mockApi({
+      'POST setup/token': [
+        { status: 422, body: { error: 'invalid_token', remaining: 4 } },
+        { status: 422, body: { error: 'invalid_token', remaining: 1 } },
+      ],
+    });
     const flow = new SetupFlow(h);
     flow.editToken(TOKEN);
     await flow.submitToken();
-    expect(flow.tokErr).toBe('invalid');
-    expect(flow.tokErrText).toBe('Check the token in the container log. 3 attempts left.');
-    flow.remaining = 1;
-    expect(flow.tokErrText).toBe('Check the token in the container log. 1 attempt left.');
-    // Typing clears the error.
+    expect([flow.tokErr, flow.remaining, flow.token, flow.loading]).toEqual(['invalid', 4, TOKEN, false]);
+    expect(h.fail).toHaveBeenLastCalledWith('token');
+    await flow.submitToken();
+    expect(flow.remaining).toBe(1);
     flow.editToken('ABCD');
     expect(flow.tokErr).toBeNull();
   });
 
-  it('locks after 429 with a running wait time and releases afterwards', async () => {
+  it('locks after 429 with retry_after, empties the boxes and releases afterwards', async () => {
     vi.useFakeTimers();
     const h = hooks();
-    mockApi({ 'POST setup/token': [{ status: 429, body: { error: 'rate_limited', retry_after: 30 } }] });
+    const { calls } = mockApi({
+      'POST setup/token': [
+        { status: 422, body: { error: 'invalid_token', remaining: 1 } },
+        { status: 429, body: { error: 'rate_limited', retry_after: 30 } },
+      ],
+    });
     const flow = new SetupFlow(h);
     flow.editToken(TOKEN);
     await flow.submitToken();
-    expect(flow.locked).toBe(true);
-    expect(flow.token).toBe('');
-    expect(flow.tokErrText).toBe('Entry is locked for 30 seconds.');
-    vi.advanceTimersByTime(29_000);
-    expect(flow.tokErrText).toBe('Entry is locked for 1 second.');
-    // While locked the page does not ask.
-    flow.token = TOKEN;
     await flow.submitToken();
+    expect([flow.locked, flow.tokErr, flow.token, flow.remaining]).toEqual([true, 'locked', '', null]);
+    expect(flow.tokLeft).toBe(30);
+    expect(h.fail).toHaveBeenLastCalledWith();
+    vi.advanceTimersByTime(29_000);
+    expect(flow.tokLeft).toBe(1);
+    // While locked the page does not ask, and typing keeps the lock.
+    flow.token = TOKEN;
+    flow.editToken(TOKEN);
+    expect(flow.tokErr).toBe('locked');
+    await flow.submitToken();
+    expect(calls).toHaveLength(2);
     vi.advanceTimersByTime(1_000);
     expect(flow.locked).toBe(false);
     expect(flow.tokErr).toBeNull();
     expect(h.entered).toHaveBeenCalledWith(2, 'token');
     flow.dispose();
+  });
+
+  it('starts the lock from retry_after after a reload (part of the 30 s)', async () => {
+    vi.useFakeTimers();
+    mockApi({ 'POST setup/token': [{ status: 429, body: { error: 'rate_limited', retry_after: 12 } }] });
+    const flow = new SetupFlow(hooks());
+    flow.editToken(TOKEN);
+    await flow.submitToken();
+    expect([flow.locked, flow.tokLeft]).toEqual([true, 12]);
+    flow.dispose();
+  });
+
+  it('shows a server error in place; no attempt is used up and Continue checks again', async () => {
+    const h = hooks();
+    const { calls } = mockApi({
+      'POST setup/token': [
+        { status: 422, body: { error: 'invalid_token', remaining: 3 } },
+        { status: 500, body: { error: 'internal' } },
+        { body: {} },
+      ],
+    });
+    const flow = new SetupFlow(h);
+    flow.editToken(TOKEN);
+    await flow.submitToken();
+    await flow.submitToken();
+    expect([flow.tokErr, flow.remaining, flow.token, flow.step]).toEqual(['server', 3, TOKEN, 2]);
+    expect(h.error).not.toHaveBeenCalled();
+    expect(h.fail).toHaveBeenLastCalledWith();
+    await flow.submitToken();
+    expect(calls).toHaveLength(3);
+    expect(flow.step).toBe(3);
+  });
+
+  it('keeps an accepted token accepted when coming back, until it is edited', async () => {
+    const { calls } = mockApi({ 'POST setup/token': [{ body: {} }, { body: {} }] });
+    const flow = new SetupFlow(hooks());
+    flow.editToken(TOKEN);
+    await flow.submitToken();
+    expect([flow.step, flow.tokOk]).toEqual([3, true]);
+    flow.back();
+    expect([flow.step, flow.token, flow.tokOk]).toEqual([2, TOKEN, true]);
+    // Continue goes on without a new check.
+    await flow.submitToken();
+    expect(flow.step).toBe(3);
+    expect(calls).toHaveLength(1);
+    flow.back();
+    // The same value again keeps it; any change makes it unaccepted.
+    flow.editToken(TOKEN);
+    expect(flow.tokOk).toBe(true);
+    flow.editToken('ABCD-EFGH-JKL');
+    expect(flow.tokOk).toBe(false);
+    flow.editToken(TOKEN);
+    expect(flow.tokOk).toBe(false);
+    await flow.submitToken();
+    expect(calls).toHaveLength(2);
+    expect(flow.step).toBe(3);
   });
 
   it('continues with the right token', async () => {
@@ -437,12 +522,12 @@ describe('Step 5: completion', () => {
     });
     await flow.finish();
     expect(flow.step).toBe(2);
-    expect(flow.tokErr).toBe('invalid');
+    expect([flow.tokErr, flow.tokOk]).toEqual(['invalid', false]);
     expect(h.fail).toHaveBeenLastCalledWith('token');
     flow.step = 5;
     await flow.finish();
     expect(flow.step).toBe(2);
-    expect(flow.tokErrText).toBe('Entry is locked for 12 seconds.');
+    expect([flow.tokErr, flow.tokLeft, flow.tokOk]).toEqual(['locked', 12, false]);
     flow.dispose();
   });
 });
