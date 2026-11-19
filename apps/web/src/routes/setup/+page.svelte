@@ -30,7 +30,7 @@
     fail: (field) => {
       void tick().then(() => {
         shake(targets.get('card'), targets.get('tile'));
-        if (field) focus(field);
+        if (field) focus(field, false);
       });
     },
     entered: (_step, target) => {
@@ -58,24 +58,28 @@
   });
 
   /**
-   * Entering a step: desktop the step's target without scrolling; on mobile
-   * the heading, so the on-screen keyboard does not open at once.
+   * Entering a step (`entering`): desktop the step's target without
+   * scrolling; on mobile the heading, so the on-screen keyboard does not open
+   * at once. A rejected field gets the focus on mobile too.
    */
-  function focus(target: Focus) {
+  function focus(target: Focus, entering = true) {
     // "No connection" keeps the focus until it closes.
     if (net.open) return;
     const mobile = isMobileWidth(ui.width);
-    const el = targets.get(mobile ? 'heading' : target) ?? targets.get('heading');
+    const el = targets.get(mobile && entering ? 'heading' : target) ?? targets.get('heading');
     if (!el || (el instanceof HTMLInputElement && el.disabled)) return;
     el.focus(mobile ? undefined : { preventScroll: true });
   }
 
   /** An attempt of "No connection": the setup status; any answer counts, a server error too. */
+  /** Session load of an attempt; a later attempt waits for it instead of starting a second one that could finish first. */
+  let loading: Promise<boolean> | null = null;
   async function probe(signal: AbortSignal): Promise<boolean> {
-    const loaded = async () => {
-      await session.load();
-      return session.status !== 'error' || session.failure !== 'offline';
-    };
+    const loaded = () =>
+      (loading ??= session
+        .load()
+        .then(() => session.status !== 'error' || session.failure !== 'offline')
+        .finally(() => (loading = null)));
     // The status could not be loaded before the first step: load the session again (a server error then shows the error page).
     if (session.status === 'error') return loaded();
     try {

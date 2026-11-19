@@ -35,6 +35,8 @@ export class SetupFit {
   mobile = $derived(isMobileWidth(this.w));
   private fitting = false;
   private ready = false;
+  /** Size of the last refit decision: small changes are measured against it, not against the previous one. */
+  private checked = { w: 0, h: 0 };
   /** Overflow on the last level that did not fit. */
   private over = 0;
   /** Room the next roomier level needs (measured). */
@@ -51,12 +53,13 @@ export class SetupFit {
       isMobileWidth(w) === this.mobile &&
       w >= WIDE === this.w >= WIDE &&
       (isMobileWidth(w) || !this.t.columns || twoCol(w, h, this.two) === this.two);
-    if (this.ready && same && Math.abs(w - this.w) <= 4 && Math.abs(h - this.h) <= 4) {
+    if (this.ready && same && Math.abs(w - this.checked.w) <= 4 && Math.abs(h - this.checked.h) <= 4) {
       // Too small to refit, but the size stays current.
       this.w = w;
       this.h = h;
       return;
     }
+    this.checked = { w, h };
     if (!this.ready || this.fitting) {
       this.relayout(w, h);
       return;
@@ -76,6 +79,7 @@ export class SetupFit {
   /** Content changed its height (language, messages, web fonts): from level 0 again. */
   relayout(w = this.w, h = this.h): void {
     this.ready = true;
+    this.checked = { w, h };
     this.over = 0;
     this.gap = null;
     this.w = w;
