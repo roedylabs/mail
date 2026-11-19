@@ -38,7 +38,7 @@ use crate::{
         format::Format,
         templates::{Context, Digest, DigestInstant, Notice},
     },
-    settings::{self, Digest as Rhythm, Settings},
+    settings::{self, Digest as Rhythm},
 };
 
 /// Maximum number of entries in a digest; the sentence above names all of
@@ -165,18 +165,18 @@ impl Run<'_> {
         let (user, now) = (owner.profile.id.clone(), self.now);
         let (admin, active) = (owner.profile.role == Role::Admin, owner.active);
         let at = now.to_string();
-        let (settings, pending) = db::call(&self.state.db, move |conn| {
-            let settings = settings::load(conn, &user)?.settings;
-            let channels = Channels::from(&settings);
+        let (stored, pending) = db::call(&self.state.db, move |conn| {
+            let stored = settings::load(conn, &user)?;
+            let channels = Channels::from(&stored.settings);
             let (keep, gone): (Vec<_>, Vec<_>) =
                 deliveries::pending(conn, Channel::Mail, &user, &at)?
                     .into_iter()
                     .partition(|p| wanted(p, &channels, admin, active));
             deliveries::delete(conn, &ids(&gone))?;
-            Ok((settings, keep))
+            Ok((stored, keep))
         })
         .await?;
-        let plan = plan(&Schedule::of(&settings), pending, now);
+        let plan = plan(&Schedule::of(&stored.settings), pending, now);
         let due = match &plan {
             Plan::Wait => return Ok(()),
             Plan::Instant(due) | Plan::Digest(due) => due,
@@ -185,10 +185,9 @@ impl Run<'_> {
             self.dropped += due.len();
             return self.done(due).await;
         }
-        let format = settings.format();
+        let format = stored.format();
         let mail = Recipient {
             owner: &owner,
-            settings: &settings,
             format: &format,
         };
         match plan {
@@ -258,7 +257,7 @@ impl Run<'_> {
     /// Title, text and target of an entry in the recipient's language.
     fn notice(&self, to: &Recipient<'_>, p: &Pending) -> (Notice, Option<texts::Target>) {
         let cx = texts::Context {
-            lang: to.settings.lang,
+            lang: to.format.lang(),
             app: &self.app,
         };
         let shown = texts::render(&p.topic, &p.kind, &p.params, &cx);
@@ -324,10 +323,9 @@ impl Run<'_> {
     }
 }
 
-/// Recipient with their settings.
+/// Recipient with their time zone, formats and language.
 struct Recipient<'a> {
     owner: &'a Owner,
-    settings: &'a Settings,
     format: &'a Format,
 }
 
@@ -337,7 +335,7 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::events::schedule::Quiet;
+    use crate::{events::schedule::Quiet, settings::Settings};
 
     fn pending(id: &str, topic: &str, created_at: &str) -> Pending {
         Pending {

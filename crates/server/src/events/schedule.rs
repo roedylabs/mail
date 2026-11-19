@@ -12,7 +12,10 @@ use jiff::{
     tz::TimeZone,
 };
 
-use crate::settings::{Digest, Settings};
+use crate::{
+    mailer::format::named_zone,
+    settings::{Digest, Settings},
+};
 
 /// Time of the digest without quiet hours.
 const DIGEST_AT: Time = civil::time(7, 0, 0, 0);
@@ -60,7 +63,7 @@ impl Schedule {
             .n_quiet
             .then(|| Quiet::new(settings.n_from.time(), settings.n_to.time()))
             .flatten();
-        Self::new(settings.n_digest, quiet, settings.format().zone().clone())
+        Self::new(settings.n_digest, quiet, named_zone(settings.tz.as_str()))
     }
 
     /// Whether sending is allowed at `now`: outside the quiet hours.

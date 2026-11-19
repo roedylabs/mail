@@ -36,10 +36,25 @@ export function deviceLang(): Lang {
   return baseLocale;
 }
 
-/** Remembers the language of the account for the pages without sign-in on this device. */
-export function rememberLang(lang: Lang): void {
+/**
+ * Language of the browser for the setting `system`: German if its preferred
+ * language starts with `de`, otherwise English (the server decides the same
+ * from `Accept-Language` for mails).
+ */
+export function browserLang(): Lang {
+  if (!('navigator' in globalThis)) return baseLocale;
+  const tag = navigator.languages?.[0] ?? navigator.language ?? '';
+  return tag.toLowerCase().startsWith('de') ? 'de' : 'en';
+}
+
+/**
+ * Remembers the language of the account for the pages without sign-in on this
+ * device; `system` forgets it, so that they follow the browser as well.
+ */
+export function rememberLang(lang: Lang | 'system'): void {
   try {
-    localStorage.setItem(LANG_KEY, lang);
+    if (lang === 'system') localStorage.removeItem(LANG_KEY);
+    else localStorage.setItem(LANG_KEY, lang);
   } catch {
     // Without storage the browser applies again next time.
   }

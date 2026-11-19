@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { baseLocale } from '#lib/paraglide/runtime.js';
-import { deviceLang, intlLocale, LANG_KEY, rememberLang } from './locale.ts';
+import { browserLang, deviceLang, intlLocale, LANG_KEY, rememberLang } from './locale.ts';
 
 afterEach(() => {
   localStorage.clear();
@@ -30,6 +30,28 @@ describe('deviceLang', () => {
     vi.stubGlobal('navigator', { languages: ['en'], language: 'en' });
     localStorage.setItem(LANG_KEY, 'fr');
     expect(deviceLang()).toBe('en');
+  });
+});
+
+describe('browserLang', () => {
+  it('is German for a preferred de*, otherwise English', () => {
+    for (const [languages, lang] of [
+      [['de-DE', 'en'], 'de'],
+      [['DE'], 'de'],
+      [['de-CH'], 'de'],
+      [['en-US', 'de-DE'], 'en'],
+      [['fr-FR', 'de-DE'], 'en'],
+      [[], 'en'],
+    ] as const) {
+      vi.stubGlobal('navigator', { languages, language: languages[0] ?? '' });
+      expect(browserLang(), languages.join()).toBe(lang);
+    }
+  });
+
+  it('"system" forgets the remembered language', () => {
+    rememberLang('de');
+    rememberLang('system');
+    expect(localStorage.getItem(LANG_KEY)).toBeNull();
   });
 });
 

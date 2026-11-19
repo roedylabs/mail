@@ -612,6 +612,7 @@ mod tests {
                 place: None,
                 device_hash: [0; 32],
                 app: false,
+                lang: None,
             },
             holder: Holder::Session(change),
             first: false,

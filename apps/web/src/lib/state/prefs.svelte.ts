@@ -15,7 +15,8 @@
 import { ACCENTS, type AccentName } from '@roedy/tokens';
 import { MediaQuery } from 'svelte/reactivity';
 import { ApiError, api, isRecord } from '#lib/api.ts';
-import { deviceLang, type Lang } from '#lib/locale.ts';
+import { isHexColor, type HexColor } from '#lib/color.ts';
+import { browserLang, deviceLang, type Lang } from '#lib/locale.ts';
 import { baseLocale, isLocale, overwriteGetLocale } from '#lib/paraglide/runtime.js';
 import {
   DENSITIES,
@@ -32,7 +33,10 @@ import {
 } from '#lib/settings-choices.ts';
 
 export type ModeName = (typeof MODES)[number];
-export type AccentChoice = AccentName;
+/** Named accent or a custom colour as `#rrggbb` (`#lib/color.ts`). */
+export type AccentChoice = AccentName | HexColor;
+/** Language setting: a UI language or `system` (follows the browser, `browserLang()`). */
+export type LangChoice = Lang | 'system';
 export type Channels = { app: boolean; mail: boolean; push: boolean };
 
 export { REGIONS };
@@ -46,7 +50,7 @@ export interface Settings {
   density: (typeof DENSITIES)[number];
   animations: boolean;
   pfDesign: (typeof PF_DESIGNS)[number];
-  lang: Lang;
+  lang: LangChoice;
   region: Region;
   tzAuto: boolean;
   tz: string;
@@ -144,11 +148,16 @@ const CHOICES: { readonly [K in keyof Settings]?: readonly Settings[K][] } = {
   devLevel: LOG_LEVELS,
 };
 
+/** Values beyond `CHOICES` that a field accepts as well. */
+const ALSO: { readonly [K in keyof Settings]?: (value: unknown) => boolean } = {
+  accent: isHexColor,
+};
+
 /** Drops fields with a fixed choice whose value is unknown (they keep the default). */
 export function knownSettings(settings: Partial<Settings>): Partial<Settings> {
   const known: Record<string, unknown> = { ...settings };
-  for (const [key, allowed] of Object.entries(CHOICES) as [string, readonly unknown[]][]) {
-    if (key in known && !allowed.includes(known[key])) delete known[key];
+  for (const [key, allowed] of Object.entries(CHOICES) as [keyof Settings, readonly unknown[]][]) {
+    if (key in known && !allowed.includes(known[key]) && !ALSO[key]?.(known[key])) delete known[key];
   }
   return known;
 }
@@ -188,12 +197,16 @@ export class Prefs {
   remote = $state(false);
   /** Loading the account finished, also failed: from here on the values apply (e.g. the default account of the start page). */
   loaded = $state(false);
+  /** Language of the browser for `system`; follows its changes (`languagechange`). */
+  #browserLang = $state<Lang>(browserLang());
   /**
    * UI language: own `$derived` so that texts are only recreated on a
-   * change, not on every new state of `values`; an
-   * unknown value (copy from another version) counts as German.
+   * change, not on every new state of `values`; `system` is the browser's, an
+   * unknown value (copy from another version) counts as the base language.
    */
-  readonly lang: Lang = $derived(isLocale(this.values.lang) ? this.values.lang : baseLocale);
+  readonly lang: Lang = $derived(
+    this.values.lang === 'system' ? this.#browserLang : isLocale(this.values.lang) ? this.values.lang : baseLocale,
+  );
   /** Last error on save; the affected fields are then reset. */
   error = $state<ApiError | Error | null>(null);
   /** System setting "reduce motion" (`prefers-reduced-motion`). */
@@ -202,6 +215,12 @@ export class Prefs {
   /** Motion on: setting "Animations" and no reduced motion in the system. */
   get motion(): boolean {
     return this.values.animations && !this.#reduceMotion.current;
+  }
+
+  constructor() {
+    globalThis.addEventListener?.('languagechange', () => {
+      this.#browserLang = browserLang();
+    });
   }
 
   /** Last state confirmed by the server. */

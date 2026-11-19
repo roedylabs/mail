@@ -3,13 +3,15 @@
  * attributes on `<html>`, the logo plate of the branding as custom
  * properties.
  */
-import { ACCENTS, DEFAULT_ACCENT, PLATES, type AccentName } from '@roedy/tokens';
-import type { ModeName, Settings } from '#lib/state/prefs.svelte.ts';
+import { ACCENTS, DEFAULT_ACCENT, PLATES } from '@roedy/tokens';
+import { accentInk, isHexColor } from '#lib/color.ts';
+import type { AccentChoice, ModeName, Settings } from '#lib/state/prefs.svelte.ts';
 import type { Branding } from '#lib/state/session.svelte.ts';
 
 export interface Theme {
   mode: ModeName;
-  accent: AccentName;
+  /** Named accent or a custom colour (`#rrggbb`). */
+  accent: AccentChoice;
   density: Settings['density'];
   fontSize: Settings['fontSize'];
   animations: boolean;
@@ -18,10 +20,16 @@ export interface Theme {
   logoTilt: boolean;
 }
 
-/** Accent like `accentName()`: own choice only if the branding allows it, otherwise the brand colour. */
-export function accentOf(values: Pick<Settings, 'accent'>, brand: Pick<Branding, 'userAccent' | 'color'>): AccentName {
+/**
+ * Accent like `accentName()`: own choice (named or custom) only if the branding
+ * allows it, otherwise the brand colour.
+ */
+export function accentOf(
+  values: Pick<Settings, 'accent'>,
+  brand: Pick<Branding, 'userAccent' | 'color'>,
+): AccentChoice {
   const name = (brand.userAccent ? values.accent : null) ?? brand.color;
-  return Object.hasOwn(ACCENTS, name) ? name : DEFAULT_ACCENT;
+  return Object.hasOwn(ACCENTS, name) || isHexColor(name) ? name : DEFAULT_ACCENT;
 }
 
 /** Mode like `modeName()`: `dark` without a choice. */
@@ -48,7 +56,16 @@ export function themeOf(values: Settings, brand: Branding): Theme {
 
 export function applyTheme(root: HTMLElement, theme: Theme): void {
   root.dataset.mode = theme.mode;
-  root.dataset.accent = theme.accent;
+  // A custom colour overrides the stylesheet's accent on the element itself, in light and dark alike.
+  if (isHexColor(theme.accent)) {
+    root.dataset.accent = 'custom';
+    root.style.setProperty('--acc', theme.accent);
+    root.style.setProperty('--accink', accentInk(theme.accent));
+  } else {
+    root.dataset.accent = theme.accent;
+    root.style.removeProperty('--acc');
+    root.style.removeProperty('--accink');
+  }
   root.dataset.density = theme.density;
   root.dataset.fontSize = theme.fontSize;
   if (theme.animations) delete root.dataset.animations;

@@ -185,6 +185,13 @@ describe('Language & region', () => {
     expect(ctx.set).toHaveBeenCalledWith({ lang: 'en' });
   });
 
+  it('"system" selects no language card, a click on one replaces it', () => {
+    const { v, ctx } = setup({}, { lang: 'system' });
+    expect(v.langOpts.filter((l) => l.on)).toEqual([]);
+    v.langOpts[0]?.onClick();
+    expect(ctx.set).toHaveBeenCalledWith({ lang: 'de' });
+  });
+
   it('in German: texts, name of the other language and zone abbreviations follow the language', () => {
     const de = { locale: 'de' } as const;
     const abbr = new Intl.DateTimeFormat('de-DE', { timeZone: 'Europe/Berlin', timeZoneName: 'short' })

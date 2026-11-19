@@ -203,7 +203,7 @@ async fn list(
     let Query(page) = page.map_err(bad_query)?;
     let limit = page.limit.unwrap_or(DEFAULT_LIMIT).clamp(1, MAX_LIMIT);
     let reply = db::call(&state.db, move |conn| {
-        let lang = settings::load(conn, &user.id)?.settings.lang;
+        let lang = settings::lang_of(conn, &user.id)?;
         let keep = audit_log::keep_days(conn)?;
         // One row more than the page shows whether there is more.
         let mut entries = Vec::new();
@@ -263,7 +263,7 @@ async fn export(
 ) -> Result<Response, ApiError> {
     let filter = filter.map_err(bad_query)?.0.parse()?;
     let csv = db::call(&state.db, move |conn| {
-        let lang = settings::load(conn, &user.id)?.settings.lang;
+        let lang = settings::lang_of(conn, &user.id)?;
         let keep = audit_log::keep_days(conn)?;
         let mut csv = String::from("\u{feff}");
         csv_line(&mut csv, texts::csv_head(lang));

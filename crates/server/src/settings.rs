@@ -24,7 +24,7 @@ use serde_json::{Map, Value};
 
 use crate::{
     auth::email::MAX_LEN,
-    db::repo::user_settings,
+    db::repo::{user_settings, users},
     mailer::format::{DEFAULT_TZ, DateFormat, Format, TimeFormat},
 };
 
@@ -46,16 +46,6 @@ choice!(
     ColorScheme { Light = "light", Dark = "dark", System = "system" }
 );
 choice!(
-    /// Accent color; without a choice the brand color applies.
-    Accent {
-        Apricot = "apricot",
-        Sage = "sage",
-        Lavender = "lavender",
-        Sky = "sky",
-        Rose = "rose",
-    }
-);
-choice!(
     /// Font size.
     FontSize { Small = "small", Medium = "medium", Large = "large" }
 );
@@ -69,24 +59,145 @@ choice!(
 );
 choice!(
     /// Language of the web app, the mails and the backend texts; English
-    /// unless chosen otherwise.
+    /// unless chosen otherwise. `System` follows the browser: the web app
+    /// asks it, backend texts and mails use the language of the last
+    /// sign-in ([`Language::or_sign_in`]).
     #[derive(Default)]
     Language {
         German = "de",
         #[default]
         English = "en",
+        System = "system",
     }
 );
 
 impl Language {
-    /// Language code, as serialized; also the `lang` of the mails.
+    /// Language code, as serialized; for German and English also the `lang`
+    /// of the mails.
     pub fn code(self) -> &'static str {
         match self {
             Self::German => "de",
             Self::English => "en",
+            Self::System => "system",
         }
     }
+
+    /// The language texts are written in: `System` becomes `sign_in`, the
+    /// language of the last sign-in, without one English.
+    pub fn or_sign_in(self, sign_in: Option<Self>) -> Self {
+        match self {
+            Self::System => match sign_in {
+                Some(Self::German) => Self::German,
+                _ => Self::English,
+            },
+            fixed => fixed,
+        }
+    }
+
+    /// The language a browser prefers, from `Accept-Language`: German for
+    /// `de` and its regions, English for every other language; `None`
+    /// without a language (empty, only `*` or `q=0`).
+    pub fn from_accept_language(header: &str) -> Option<Self> {
+        let mut best: Option<(&str, f32)> = None;
+        for entry in header.split(',') {
+            let mut parts = entry.split(';').map(str::trim);
+            let tag = parts.next().unwrap_or_default();
+            let weight = parts
+                .find_map(|param| {
+                    param
+                        .strip_prefix("q=")
+                        .or_else(|| param.strip_prefix("Q="))
+                })
+                .map_or(Some(1.0), |q| {
+                    q.parse::<f32>().ok().filter(|q| (0.0..=1.0).contains(q))
+                });
+            let Some(weight) = weight else { continue };
+            if tag.is_empty() || tag == "*" || weight <= 0.0 {
+                continue;
+            }
+            // The first of equal weights wins.
+            if best.is_none_or(|(_, top)| weight > top) {
+                best = Some((tag, weight));
+            }
+        }
+        let (tag, _) = best?;
+        let primary = tag.split(['-', '_']).next().unwrap_or_default();
+        Some(if primary.eq_ignore_ascii_case("de") {
+            Self::German
+        } else {
+            Self::English
+        })
+    }
 }
+
+/// Accent color; without a choice the brand color applies. One of the five
+/// named accents or a custom color, stored as `#rrggbb` in lowercase
+/// (accepted: `#rgb`, `rgb`, `#rrggbb`, `rrggbb`, any case).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "String", into = "String")]
+pub enum Accent {
+    Apricot,
+    Sage,
+    Lavender,
+    Sky,
+    Rose,
+    /// Custom color as red, green and blue.
+    Custom([u8; 3]),
+}
+
+impl Accent {
+    /// Identifier as stored: the name or `#rrggbb`.
+    pub fn id(self) -> String {
+        let name = match self {
+            Self::Apricot => "apricot",
+            Self::Sage => "sage",
+            Self::Lavender => "lavender",
+            Self::Sky => "sky",
+            Self::Rose => "rose",
+            Self::Custom([r, g, b]) => return format!("#{r:02x}{g:02x}{b:02x}"),
+        };
+        name.to_owned()
+    }
+
+    /// A custom color from hex digits: `#rgb`, `rgb`, `#rrggbb` or `rrggbb`,
+    /// any case.
+    pub fn hex(value: &str) -> Option<Self> {
+        let digits = value.strip_prefix('#').unwrap_or(value);
+        if !digits.bytes().all(|b| b.is_ascii_hexdigit()) {
+            return None;
+        }
+        let byte = |range: std::ops::Range<usize>| u8::from_str_radix(&digits[range], 16).ok();
+        let rgb = match digits.len() {
+            3 => [byte(0..1)? * 17, byte(1..2)? * 17, byte(2..3)? * 17],
+            6 => [byte(0..2)?, byte(2..4)?, byte(4..6)?],
+            _ => return None,
+        };
+        Some(Self::Custom(rgb))
+    }
+}
+
+impl TryFrom<String> for Accent {
+    type Error = &'static str;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+        let named = match value.as_str() {
+            "apricot" => Self::Apricot,
+            "sage" => Self::Sage,
+            "lavender" => Self::Lavender,
+            "sky" => Self::Sky,
+            "rose" => Self::Rose,
+            other => return Self::hex(other).ok_or("accent name or hex color"),
+        };
+        Ok(named)
+    }
+}
+
+impl From<Accent> for String {
+    fn from(accent: Accent) -> Self {
+        accent.id()
+    }
+}
+
 choice!(
     /// Country or region.
     Region {
@@ -556,9 +667,10 @@ impl Settings {
         self.n_mx.security.mail = true;
     }
 
-    /// Time zone, formats and language for mails to this person.
-    pub fn format(&self) -> Format {
-        Format::new(self.tz.as_str(), self.date_fmt, self.time_fmt, self.lang)
+    /// Time zone, formats and `lang` (resolved, see [`Stored::lang`]) for
+    /// mails to this person.
+    pub fn format(&self, lang: Language) -> Format {
+        Format::new(self.tz.as_str(), self.date_fmt, self.time_fmt, lang)
     }
 }
 
@@ -570,6 +682,16 @@ pub struct Stored {
     /// The stored document contains something this version skips; the next
     /// `PUT` rewrites it, even if nothing changes.
     pub rewrite: bool,
+    /// Language of backend texts and mails: `settings.lang`, for `system` the
+    /// language of the last sign-in ([`Language::or_sign_in`]).
+    pub lang: Language,
+}
+
+impl Stored {
+    /// Time zone, formats and language for mails to this person.
+    pub fn format(&self) -> Format {
+        self.settings.format(self.lang)
+    }
 }
 
 /// Reads the settings, filled up with the defaults. What this version does not
@@ -578,12 +700,24 @@ pub struct Stored {
 /// document is not an object at all, all defaults apply. Only a database
 /// error fails: security events and login read from here as well.
 pub fn load(conn: &Connection, user_id: &str) -> anyhow::Result<Stored> {
+    let (version, settings, rewrite) = load_settings(conn, user_id)?;
+    let sign_in = match settings.lang {
+        Language::System => users::sign_in_lang(conn, user_id)?,
+        _ => None,
+    };
+    let lang = settings.lang.or_sign_in(sign_in);
+    Ok(Stored {
+        version,
+        settings,
+        rewrite,
+        lang,
+    })
+}
+
+/// [`load`] without the language: version, settings and whether to rewrite.
+fn load_settings(conn: &Connection, user_id: &str) -> anyhow::Result<(i64, Settings, bool)> {
     let Some(row) = user_settings::get(conn, user_id)? else {
-        return Ok(Stored {
-            version: 0,
-            settings: Settings::default(),
-            rewrite: false,
-        });
+        return Ok((0, Settings::default(), false));
     };
     let doc: Value = serde_json::from_str(&row.json).unwrap_or(Value::Null);
     let Value::Object(changes) = &doc else {
@@ -591,29 +725,17 @@ pub fn load(conn: &Connection, user_id: &str) -> anyhow::Result<Stored> {
             user_id,
             "stored settings are not an object, using the defaults"
         );
-        return Ok(Stored {
-            version: row.version,
-            settings: Settings::default(),
-            rewrite: true,
-        });
+        return Ok((row.version, Settings::default(), true));
     };
     // Usually the document fits exactly.
     if let Ok(mut settings) = Settings::deserialize(&doc) {
         settings.lock_security();
-        return Ok(Stored {
-            version: row.version,
-            settings,
-            rewrite: false,
-        });
+        return Ok((row.version, settings, false));
     }
     let settings = Settings::default().merge(changes, true, |field, code| {
         tracing::warn!(user_id, field, code, "stored setting skipped");
     })?;
-    Ok(Stored {
-        version: row.version,
-        settings,
-        rewrite: true,
-    })
+    Ok((row.version, settings, true))
 }
 
 /// Stores `settings` as the successor of `version` and returns the new
@@ -630,12 +752,12 @@ pub fn save(
 
 /// Time zone, formats and language for mails to a user.
 pub fn format_of(conn: &Connection, user_id: &str) -> anyhow::Result<Format> {
-    Ok(load(conn, user_id)?.settings.format())
+    Ok(load(conn, user_id)?.format())
 }
 
-/// A user's language for backend texts.
+/// A user's language for backend texts ([`Stored::lang`]).
 pub fn lang_of(conn: &Connection, user_id: &str) -> anyhow::Result<Language> {
-    Ok(load(conn, user_id)?.settings.lang)
+    Ok(load(conn, user_id)?.lang)
 }
 
 #[cfg(test)]
@@ -644,9 +766,12 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::db::repo::users::{
-        Role,
-        tests::{add, conn},
+    use crate::{
+        auth::session::{self, Client},
+        db::repo::users::{
+            Role,
+            tests::{add, conn},
+        },
     };
 
     fn changes(value: Value) -> Map<String, Value> {
@@ -665,9 +790,158 @@ mod tests {
 
     #[test]
     fn language_code_is_the_serialized_value() {
-        for lang in [Language::German, Language::English] {
+        for lang in [Language::German, Language::English, Language::System] {
             assert_eq!(serde_json::to_value(lang).unwrap(), json!(lang.code()));
         }
+    }
+
+    #[test]
+    fn system_language_is_the_sign_in_language_or_english() {
+        let system = Language::System;
+        assert_eq!(system.or_sign_in(Some(Language::German)), Language::German);
+        assert_eq!(
+            system.or_sign_in(Some(Language::English)),
+            Language::English
+        );
+        assert_eq!(system.or_sign_in(None), Language::English);
+        // A chosen language stays.
+        assert_eq!(
+            Language::German.or_sign_in(Some(Language::English)),
+            Language::German
+        );
+        assert_eq!(
+            Language::English.or_sign_in(Some(Language::German)),
+            Language::English
+        );
+    }
+
+    #[test]
+    fn accept_language_is_german_for_de_otherwise_english() {
+        let cases = [
+            ("de-DE,de;q=0.9,en;q=0.8", Some(Language::German)),
+            ("de", Some(Language::German)),
+            ("DE-at", Some(Language::German)),
+            ("de_CH", Some(Language::German)),
+            ("en-US,en;q=0.9,de;q=0.8", Some(Language::English)),
+            ("fr-FR, de;q=0.5", Some(Language::English)),
+            // The highest weight wins, the first of equal ones.
+            ("en;q=0.5, de;q=0.9", Some(Language::German)),
+            ("fr, de", Some(Language::English)),
+            ("en;q=0, de;q=0.1", Some(Language::German)),
+            ("dk", Some(Language::English)),
+            ("*", None),
+            ("de;q=0", None),
+            ("de;q=abc", None),
+            ("", None),
+        ];
+        for (header, expected) in cases {
+            assert_eq!(
+                Language::from_accept_language(header),
+                expected,
+                "{header:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn accents_are_names_or_hex_colors_stored_as_rrggbb() {
+        let base = Settings::default();
+        for (input, stored) in [
+            ("sky", "sky"),
+            ("#f5a06e", "#f5a06e"),
+            ("f5a06e", "#f5a06e"),
+            ("#F5A06E", "#f5a06e"),
+            ("F5a06E", "#f5a06e"),
+            ("#abc", "#aabbcc"),
+            ("ABC", "#aabbcc"),
+            ("#000", "#000000"),
+        ] {
+            let next = base.apply(&changes(json!({ "accent": input }))).unwrap();
+            assert_eq!(
+                serde_json::to_value(&next).unwrap()["accent"],
+                json!(stored),
+                "{input}"
+            );
+        }
+        assert_eq!(
+            Accent::hex("#336699"),
+            Some(Accent::Custom([0x33, 0x66, 0x99]))
+        );
+        for bad in [
+            "",
+            "#",
+            "#ab",
+            "#abcd",
+            "#abcde",
+            "#abcdefa",
+            "#ggg",
+            "##abc",
+            "Sky",
+            "chartreuse",
+            " #abc",
+            "#ab c",
+            "+abc",
+            "#ａｂｃ",
+        ] {
+            let problems = rejected(base.apply(&changes(json!({ "accent": bad }))));
+            assert_eq!(problems, [("accent".to_owned(), "invalid")], "{bad:?}");
+        }
+        let problems = rejected(base.apply(&changes(json!({ "accent": 336_699 }))));
+        assert_eq!(problems, [("accent".to_owned(), "invalid")]);
+    }
+
+    #[test]
+    fn old_documents_keep_their_language_and_accent() {
+        let conn = conn();
+        let max = add(&conn, "max", "max@example.com", Role::User);
+        user_settings::save(&conn, &max, r#"{"lang":"de","accent":"rose"}"#, 0).unwrap();
+        let stored = load(&conn, &max).unwrap();
+        assert!(!stored.rewrite);
+        assert_eq!(stored.settings.lang, Language::German);
+        assert_eq!(stored.settings.accent, Some(Accent::Rose));
+        assert_eq!(stored.lang, Language::German);
+    }
+
+    #[test]
+    fn system_language_follows_the_last_sign_in() {
+        let conn = conn();
+        let max = add(&conn, "max", "max@example.com", Role::User);
+        let next = Settings::default()
+            .apply(&changes(json!({ "lang": "system", "accent": "#336699" })))
+            .unwrap();
+        save(&conn, &max, 0, &next).unwrap();
+        let stored = load(&conn, &max).unwrap();
+        assert_eq!(stored.settings.lang, Language::System);
+        assert_eq!(
+            stored.settings.accent,
+            Some(Accent::Custom([0x33, 0x66, 0x99]))
+        );
+        // Never signed in with a language: English.
+        assert_eq!(stored.lang, Language::English);
+        assert_eq!(lang_of(&conn, &max).unwrap(), Language::English);
+
+        let german = Client {
+            lang: Some(Language::German),
+            ..Client::default()
+        };
+        session::start(&conn, &max, &german, true).unwrap();
+        assert_eq!(lang_of(&conn, &max).unwrap(), Language::German);
+        assert_eq!(format_of(&conn, &max).unwrap().lang(), Language::German);
+        // A sign-in without a language keeps the last one.
+        session::start(&conn, &max, &Client::default(), true).unwrap();
+        assert_eq!(lang_of(&conn, &max).unwrap(), Language::German);
+        let english = Client {
+            lang: Some(Language::English),
+            ..Client::default()
+        };
+        session::start(&conn, &max, &english, true).unwrap();
+        assert_eq!(lang_of(&conn, &max).unwrap(), Language::English);
+
+        // A chosen language wins over the sign-in language.
+        session::start(&conn, &max, &german, true).unwrap();
+        let fixed = next.apply(&changes(json!({ "lang": "en" }))).unwrap();
+        save(&conn, &max, 1, &fixed).unwrap();
+        assert_eq!(lang_of(&conn, &max).unwrap(), Language::English);
     }
 
     #[test]

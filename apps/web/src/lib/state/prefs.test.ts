@@ -41,6 +41,10 @@ describe('prefs', () => {
   it('keeps known values and fields without a fixed choice', () => {
     const known = { mode: 'system', accent: 'sky', region: 'AT', devLevel: 'debug', tz: 'Asia/Tokyo' } as const;
     expect(knownSettings({ ...known, density: 'Compact' as Settings['density'] })).toEqual(known);
+    // Custom accents as stored (`#rrggbb`), other spellings fall back.
+    expect(knownSettings({ accent: '#336699' })).toEqual({ accent: '#336699' });
+    expect(knownSettings({ accent: '#369' })).toEqual({});
+    expect(knownSettings({ accent: '#33669G' })).toEqual({});
   });
 
   it('changes only locally for guests', () => {
@@ -195,6 +199,22 @@ describe('Language', () => {
     localStorage.setItem(LANG_KEY, 'en');
     prefs.reset();
     expect(prefs.values.lang).toBe('en');
+  });
+
+  it('"system" follows the browser and its changes', async () => {
+    const browser = { languages: ['de-AT', 'en'], language: 'de-AT' };
+    vi.stubGlobal('navigator', browser);
+    mockApi({ 'GET settings': [{ body: stored(2, { tzAuto: false, lang: 'system' }) }] });
+    const prefs = new Prefs();
+    await prefs.load();
+    expect(prefs.values.lang).toBe('system');
+    expect(prefs.lang).toBe('de');
+    browser.languages = ['fr-FR', 'de'];
+    browser.language = 'fr-FR';
+    window.dispatchEvent(new Event('languagechange'));
+    expect(prefs.lang).toBe('en');
+    prefs.set({ lang: 'de' });
+    expect(prefs.lang).toBe('de');
   });
 
   it('a new account takes over the sign-in language, a saved one does not', async () => {

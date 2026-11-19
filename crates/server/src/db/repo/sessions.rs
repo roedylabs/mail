@@ -468,6 +468,7 @@ mod tests {
             ip: Some("198.51.100.56".parse().unwrap()),
             place: Some("Berlin"),
             app: true,
+            lang: None,
         };
         let a = session::start(&conn, &max, &client, true).unwrap().id;
         let (_, b) = token_hash(&conn, &max);

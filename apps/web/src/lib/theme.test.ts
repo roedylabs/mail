@@ -22,6 +22,25 @@ describe('Theme', () => {
     expect(accentOf({ accent: 'rose' }, { userAccent: true, color: 'sage' })).toBe('rose');
     expect(accentOf({ accent: 'rose' }, { userAccent: false, color: 'sage' })).toBe('sage');
     expect(accentOf({ accent: null }, { userAccent: true, color: 'sky' })).toBe('sky');
+    expect(accentOf({ accent: '#336699' }, { userAccent: true, color: 'sage' })).toBe('#336699');
+    expect(accentOf({ accent: '#336699' }, { userAccent: false, color: 'sage' })).toBe('sage');
+  });
+
+  it('sets a custom accent and its ink on <html> and removes them for a named one', () => {
+    const root = document.createElement('html');
+    for (const mode of ['light', 'dark'] as const) {
+      applyTheme(root, themeOf(values({ mode, accent: '#f5a06e' }), BRAND0));
+      expect(root.dataset.accent).toBe('custom');
+      expect(root.style.getPropertyValue('--acc')).toBe('#f5a06e');
+      expect(root.style.getPropertyValue('--accink')).toBe('#341c0e');
+    }
+    applyTheme(root, themeOf(values({ accent: '#1e3a8a' }), BRAND0));
+    expect(root.style.getPropertyValue('--accink')).toBe('#fffaf3');
+
+    applyTheme(root, themeOf(values({ accent: 'sky' }), BRAND0));
+    expect(root.dataset.accent).toBe('sky');
+    expect(root.style.getPropertyValue('--acc')).toBe('');
+    expect(root.style.getPropertyValue('--accink')).toBe('');
   });
 
   it('sets attributes and logo plate on <html>', () => {

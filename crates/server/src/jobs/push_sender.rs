@@ -33,7 +33,7 @@ use crate::{
     },
     events::{self, Channels, Topic, schedule::Schedule, texts},
     push::{self, Data, Message, Outcome, START_PATH, Sender, TTL, Urgency},
-    settings::{self, Settings},
+    settings::{self, Language},
 };
 
 /// Attempts per message.
@@ -119,9 +119,9 @@ impl Run<'_> {
     async fn owner(&self, owner: Owner) -> anyhow::Result<()> {
         let (user, at) = (owner.profile.id.clone(), self.now.to_string());
         let (admin, active) = (owner.profile.role == Role::Admin, owner.active);
-        let (settings, mut subscriptions, pending) = db::call(&self.state.db, move |conn| {
-            let settings = settings::load(conn, &user)?.settings;
-            let channels = Channels::from(&settings);
+        let (stored, mut subscriptions, pending) = db::call(&self.state.db, move |conn| {
+            let stored = settings::load(conn, &user)?;
+            let channels = Channels::from(&stored.settings);
             let subscriptions = push_subscriptions::of_user(conn, &user)?;
             // Without a browser there is nobody to deliver them to later.
             let (keep, gone): (Vec<_>, Vec<_>) =
@@ -131,15 +131,15 @@ impl Run<'_> {
                         !subscriptions.is_empty() && wanted(p, &channels, admin, active)
                     });
             deliveries::delete(conn, &ids(&gone))?;
-            Ok((settings, subscriptions, keep))
+            Ok((stored, subscriptions, keep))
         })
         .await?;
-        for one in due(&Schedule::of(&settings), pending, self.now) {
+        for one in due(&Schedule::of(&stored.settings), pending, self.now) {
             if subscriptions.is_empty() {
                 self.settle(true, one).await?;
                 continue;
             }
-            let message = self.message(&settings, &one);
+            let message = self.message(stored.lang, &one);
             let urgency = if is_security(&one) {
                 Urgency::High
             } else {
@@ -172,9 +172,9 @@ impl Run<'_> {
     }
 
     /// Title, text and target in the recipient's language.
-    fn message(&self, settings: &Settings, pending: &Pending) -> Message {
+    fn message(&self, lang: Language, pending: &Pending) -> Message {
         let cx = texts::Context {
-            lang: settings.lang,
+            lang,
             app: &self.app,
         };
         let shown = texts::render(&pending.topic, &pending.kind, &pending.params, &cx);
@@ -223,7 +223,10 @@ mod tests {
     use serde_json::json;
 
     use super::*;
-    use crate::{events::schedule::Quiet, settings::Digest};
+    use crate::{
+        events::schedule::Quiet,
+        settings::{Digest, Settings},
+    };
 
     fn pending(id: &str, topic: &str) -> Pending {
         Pending {

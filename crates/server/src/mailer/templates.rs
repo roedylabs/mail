@@ -1017,7 +1017,8 @@ macro_rules! templates {
                 $($field: $ty,)*
             ) -> askama::Result<(String, String)> {
                 Ok(match lang {
-                    Language::English => (
+                    // `System` is resolved before (`settings::Stored::lang`).
+                    Language::English | Language::System => (
                         EnglishHtml { f, $($field,)* }.render()?,
                         EnglishText { f, $($field,)* }.render()?,
                     ),
