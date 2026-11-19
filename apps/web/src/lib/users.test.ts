@@ -536,14 +536,14 @@ describe('Inviting', () => {
     });
     p.openInvite();
     p.inviteInput('jane@example.com');
-    p.inviteName('  Smith,\tJane ');
+    p.inviteName('  Jane\tSmith ');
     p.inviteRole('admin');
     p.setFilter('locked');
     await p.sendInvites();
     expect(calls.find((c) => c.path === 'invites')?.body).toEqual({
       emails: ['jane@example.com'],
       role: 'admin',
-      name: 'Smith, Jane',
+      name: 'Jane Smith',
     });
     expect(v()).toMatchObject({ inviteOpen: false, invRes: { show: false } });
     expect(p.filter).toBe('all');
@@ -830,7 +830,7 @@ describe('Inviting', () => {
     await p.sendInvites();
     expect(v()).toMatchObject({ inviteOpen: true, invErr: 'The name is too long.', invBtn: { dis: true } });
     expect(ui.toast).toBeNull();
-    p.inviteName('Eve R.');
+    p.inviteName('Eve Rossi');
     expect(v().invErr).toBe('');
     await p.sendInvites();
     expect(v().invErr).toBe('The name contains invalid characters.');

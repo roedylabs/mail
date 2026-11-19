@@ -1197,13 +1197,7 @@ function apiAnswer(method, path, d, st, servers, opts, base) {
     case 'GET admin/storage':
       return ok({ database: 52_000_000, assets: 320_000, asset_name: null, compacted_at: ago(7 * D) });
     case 'POST setup/token':
-      return ok({ public_url: null });
-    case 'POST setup/servers/test':
-      return ok({ url: 'https://mail.example.com', host: 'mail.example.com', reach: 'ok', cors: 'ok', oauth: 'ok' });
-    case 'POST setup/servers/register-client':
-      return ok({ client_id: 'roedy-mail' });
-    case 'POST setup/system-mail/test':
-      return ok({ status: 'ok' });
+      return ok({});
   }
   const token = /^mail-accounts\/([^/]+)\/token$/.exec(bare);
   if (token && servers[token[1]]) {

@@ -628,12 +628,12 @@ async fn profile_saves_name_and_username_at_once() {
     let saved = env
         .patch_me(
             &session,
-            json!({ "display_name": " Mustermann, Max ", "username": "maxi" }),
+            json!({ "display_name": " Max O’Brien-Müller ", "username": "maxi" }),
         )
         .await;
     assert_eq!(saved.status, StatusCode::OK, "{}", saved.body);
     assert_eq!(saved.json()["status"], "ok");
-    assert_eq!(saved.json()["user"]["display_name"], "Mustermann, Max");
+    assert_eq!(saved.json()["user"]["display_name"], "Max O’Brien-Müller");
     let me = env.me(&session).await;
     assert_eq!(me["username"], "maxi");
     assert_eq!(me["email_change"], Value::Null);
@@ -661,8 +661,13 @@ async fn profile_saves_name_and_username_at_once() {
     assert_eq!(fields["username"]["code"], "invalid");
     assert_eq!(fields["display_name"]["code"], "required");
     assert_eq!(fields["email"]["code"], "invalid");
+    // Letters, spaces, hyphens and apostrophes only.
+    let comma = env
+        .patch_me(&session, json!({ "display_name": "Mustermann, Max" }))
+        .await;
+    assert_eq!(comma.json()["fields"]["display_name"]["code"], "invalid");
     // On an error nothing is stored.
-    assert_eq!(env.me(&session).await["display_name"], "Mustermann, Max");
+    assert_eq!(env.me(&session).await["display_name"], "Max O’Brien-Müller");
     assert_eq!(env.kinds(&max).await.len(), 1);
 }
 
@@ -685,14 +690,14 @@ async fn new_address_needs_password_and_is_checked_in_two_steps() {
     let step = env
         .patch_me(
             &session,
-            json!({ "display_name": "Max M.", "email": "anna@example.com" }),
+            json!({ "display_name": "Max Mann", "email": "anna@example.com" }),
         )
         .await;
     assert_eq!(step.status, StatusCode::OK, "{}", step.body);
     assert_eq!(step.json()["status"], "reauth_required");
     // The name is stored, the address is not.
     let me = env.me(&session).await;
-    assert_eq!(me["display_name"], "Max M.");
+    assert_eq!(me["display_name"], "Max Mann");
     assert_eq!(me["email"], "max@example.com");
 
     // With password the full check: locked accounts too.

@@ -4,8 +4,9 @@ use anyhow::Context as _;
 use rusqlite::{Connection, OptionalExtension as _};
 use serde::{Serialize, de::DeserializeOwned};
 
-/// Public address from the setup when `ROEDY_PUBLIC_URL` is missing;
-/// JSON text like `"https://mail.example.com/"`.
+/// Public address stored by the initial setup of older versions; applies
+/// when `ROEDY_PUBLIC_URL` is missing. JSON text like
+/// `"https://mail.example.com/"`.
 pub const PUBLIC_URL: &str = "public_url";
 /// Sending account for system mails (`mailer::system_mail`).
 pub const SYSTEM_MAIL: &str = "system_mail";

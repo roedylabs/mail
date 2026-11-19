@@ -492,7 +492,7 @@ async fn without_system_mail_invites_are_only_created() {
     let reply = env
         .post(
             "/invites",
-            json!({ "emails": ["tim@example.com"], "role": "admin", "name": "Braun, Tim" }),
+            json!({ "emails": ["tim@example.com"], "role": "admin", "name": "Tim Braun" }),
             Some(&admin),
         )
         .await;
@@ -811,7 +811,7 @@ async fn accepting_needs_a_code_and_signs_in() {
         .invite_one(
             &admin,
             "jonas@example.com",
-            json!({ "role": "user", "name": "Schulz, Jonas" }),
+            json!({ "role": "user", "name": "Jonas Schulz" }),
         )
         .await;
     let page = env.get(&format!("/invites/{token}"), None).await.json();

@@ -34,7 +34,6 @@ use super::{
     me::{self, is_invisible},
     nullable,
     servers::{audit_entry, check_client_field, clean_optional},
-    setup,
 };
 use crate::{
     app::AppState,
@@ -59,6 +58,10 @@ use crate::{
 
 /// Reply-to address and recipient of the test email, in characters.
 const MAX_REPLY_TO: usize = 254;
+/// Login name of the sending account (at most 254 characters, like an address).
+const MAX_USER: usize = 254;
+/// JMAP IDs have at most 255 characters (RFC 8620, 1.2).
+const MAX_IDENTITY: usize = 255;
 
 /// Test emails per administrator: ten in ten minutes – a hijacked session
 /// should not be able to write to any number of addresses through the system
@@ -205,6 +208,18 @@ impl std::fmt::Debug for Changes {
     }
 }
 
+/// User of the sending account: without whitespace and control characters, at
+/// most [`MAX_USER`] bytes.
+fn is_bad_user(user: &str) -> bool {
+    user.len() > MAX_USER || user.chars().any(|c| c.is_whitespace() || c.is_control())
+}
+
+/// Identity of the sending account: at most [`MAX_IDENTITY`] bytes without
+/// control characters.
+fn is_bad_identity(id: &str) -> bool {
+    id.len() > MAX_IDENTITY || id.chars().any(char::is_control)
+}
+
 /// Empty or missing text becomes `None`, otherwise trimmed.
 fn optional_text(value: Option<Option<String>>) -> Option<Option<String>> {
     value.map(clean_optional)
@@ -224,7 +239,7 @@ impl Body {
             errors.code("auth", "invalid");
         }
         let user = self.user.map(|user| user.trim().to_owned());
-        if user.as_deref().is_some_and(setup::is_bad_user) {
+        if user.as_deref().is_some_and(is_bad_user) {
             errors.code("user", "invalid");
         }
         // Do not trim secrets: they may start with spaces.
@@ -236,7 +251,7 @@ impl Body {
         let identity_id = optional_text(self.identity_id);
         if identity_id
             .as_ref()
-            .is_some_and(|id| id.as_deref().is_some_and(setup::is_bad_identity))
+            .is_some_and(|id| id.as_deref().is_some_and(is_bad_identity))
         {
             errors.code("identity_id", "invalid");
         }

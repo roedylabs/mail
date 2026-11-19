@@ -14,6 +14,10 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, put},
 };
+use icu_properties::{
+    CodePointMapData,
+    props::{GeneralCategory, GeneralCategoryGroup},
+};
 use rusqlite::Connection;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -60,7 +64,7 @@ pub const REAUTH: Policy = Policy::lockout(
 pub const REAUTH_SUCCESS: Policy =
     Policy::rate("auth.reauth.success", 10, Duration::from_secs(15 * 60));
 
-/// Longest display name (setup, profile).
+/// Longest display name (setup, profile, invitations) and tag name.
 pub const MAX_NAME: usize = 100;
 
 pub fn routes() -> Router<AppState> {
@@ -80,16 +84,27 @@ pub fn check_email(errors: &mut FieldErrors, field: &str, address: &str) {
 }
 
 /// Checks a display name (setup, profile, invitations): required, at most
-/// [`MAX_NAME`] characters, no control characters and no invisible
-/// characters (the same rule as in the web app).
+/// [`MAX_NAME`] characters, only letters of any language with their marks,
+/// spaces, hyphens and apostrophes (`'` and `’`) – the same rule as in the
+/// web app (`apps/web/src/lib/name.ts`).
 pub fn check_display_name(errors: &mut FieldErrors, field: &str, name: &str) {
     if name.is_empty() {
         errors.code(field, "required");
     } else if name.chars().count() > MAX_NAME {
         errors.code(field, "too_long");
-    } else if name.chars().any(|c| c.is_control() || is_invisible(c)) {
+    } else if !name.chars().all(is_name_char) {
         errors.code(field, "invalid");
     }
+}
+
+/// Letter (`L*`) or mark (`M*`, e.g. a combining umlaut), space, hyphen or
+/// apostrophe.
+fn is_name_char(c: char) -> bool {
+    if matches!(c, ' ' | '-' | '\'' | '\u{2019}') {
+        return true;
+    }
+    let category = CodePointMapData::<GeneralCategory>::new().get(c);
+    GeneralCategoryGroup::Letter.contains(category) || GeneralCategoryGroup::Mark.contains(category)
 }
 
 /// Line and paragraph separators and format characters that are not visible
@@ -722,17 +737,52 @@ mod tests {
     };
 
     #[test]
-    fn display_names_reject_invisible_characters() {
+    fn display_names_are_letters_spaces_hyphens_and_apostrophes() {
         let check = |name: &str| {
             let mut errors = FieldErrors::default();
             check_display_name(&mut errors, "name", name);
-            errors.is_empty()
+            errors.into_value()["name"]["code"]
+                .as_str()
+                .map(str::to_owned)
         };
-        assert!(check("Max Smith"));
-        assert!(!check("Max\u{200B}Smith"));
-        assert!(!check("Max\u{202E}htimS"));
-        assert!(!check("Max\tSmith"));
-        assert!(!check(&"x".repeat(MAX_NAME + 1)));
+        for name in [
+            "Max Smith",
+            "Müller-Lüdenscheidt",
+            // Decomposed: u with a combining diaeresis.
+            "Mu\u{308}ller",
+            "O’Brien",
+            "O'Brien",
+            "Zoë Ångström",
+            "Łukasz Żółć",
+            "Ελένη Παπαδοπούλου",
+            "Иван Петров",
+            "李小龙",
+            "محمد",
+            "देवनागरी",
+        ] {
+            assert_eq!(check(name), None, "{name}");
+        }
+        for name in [
+            "Max Smith 2",
+            "Max (Admin)",
+            "Max [Admin]",
+            "Max.Smith",
+            "Max, Smith",
+            "max@example.com",
+            "Max_Smith",
+            "Max 🙂",
+            "Max\u{200B}Smith",
+            "Max\u{202E}htimS",
+            "Max\tSmith",
+            "Max\u{a0}Smith",
+        ] {
+            assert_eq!(check(name).as_deref(), Some("invalid"), "{name}");
+        }
+        assert_eq!(check(""), Some("required".into()));
+        assert_eq!(check(&"x".repeat(MAX_NAME)), None);
+        assert_eq!(check(&"x".repeat(MAX_NAME + 1)), Some("too_long".into()));
+        // Characters, not bytes.
+        assert_eq!(check(&"ü".repeat(MAX_NAME)), None);
     }
 
     #[test]

@@ -25,7 +25,7 @@ Roedy Mail reports events of the app account in three ways; new emails come sepa
 ## Requirements
 
 - **HTTPS:** Signing in needs it anyway ([Operations › Configuration](../ops.md#configuration)). Service worker and push are likewise only available in the browser in a secure context (HTTPS or `localhost`).
-- **Public address** (`ROEDY_PUBLIC_URL` or entered in the setup): the emails link into the app; without an address, due notification emails are dropped. Push names it to the push services as the contact (`sub` in the VAPID token).
+- **Public address** (`ROEDY_PUBLIC_URL`): the emails link into the app; without an address, due notification emails are dropped. Push names it to the push services as the contact (`sub` in the VAPID token).
 - **System emails** for the Email channel: a sender account as in [Stalwart › Sender account for system emails](stalwart.md#sender-account-for-system-emails). Without system emails, due entries are dropped; entries not yet due wait.
 - **Outgoing HTTPS (port 443) to the push services:** Every browser registers an endpoint with its push service; the server sends to it. Typical are (without guarantee of completeness; what counts is the endpoint the browser reports):
 

@@ -1,6 +1,6 @@
 <!--
-  Initial setup in six steps against the setup API – setup token,
-  administrator, password, mail server, system emails, review –, then
+  Initial setup in four steps against the setup API – setup token,
+  administrator, password, review –, then
   "Welcome" and sign-in via `session.load()` (the layout redirects to the
   start page). Flow and checks in `#lib/setup.svelte.ts`. The card adapts to
   the window height in four levels (`fit`), with a background graphic from
@@ -8,7 +8,6 @@
 -->
 <script lang="ts">
   import { scrollbar } from '#lib/actions/scrollbar.ts';
-  import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { onDestroy, tick, untrack } from 'svelte';
   import { parallax } from '#lib/actions/parallax.ts';
   import FormField from '#lib/components/FormField.svelte';
@@ -17,7 +16,6 @@
   import SetupArt from '#lib/components/SetupArt.svelte';
   import { buildInfo } from '#lib/build-info.ts';
   import { Copied } from '#lib/clipboard.svelte.ts';
-  import { diagColor, diagIcon } from '#lib/diagnosis.ts';
   import { Fit } from '#lib/fit.svelte.ts';
   import type { IconName } from '#lib/icons.ts';
   import { shake } from '#lib/shake.ts';
@@ -28,8 +26,6 @@
   import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
   import { errorTones } from '#lib/theme.ts';
-  import { hostOf, localHttp } from '#lib/url.ts';
-  import { clockText } from '#lib/wait.ts';
 
   const values: SetupPageValues = { appVersion: buildInfo.version };
 
@@ -97,8 +93,8 @@
     () => card,
   );
   const fit = $derived(fitter.level);
-  const copied = new Copied<'cmd' | 'redir'>();
-  const fitKey = $derived([flow.step, flow.view, flow.srvSt, flow.sysSt, flow.tokErr, copied.key === null].join('|'));
+  const copied = new Copied<'cmd'>();
+  const fitKey = $derived([flow.step, flow.view, flow.tokErr, copied.key === null].join('|'));
   // New state: from the start.
   $effect(() => {
     void fitKey;
@@ -157,17 +153,10 @@
     caps = event.getModifierState('CapsLock');
   }
 
-  let showSysPw = $state(false);
-
   /** A mouse click on "show" does not take the focus from the field (`keepFocus`). */
   function keepFocus(event: MouseEvent) {
     event.preventDefault();
   }
-
-  const OA_MODES = [
-    ['auto', m.setup_oa_auto()],
-    ['manual', m.setup_oa_manual()],
-  ] as const;
 
   function submit(run: () => unknown) {
     return (event: SubmitEvent) => {
@@ -191,12 +180,7 @@
   </button>
 {/snippet}
 
-{#snippet primary(
-  label: string,
-  icon: 'ti-arrow-right' | 'ti-plug-connected' | 'ti-check' | 'ti-lock',
-  busy = false,
-  busyLabel = '',
-)}
+{#snippet primary(label: string, icon: 'ti-arrow-right' | 'ti-check', busy = false, busyLabel = '')}
   {#if busy}
     <span class="spin"><Icon name="ti-loader-2" /></span><span>{busyLabel}</span>
   {:else}
@@ -208,21 +192,6 @@
   <div class="alert" role="alert" {id}>
     <span class="alert-icon"><Icon name={icon} /></span>
     <div class="alert-text"><strong>{title}</strong> {text}</div>
-  </div>
-{/snippet}
-
-<!-- Message about the OAuth client (automatic above the button, manual below the fields) -->
-{#snippet oaError()}
-  {#if flow.oaErrText}
-    <div class="oa-err" role="alert">
-      <span class="oa-err-icon"><Icon name="ti-alert-circle" /></span><span>{flow.oaErrText}</span>
-    </div>
-  {/if}
-{/snippet}
-
-{#snippet busyRow(text: string)}
-  <div class="busy" role="status">
-    <span class="busy-icon"><span class="spin"><Icon name="ti-loader-2" /></span></span>{text}
   </div>
 {/snippet}
 
@@ -286,7 +255,7 @@
               aria-label={m.setup_step({ n: flow.step })}
               title={m.setup_step({ n: flow.step })}
             >
-              {#each [1, 2, 3, 4, 5, 6] as i (i)}
+              {#each [1, 2, 3, 4] as i (i)}
                 <span class="bar" class:cur={i === flow.step} class:done={i <= flow.step}></span>
               {/each}
             </div>
@@ -490,388 +459,6 @@
               </div>
               <button type="submit" class="primary">{@render primary(m.setup_next(), 'ti-arrow-right')}</button>
             </form>
-          {:else if flow.step === 4}
-            <form onsubmit={submit(() => flow.submitServer())} novalidate>
-              <h1>{m.setup_server_title()}</h1>
-              <p class="intro">{m.setup_server_intro()}</p>
-              <div class="fields gap-l">
-                <FormField
-                  id="su-srv"
-                  bind:input={inputs.srv}
-                  label={m.setup_srv_label()}
-                  icon="ti-server"
-                  type="url"
-                  inputmode="url"
-                  name="server"
-                  autocomplete="off"
-                  autocapitalize="none"
-                  spellcheck={false}
-                  placeholder={m.setup_srv_placeholder()}
-                  value={flow.srv}
-                  oninput={(v: string) => flow.edit('srv', v)}
-                  error={flow.err.srv}
-                  hint={m.setup_srv_hint()}
-                />
-                <div class="grid2">
-                  <FormField
-                    id="su-srvlabel"
-                    bind:input={inputs.srvLabel}
-                    label={m.setup_srv_name_label()}
-                    icon="ti-tag"
-                    type="text"
-                    autocomplete="off"
-                    autocapitalize="none"
-                    spellcheck={false}
-                    maxlength={100}
-                    placeholder={m.setup_srv_name_placeholder()}
-                    value={flow.srvLabel}
-                    oninput={(v: string) => flow.edit('srvLabel', v)}
-                    error={flow.err.srvLabel}
-                  />
-                  <FormField
-                    id="su-srvdoms"
-                    bind:input={inputs.srvDoms}
-                    label={m.setup_doms_label()}
-                    icon="ti-at"
-                    type="text"
-                    autocomplete="off"
-                    autocapitalize="none"
-                    spellcheck={false}
-                    placeholder={m.setup_doms_placeholder()}
-                    value={flow.srvDoms}
-                    oninput={(v: string) => flow.edit('srvDoms', v)}
-                    error={flow.err.srvDoms}
-                    hint={m.setup_doms_hint()}
-                  />
-                </div>
-
-                <div class="oauth">
-                  <div class="oauth-head">
-                    <span class="oauth-title">{m.setup_oa_title()}</span>
-                    <div class="seg" role="radiogroup" use:radiogroup aria-label={m.setup_oa_title()}>
-                      {#each OA_MODES as [mode, label] (mode)}
-                        <button
-                          type="button"
-                          role="radio"
-                          class:on={flow.oaMode === mode}
-                          aria-checked={flow.oaMode === mode ? 'true' : 'false'}
-                          onclick={() => flow.setOaMode(mode)}>{label}</button
-                        >
-                      {/each}
-                    </div>
-                  </div>
-                  {#if flow.oaMode === 'auto'}
-                    {#if flow.oaSt !== 'ok'}
-                      <p class="oauth-intro">{m.setup_oa_intro({ app: session.appName })}</p>
-                      <div class="grid2 narrow-cols">
-                        <FormField
-                          id="su-oauser"
-                          bind:input={inputs.oaUser}
-                          label={m.setup_oa_user_label()}
-                          icon="ti-user-shield"
-                          type="text"
-                          autocomplete="off"
-                          autocapitalize="none"
-                          spellcheck={false}
-                          placeholder={m.setup_oa_user_placeholder()}
-                          value={flow.oaUser}
-                          oninput={(v: string) => flow.edit('oaUser', v)}
-                          error={flow.err.oaUser}
-                        />
-                        <FormField
-                          id="su-oapw"
-                          bind:input={inputs.oaPw}
-                          label={m.setup_oa_pw_label()}
-                          aria-label={m.setup_oa_pw_aria()}
-                          icon="ti-lock"
-                          type="password"
-                          autocomplete="off"
-                          autocapitalize="none"
-                          spellcheck={false}
-                          placeholder={m.setup_oa_pw_placeholder()}
-                          value={flow.oaPw}
-                          oninput={(v: string) => flow.edit('oaPw', v)}
-                          error={flow.err.oaPw}
-                          hint={m.setup_oa_pw_hint()}
-                        />
-                      </div>
-                      {#if flow.oaLocked}{@render alert('ti-lock', m.limit_title(), flow.oaLockText)}{/if}
-                      {#if flow.oaThr}{@render alert('ti-clock', m.reg_throttled_title(), flow.oaThrText)}{/if}
-                      {@render oaError()}
-                      <button
-                        type="button"
-                        class="register"
-                        onclick={() => void flow.registerClient()}
-                        disabled={flow.oaSt === 'busy' || flow.oaWait > 0}
-                        style:opacity={flow.oaWait > 0 ? 0.55 : 1}
-                      >
-                        <span class:spin={flow.oaSt === 'busy'} class="reg-icon"
-                          ><Icon
-                            name={flow.oaSt === 'busy' ? 'ti-loader-2' : flow.oaWait > 0 ? 'ti-lock' : 'ti-wand'}
-                          /></span
-                        >
-                        {flow.oaSt === 'busy'
-                          ? m.setup_oa_registering()
-                          : flow.oaWait > 0
-                            ? m.reg_locked_button({ clock: clockText(flow.oaWait) })
-                            : m.setup_oa_register()}
-                      </button>
-                    {:else}
-                      <div class="registered" role="status">
-                        <span class="reg-tile"><Icon name="ti-key" /></span>
-                        <div class="reg-text">
-                          <span class="reg-title">{m.setup_oa_done()}</span>
-                          <span class="reg-sub">{m.setup_oa_done_sub({ cid: flow.oaCid })}</span>
-                        </div>
-                        <button type="button" class="reg-again" onclick={() => flow.resetClient()}
-                          >{m.setup_oa_again()}</button
-                        >
-                      </div>
-                    {/if}
-                  {:else}
-                    <div class="grid2 narrow-cols">
-                      <FormField
-                        id="su-cid"
-                        bind:input={inputs.oaCid}
-                        label={m.setup_cid_label()}
-                        icon="ti-id"
-                        type="text"
-                        autocomplete="off"
-                        autocapitalize="none"
-                        spellcheck={false}
-                        placeholder={m.setup_cid_placeholder()}
-                        value={flow.oaCid}
-                        oninput={(v: string) => flow.edit('oaCid', v)}
-                        error={flow.err.oaCid}
-                      />
-                      <FormField
-                        id="su-csec"
-                        bind:input={inputs.oaSec}
-                        label={m.setup_csec_label()}
-                        optional={m.setup_csec_optional()}
-                        icon="ti-key"
-                        type="password"
-                        autocomplete="off"
-                        autocapitalize="none"
-                        spellcheck={false}
-                        placeholder={m.setup_optional()}
-                        value={flow.oaSec}
-                        oninput={(v: string) => flow.edit('oaSec', v)}
-                        error={flow.err.oaSec}
-                        hint={flow.oaSecHint}
-                        hintAlways
-                      />
-                    </div>
-                    {@render oaError()}
-                    <span class="hint oauth-hint">{m.setup_manual_hint()}</span>
-                  {/if}
-                  <div class="redirect">
-                    <div class="redirect-text">
-                      <span class="redirect-label">{m.setup_redirect()}</span>
-                      <span class="redirect-uri">{flow.redirect}</span>
-                    </div>
-                    <button
-                      type="button"
-                      class="redirect-copy"
-                      onclick={() => void copied.copy(flow.redirect, 'redir')}
-                    >
-                      <Icon name={copied.key === 'redir' ? 'ti-check' : 'ti-copy'} />
-                      {copied.key === 'redir' ? m.setup_copied() : m.setup_copy()}
-                    </button>
-                  </div>
-                </div>
-
-                {#if flow.srvSt === 'busy'}
-                  {@render busyRow(m.setup_testing())}
-                {:else if flow.srvWarn}
-                  <div class="diag warn" role="status">
-                    <div class="diag-head">
-                      <span class="warn-tile"><Icon name="ti-alert-triangle" /></span>
-                      <div class="diag-title">
-                        <span class="t">{m.setup_srv_warn_title()}</span>
-                        <span class="s">{m.setup_srv_warn_sub({ host: flow.report?.host || hostOf(flow.srvUrl) })}</span
-                        >
-                      </div>
-                    </div>
-                    <div class="warn-rows">
-                      {#each flow.diag as row (row.label)}
-                        <div class="warn-row">
-                          <span class="diag-icon" style:color={diagColor(row.status)}
-                            ><Icon name={diagIcon(row.status)} /></span
-                          >
-                          <div class="warn-row-text">
-                            <span class="warn-label">{row.label}</span>
-                            <span class="warn-text">{row.text}</span>
-                          </div>
-                        </div>
-                      {/each}
-                    </div>
-                    {#if localHttp(flow.srvUrl)}
-                      <div class="plain"><Icon name="ti-lock-open" /><span>{m.server_plain()}</span></div>
-                    {/if}
-                    <div class="warn-note">{m.setup_srv_warn_text()}</div>
-                  </div>
-                {:else if flow.srvGood}
-                  <div class="diag" role="status">
-                    <div class="diag-head">
-                      <span class="ok-tile"><Icon name="ti-plug-connected" /></span>
-                      <div class="diag-title">
-                        <span class="t">{m.setup_srv_ok()}</span>
-                        <span class="s">{m.setup_srv_ok_sub({ host: flow.report?.host || flow.srvUrl })}</span>
-                      </div>
-                    </div>
-                    <div class="diag-rows">
-                      {#each flow.diag as row (row.label)}
-                        <div class="diag-row" class:err={row.status === 'err'}>
-                          <span class="diag-icon {row.status}">
-                            <Icon
-                              name={row.status === 'ok'
-                                ? 'ti-circle-check'
-                                : row.status === 'err'
-                                  ? 'ti-alert-triangle'
-                                  : 'ti-circle-dashed'}
-                            />
-                          </span>
-                          <span class="diag-label">{row.label}</span>
-                          <span class="diag-sub">{row.sub}</span>
-                          {#if row.status !== 'ok'}<span class="diag-text">{row.text}</span>{/if}
-                        </div>
-                      {/each}
-                    </div>
-                    {#if flow.srvPlain}
-                      <div class="plain"><Icon name="ti-lock-open" /><span>{m.server_plain()}</span></div>
-                    {/if}
-                  </div>
-                {:else if flow.srvSt === 'err'}
-                  {@render alert('ti-plug-connected-x', m.setup_srv_bad_title(), flow.srvBadText)}
-                {:else if flow.srvThr}
-                  {@render alert('ti-clock', m.reg_throttled_title(), flow.srvThrText)}
-                {/if}
-
-                <FormField
-                  id="su-pub"
-                  bind:input={inputs.pub}
-                  label={m.setup_pub_label({ app: session.appName })}
-                  icon={flow.pubLocked ? 'ti-lock' : 'ti-world'}
-                  type="url"
-                  inputmode="url"
-                  name="public-url"
-                  autocomplete="off"
-                  autocapitalize="none"
-                  spellcheck={false}
-                  readonly={flow.pubLocked}
-                  placeholder={m.setup_pub_placeholder()}
-                  value={flow.pub}
-                  oninput={(v: string) => flow.edit('pub', v)}
-                  error={flow.pubLocked ? null : flow.err.pub}
-                  hint={flow.pubLocked ? m.setup_pub_locked() : m.setup_pub_hint()}
-                  hintAlways={flow.pubLocked}
-                />
-              </div>
-              <button type="submit" class="primary" disabled={flow.srvDis} style:opacity={flow.srvThr ? 0.55 : 1}>
-                {@render primary(
-                  flow.srvGood
-                    ? m.setup_next()
-                    : flow.srvWarn
-                      ? m.setup_retest()
-                      : flow.srvThr
-                        ? m.setup_srv_locked_button({ clock: clockText(flow.srvLeft) })
-                        : m.setup_test(),
-                  flow.srvGood ? 'ti-arrow-right' : flow.srvThr ? 'ti-lock' : 'ti-plug-connected',
-                )}
-              </button>
-              {#if flow.srvWarn}
-                <button type="button" class="go-on" onclick={() => flow.goOn()}>{m.setup_go_on()}</button>
-              {/if}
-            </form>
-          {:else if flow.step === 5}
-            <form onsubmit={submit(() => flow.submitSystem())} novalidate>
-              <div class="title-row">
-                <h1>{m.setup_mail_title()}</h1>
-                <span class="optional">{m.setup_optional()}</span>
-              </div>
-              <p class="intro">{m.setup_mail_intro()}</p>
-              <div class="fields gap-l">
-                <div class="fld">
-                  <span class="fld-label">{m.setup_mail_server()}</span>
-                  <div class="srv-list" role="radiogroup" aria-label={m.setup_mail_server()}>
-                    <div class="srv-opt" role="radio" aria-checked="true">
-                      <span class="srv-icon"><Icon name="ti-server-2" /></span>
-                      <span class="srv-text">
-                        <span class="srv-name">{flow.sysSrv.label}</span>
-                        <span class="srv-host">{flow.sysSrv.host}</span>
-                      </span>
-                      <span class="srv-check"><Icon name="ti-check" /></span>
-                    </div>
-                  </div>
-                  <span class="hint fld-hint">{m.setup_mail_server_hint()}</span>
-                </div>
-                <FormField
-                  id="su-sys"
-                  bind:input={inputs.sysUser}
-                  label={m.setup_mail_user_label()}
-                  icon="ti-mail-cog"
-                  type="email"
-                  inputmode="email"
-                  name="system-account"
-                  autocomplete="off"
-                  autocapitalize="none"
-                  spellcheck={false}
-                  placeholder={m.setup_mail_user_placeholder()}
-                  value={flow.sysUser}
-                  oninput={(v: string) => flow.edit('sysUser', v)}
-                  error={flow.err.sysUser}
-                />
-                <FormField
-                  id="su-syspw"
-                  bind:input={inputs.sysPw}
-                  label={m.setup_mail_pw_label()}
-                  icon="ti-key"
-                  type={showSysPw ? 'text' : 'password'}
-                  name="system-password"
-                  autocomplete="off"
-                  placeholder={m.setup_mail_pw_placeholder()}
-                  value={flow.sysPw}
-                  oninput={(v: string) => flow.edit('sysPw', v)}
-                  error={flow.err.sysPw}
-                  hint={m.setup_mail_pw_hint()}
-                >
-                  {#snippet trailing()}
-                    {@render pwToggle(showSysPw, () => (showSysPw = !showSysPw), false)}
-                  {/snippet}
-                </FormField>
-                {#if flow.sysSt === 'busy'}
-                  {@render busyRow(m.setup_mail_testing())}
-                {:else if flow.sysGood}
-                  <div class="good" role="status">
-                    <span class="ok-tile"><Icon name="ti-mail-check" /></span>
-                    <div class="good-text">
-                      <span class="t">{m.setup_mail_ok()}</span><span class="s">{m.setup_mail_ok_sub()}</span>
-                    </div>
-                  </div>
-                {:else if flow.sysSt === 'err'}
-                  {@render alert(flow.sysError.icon, flow.sysError.title, flow.sysError.text)}
-                {:else if flow.sysSt === 'locked'}
-                  {@render alert('ti-lock', m.limit_title(), flow.sysLimitText)}
-                {/if}
-              </div>
-              <button
-                type="submit"
-                class="primary"
-                disabled={flow.sysSt === 'busy' || flow.sysLeft > 0}
-                style:opacity={flow.sysLeft > 0 ? 0.55 : 1}
-              >
-                {@render primary(
-                  flow.sysGood
-                    ? m.setup_next()
-                    : flow.sysLeft > 0
-                      ? m.setup_sys_lock_button({ clock: clockText(flow.sysLeft) })
-                      : m.setup_mail_test(),
-                  flow.sysGood ? 'ti-arrow-right' : flow.sysLeft > 0 ? 'ti-lock' : 'ti-plug-connected',
-                )}
-              </button>
-              <button type="button" class="skip" onclick={() => flow.skipSystem()}>{m.setup_mail_skip()}</button>
-            </form>
           {:else}
             <form onsubmit={submit(() => flow.finish())} novalidate>
               <h1>{m.setup_review_title()}</h1>
@@ -882,10 +469,7 @@
                     <span class="review-icon"><Icon name={row.icon} /></span>
                     <div class="review-text">
                       <span class="review-label">{row.label}</span>
-                      <span class="review-value" class:muted={row.muted}>{row.value}</span>
-                      {#if row.warn}<span class="review-warn"
-                          ><Icon name="ti-alert-triangle" />{m.setup_review_warn()}</span
-                        >{/if}
+                      <span class="review-value">{row.value}</span>
                     </div>
                     <button
                       type="button"
@@ -1014,8 +598,7 @@
 
   .mode:hover,
   .back:hover,
-  .eye:hover,
-  .reg-again:hover {
+  .eye:hover {
     background: var(--hov);
     color: var(--fg);
   }
@@ -1177,17 +760,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--f-gap-f);
-  }
-
-  .grid2 {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: var(--f-gap-f);
-  }
-
-  .grid2.narrow-cols {
-    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-    gap: 12px;
   }
 
   .primary {
@@ -1380,8 +952,7 @@
     gap: 8px;
   }
 
-  .token label,
-  .fld-label {
+  .token label {
     padding: 0 4px;
     font-size: 13.5px;
     font-weight: 700;
@@ -1581,569 +1152,11 @@
     box-shadow: inset 0 0 0 1.5px var(--err);
   }
 
-  /* Step 4 */
-  .oauth {
-    display: flex;
-    flex-direction: column;
-    gap: 12px;
-    padding: 14px;
-    border-radius: 22px;
-    background: var(--surface2);
-  }
-
-  .oauth-head {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 10px;
-    flex-wrap: wrap;
-    padding: 0 2px;
-  }
-
-  .oauth-title {
-    font-size: 14.5px;
-    font-weight: 800;
-  }
-
-  .seg {
-    display: flex;
-    gap: 2px;
-    padding: 3px;
-    border-radius: 9999px;
-    background: var(--sunken);
-  }
-
-  .seg button {
-    height: 32px;
-    padding: 0 14px;
-    border-radius: 9999px;
-    background: transparent;
-    color: var(--mfg);
-    font-size: 13px;
-    font-weight: 700;
-    white-space: nowrap;
-    transition:
-      background-color 220ms,
-      color 220ms;
-  }
-
-  .seg button.on {
-    background: var(--surface);
-    color: var(--fg);
-    box-shadow: var(--sh1);
-  }
-
-  .oauth-intro {
-    margin: 0;
-    padding: 0 2px;
-    font-size: 13.5px;
-    line-height: 1.45;
-    color: var(--mfg);
-    text-wrap: pretty;
-  }
-
-  .oa-err {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    padding: 0 4px;
-    font-size: 13.5px;
-    font-weight: 700;
-    line-height: 1.4;
-    color: var(--errfg);
-  }
-
-  .oa-err-icon {
-    display: grid;
-    flex-shrink: 0;
-    margin-top: 1px;
-    font-size: 16px;
-  }
-
-  /* At 320 px the text wraps instead of overflowing the card; otherwise one line, 44 px high. */
-  .register {
-    align-self: flex-start;
-    min-height: 44px;
-    max-width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 6px 18px 6px 14px;
-    border-radius: 9999px;
-    background: var(--surface);
-    box-shadow: var(--sh1);
-    font-size: 14px;
-    font-weight: 800;
-    text-align: left;
-    transition: transform 220ms cubic-bezier(0.3, 1.5, 0.5, 1);
-  }
-
-  .register:hover:not(:disabled) {
-    transform: translateY(-2px);
-  }
-
-  .reg-icon {
-    display: grid;
-    font-size: 18px;
-  }
-
-  .registered {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 12px 8px 8px;
-    border-radius: 18px;
-    background: var(--surface);
-    animation: suPop 340ms cubic-bezier(0.2, 1.2, 0.3, 1);
-  }
-
-  .reg-tile {
-    width: 34px;
-    height: 34px;
-    flex-shrink: 0;
-    border-radius: 12px;
-    background: var(--acc);
-    color: var(--accink);
-    display: grid;
-    place-items: center;
-    transform: rotate(-6deg);
-    font-size: 17px;
-  }
-
-  .reg-text,
-  .good-text,
-  .diag-title {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-
-  .reg-title {
-    font-size: 14px;
-    font-weight: 800;
-  }
-
-  /* Wraps instead of truncating, otherwise "Admin credentials discarded" would be missing. */
-  .reg-sub {
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.4;
-    color: var(--mfg);
-    overflow-wrap: anywhere;
-    text-wrap: pretty;
-  }
-
-  .reg-again {
-    height: 34px;
-    padding: 0 12px;
-    border-radius: 9999px;
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--mfg);
-  }
-
-  .oauth-hint {
-    padding: 0 4px;
-    font-size: 13px;
-    line-height: 1.45;
-    color: var(--mfg);
-    text-wrap: pretty;
-  }
-
-  .redirect {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 6px 6px 6px 14px;
-    border-radius: 16px;
-    background: var(--surface);
-  }
-
-  .redirect-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-
-  .redirect-label {
-    font-size: 12.5px;
-    font-weight: 800;
-    color: var(--mfg);
-  }
-
-  .redirect-uri {
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    font-size: 13px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .redirect-copy {
-    height: 36px;
-    flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    padding: 0 13px 0 11px;
-    border-radius: 9999px;
-    background: var(--surface2);
-    font-size: 13px;
-    font-weight: 700;
-    white-space: nowrap;
-  }
-
-  .redirect-copy :global(svg) {
-    font-size: 15px;
-  }
-
-  .redirect-copy:hover {
-    background: var(--sunken);
-  }
-
-  .busy {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 14px 16px 14px 12px;
-    border-radius: 20px;
-    background: var(--surface2);
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--mfg);
-  }
-
-  .busy-icon {
-    width: 34px;
-    height: 34px;
-    flex-shrink: 0;
-    border-radius: 12px;
-    background: var(--surface);
-    display: grid;
-    place-items: center;
-  }
-
-  .busy-icon .spin {
-    font-size: 18px;
-  }
-
-  .diag {
-    padding: 6px;
-    border-radius: 24px;
-    background: var(--surface2);
-    animation: suPop 340ms cubic-bezier(0.2, 1.2, 0.3, 1);
-  }
-
-  .diag-head {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    min-height: 52px;
-    padding: 0 12px 0 6px;
-  }
-
-  .ok-tile {
-    width: 36px;
-    height: 36px;
-    flex-shrink: 0;
-    border-radius: 12px;
-    background: var(--acc);
-    color: var(--accink);
-    display: grid;
-    place-items: center;
-    transform: rotate(-6deg);
-    font-size: 18px;
-  }
-
-  .t {
-    font-size: 14.5px;
-    font-weight: 800;
-  }
-
-  .s {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--mfg);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .diag-rows {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding: 2px 6px 6px 50px;
-  }
-
-  .diag-row {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    column-gap: 10px;
-    min-height: 34px;
-  }
-
-  .diag-icon {
-    display: grid;
-    flex-shrink: 0;
-    font-size: 17px;
-    color: var(--deep);
-  }
-
-  .diag-icon.err {
-    color: var(--errfg);
-  }
-
-  .diag-icon.unk {
-    color: var(--mfg);
-  }
-
-  .diag-label {
-    flex-shrink: 0;
-    font-size: 13.5px;
-    font-weight: 800;
-  }
-
-  .diag-sub {
-    flex: 1;
-    min-width: 0;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--mfg);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Text of a row that is not OK (`SRV_DIAG`) */
-  .diag-text {
-    flex-basis: 100%;
-    padding: 0 0 6px 27px;
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.45;
-    color: var(--mfg);
-    text-wrap: pretty;
-  }
-
-  .diag-row.err .diag-text {
-    color: var(--errfg);
-  }
-
-  /* Test with warnings (`srvWarn`) */
-  .warn-tile {
-    width: 36px;
-    height: 36px;
-    flex-shrink: 0;
-    border-radius: 12px;
-    background: var(--errsoft);
-    color: var(--errfg);
-    display: grid;
-    place-items: center;
-    transform: rotate(-6deg);
-    font-size: 18px;
-  }
-
-  .warn-rows {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 4px 10px 8px 50px;
-  }
-
-  .warn-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 10px;
-  }
-
-  .warn-row .diag-icon {
-    margin-top: 1px;
-  }
-
-  .warn-row-text {
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-  }
-
-  .warn-label {
-    font-size: 13.5px;
-    font-weight: 800;
-  }
-
-  .warn-text {
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.45;
-    color: var(--mfg);
-    text-wrap: pretty;
-  }
-
-  .warn-note {
-    margin: 2px 6px 4px;
-    padding: 10px 12px;
-    border-radius: 16px;
-    background: var(--surface);
-    font-size: 13.5px;
-    font-weight: 600;
-    line-height: 1.45;
-    text-wrap: pretty;
-  }
-
-  .plain {
-    display: flex;
-    align-items: flex-start;
-    gap: 8px;
-    margin: 0 8px 8px 54px;
-    font-size: 13px;
-    font-weight: 600;
-    line-height: 1.45;
-    color: var(--mfg);
-  }
-
-  .plain :global(svg) {
-    flex-shrink: 0;
-    margin-top: 1px;
-    font-size: 15px;
-  }
-
-  /* Step 5 */
-  .title-row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .optional {
-    height: 28px;
-    display: flex;
-    align-items: center;
-    padding: 0 12px;
-    border-radius: 9999px;
-    background: var(--surface2);
-    font-size: 12.5px;
-    font-weight: 800;
-    color: var(--mfg);
-  }
-
-  .fld {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .srv-list {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-  }
-
-  .srv-opt {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 8px 14px 8px 8px;
-    border-radius: 18px;
-    background: var(--surface);
-    box-shadow:
-      0 0 0 2px var(--acc),
-      var(--sh1);
-  }
-
-  .srv-icon {
-    width: 36px;
-    height: 36px;
-    flex-shrink: 0;
-    border-radius: 12px;
-    background: var(--surface2);
-    display: grid;
-    place-items: center;
-    font-size: 18px;
-  }
-
-  .srv-text {
-    flex: 1;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 1px;
-  }
-
-  .srv-name {
-    font-size: 14.5px;
-    font-weight: 800;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .srv-host {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--mfg);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .srv-check {
-    width: 22px;
-    height: 22px;
-    flex-shrink: 0;
-    border-radius: 9999px;
-    background: var(--ink);
-    color: var(--inkfg);
-    display: grid;
-    place-items: center;
-    font-size: 13px;
-  }
-
-  .fld-hint {
-    padding: 0 4px;
-    font-size: 13px;
-    line-height: 1.45;
-    color: var(--mfg);
-    text-wrap: pretty;
-  }
-
-  .good {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 10px 16px 10px 10px;
-    border-radius: 20px;
-    background: var(--surface2);
-    animation: suPop 340ms cubic-bezier(0.2, 1.2, 0.3, 1);
-  }
-
-  .skip,
-  .go-on {
-    margin-top: 10px;
-    align-self: center;
-    height: 40px;
-    padding: 0 16px;
-    border-radius: 9999px;
-    font-size: 14px;
-    font-weight: 800;
-    color: var(--deep);
-    transition: background-color 220ms;
-  }
-
-  .skip:hover,
-  .go-on:hover,
   .review-edit:hover {
     background: var(--hov);
   }
 
-  /* Step 6 */
+  /* Step 4 */
   .review {
     display: flex;
     flex-direction: column;
@@ -2194,30 +1207,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  .review-value.muted {
-    color: var(--mfg);
-  }
-
-  /* Server after "Continue anyway" (`review[].warn`) */
-  .review-warn {
-    align-self: flex-start;
-    margin-top: 3px;
-    display: flex;
-    align-items: center;
-    gap: 5px;
-    height: 24px;
-    padding: 0 10px 0 8px;
-    border-radius: 9999px;
-    background: var(--errsoft);
-    color: var(--errfg);
-    font-size: 12.5px;
-    font-weight: 800;
-  }
-
-  .review-warn :global(svg) {
-    font-size: 14px;
   }
 
   .review-edit {

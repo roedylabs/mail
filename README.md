@@ -102,7 +102,7 @@ Put a reverse proxy with TLS in front of it (for example Caddy, Traefik or nginx
 
 ```sh
 pnpm install          # dependencies and Git hooks
-cargo run -- serve    # backend on http://localhost:8080
+ROEDY_PUBLIC_URL=http://localhost:5173 cargo run -- serve    # backend on http://localhost:8080
 pnpm dev              # web app on http://localhost:5173
 ```
 

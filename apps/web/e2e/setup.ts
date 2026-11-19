@@ -1,8 +1,9 @@
-// Sets up an instance for flows after the setup:
-// the same calls as the six steps of the page (`#lib/setup.svelte.ts`) via the
-// API, after which the administrator is signed in in the browser context.
-// "Connect account", by contrast, still goes through the mail server's real
-// sign-in page – only it hands out the code for it.
+// Sets up an instance for flows after the setup: setup token and
+// `setup/complete` via the API, then the mail server and the system emails
+// through the administration API (`#lib/servers.svelte.ts`,
+// `#lib/system-mail.svelte.ts`), after which the administrator is signed in in
+// the browser context. "Connect account", by contrast, still goes through the
+// mail server's real sign-in page – only it hands out the code for it.
 import type { BrowserContext, Page } from '@playwright/test';
 import { expect, type Instance, type MailUser, type Stalwart } from './fixtures.ts';
 import { CSRF, newPage, settled } from './helpers.ts';
@@ -14,10 +15,11 @@ export interface AppUser {
 }
 
 /**
- * Sets up `instance` with the Stalwart of the run: setup token, OAuth client
- * via DCR with the Stalwart admin's app password, system mails through that
- * account, administrator `admin`. The session cookie from `setup/complete`
- * ends up in `context` (shared cookie store of `context.request`).
+ * Sets up `instance` with the Stalwart of the run: setup token,
+ * administrator `admin`, then OAuth client via DCR with the Stalwart admin's
+ * app password, the mail server and system mails through that account. The
+ * session cookie from `setup/complete` ends up in `context` (shared cookie
+ * store of `context.request`).
  */
 export async function setupByApi(
   context: BrowserContext,
@@ -26,35 +28,58 @@ export async function setupByApi(
   admin: AppUser,
 ): Promise<void> {
   const token = await instance.setupToken();
-  const post = async (path: string, data: unknown): Promise<Record<string, unknown>> => {
-    const res = await context.request.post(`${instance.url}/api/v1/${path}`, {
-      data,
-      headers: { ...CSRF, 'x-setup-token': token },
-      failOnStatusCode: false,
-    });
-    // Error responses name codes and fields, no credentials.
-    if (!res.ok()) throw new Error(`POST ${path}: ${res.status()} ${(await res.text()).slice(0, 300)}`);
-    return (await res.json()) as Record<string, unknown>;
-  };
-
-  await post('setup/token', { token });
-  const registered = await post('setup/servers/register-client', {
-    url: stalwart.url,
-    username: stalwart.admin.login,
-    password: stalwart.admin.appPassword,
-    public_url: instance.url,
-  });
-  await post('setup/complete', {
+  const send = sender(context, instance, { 'x-setup-token': token });
+  await send('POST', 'setup/token', { token });
+  await send('POST', 'setup/complete', {
     name: admin.name,
     email: admin.email,
     password: admin.password,
-    // The page suggests the domain of the admin address; without it, "Add
-    // email account" assigns no server.
-    server: { url: stalwart.url, client_id: registered.client_id, domains: [stalwart.domain] },
-    public_url: instance.url,
-    system_mail: { user: stalwart.admin.email, app_password: stalwart.admin.appPassword },
+    settings: { lang: 'en', mode: 'system', accent: 'apricot' },
   });
   expect(await context.cookies(instance.url), 'session cookie after setup/complete').not.toEqual([]);
+  await connectServer(context, instance, stalwart);
+}
+
+/** API calls with the cookies of `context`; errors name status and body. */
+function sender(context: BrowserContext, instance: Instance, extra: Record<string, string> = {}) {
+  return async (method: 'POST' | 'PUT', path: string, data: unknown): Promise<Record<string, unknown>> => {
+    const res = await context.request.fetch(`${instance.url}/api/v1/${path}`, {
+      method,
+      data,
+      headers: { ...CSRF, ...extra },
+      failOnStatusCode: false,
+    });
+    // Error responses name codes and fields, no credentials.
+    if (!res.ok()) throw new Error(`${method} ${path}: ${res.status()} ${(await res.text()).slice(0, 300)}`);
+    return (await res.json()) as Record<string, unknown>;
+  };
+}
+
+/**
+ * What the administrator does right after the setup, via the administration
+ * API with the session of `context`: Administration › Mail servers with the
+ * OAuth client via DCR and the domain of the admin address (without it, "Add
+ * email account" assigns no server), then Administration › Email with the
+ * Stalwart admin's account.
+ */
+export async function connectServer(context: BrowserContext, instance: Instance, stalwart: Stalwart): Promise<void> {
+  const send = sender(context, instance);
+  const registered = await send('POST', 'admin/servers/register-client', {
+    url: stalwart.url,
+    username: stalwart.admin.login,
+    password: stalwart.admin.appPassword,
+  });
+  const server = await send('POST', 'admin/servers', {
+    label: 'Stalwart',
+    url: stalwart.url,
+    client_id: registered.client_id,
+    domains: [stalwart.domain],
+  });
+  await send('PUT', 'admin/system-mail', {
+    server_id: server.id,
+    user: stalwart.admin.email,
+    app_password: stalwart.admin.appPassword,
+  });
 }
 
 /**

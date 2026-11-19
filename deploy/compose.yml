@@ -20,7 +20,10 @@ services:
     ports:
       - "127.0.0.1:8080:8080"
     environment:
-      ROEDY_PUBLIC_URL: ${ROEDY_PUBLIC_URL:-}
+      # Required: public address of the app, e.g. https://mail.example.com
+      # (links in emails, OAuth redirect URI). Without it the server does not
+      # start.
+      ROEDY_PUBLIC_URL: ${ROEDY_PUBLIC_URL:?set ROEDY_PUBLIC_URL in .env, e.g. https://mail.example.com}
       ROEDY_LOG: ${ROEDY_LOG:-}
       ROEDY_LOG_FORMAT: ${ROEDY_LOG_FORMAT:-}
       # The port is only open locally for the reverse proxy; without this

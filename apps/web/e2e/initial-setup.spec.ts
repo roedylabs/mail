@@ -1,5 +1,6 @@
-// First flow: setup in six steps with automatic registration of the OAuth
-// client (DCR) → invitations to two addresses, links from the system mails →
+// First flow: setup in four steps, then mail server (OAuth client via DCR) and
+// system mails via the administration API → invitations to two addresses,
+// links from the system mails →
 // accept both (with mandatory MFA) → connect an account via the mail server's
 // sign-in page and /oauth/callback. The tests build on each other (serial) and
 // share the file's instance (fixtures.ts).
@@ -16,7 +17,7 @@ import {
   waitForMails,
   type Session,
 } from './helpers.ts';
-import { connectAccount } from './setup.ts';
+import { connectAccount, connectServer } from './setup.ts';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -55,7 +56,7 @@ function next(page: Page) {
   return page.getByRole('button', { name: 'Continue', exact: true });
 }
 
-test('setup: six steps with automatic registration', async ({ browser, instance, stalwart }) => {
+test('setup: four steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
   const context = await browser.newContext();
   const page = await newPage(context);
   await page.goto(`${instance.url}/`);
@@ -79,27 +80,7 @@ test('setup: six steps with automatic registration', async ({ browser, instance,
   await page.getByLabel('Confirm password', { exact: true }).fill(admin.password);
   await next(page).click();
 
-  // 4 Mail server with DCR (app password of the Stalwart admin)
-  await step(page, 'Connect mail server', 'Stalwart server URL');
-  await page.getByLabel('Stalwart server URL').fill(stalwart.url);
-  await page.getByLabel('Mail server admin user').fill(stalwart.admin.login);
-  await page.getByLabel('Administrator’s app password').fill(stalwart.admin.appPassword);
-  await page.getByRole('button', { name: 'Register client automatically' }).click();
-  await expect(page.getByText('Client registered', { exact: true })).toBeVisible();
-  await expect(page.getByLabel('Public URL of Roedy Mail')).toHaveValue(instance.url);
-  await page.getByRole('button', { name: 'Test connection' }).click();
-  await expect(page.getByText('Connected', { exact: true })).toBeVisible();
-  await next(page).click();
-
-  // 5 System emails via the Stalwart admin's account
-  await step(page, 'System emails');
-  await page.getByLabel('Sender account').fill(stalwart.admin.email);
-  await page.getByLabel('App password', { exact: true }).fill(stalwart.admin.appPassword);
-  await page.getByRole('button', { name: 'Check and continue' }).click();
-  await expect(page.getByText('Sign-in successful', { exact: true })).toBeVisible();
-  await next(page).click();
-
-  // 6 Review and completion
+  // 4 Review and completion
   await step(page, 'All set?');
   await page.getByRole('button', { name: 'Finish setup' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome, Alex' })).toBeVisible();
@@ -107,6 +88,7 @@ test('setup: six steps with automatic registration', async ({ browser, instance,
   await expect(page.getByRole('heading', { name: 'Connect your first email account' })).toBeVisible();
   expect(await axeViolations(page), 'axe: no account').toEqual([]);
 
+  await connectServer(context, instance, stalwart);
   admin.state = await context.storageState();
   await context.close();
 });

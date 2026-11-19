@@ -75,12 +75,6 @@ const SETUP_VALUES = {
   'su-email': 'max@example.test',
   'su-pw': 'Example-Password-2026!',
   'su-pw2': 'Example-Password-2026!',
-  'su-srv': 'https://mail.example.test',
-  'su-srvlabel': 'Example Mail',
-  'su-srvdoms': 'example.test',
-  'su-oauser': 'admin@example.test',
-  'su-oapw': 'example-app-password',
-  'su-pub': 'https://roedy.example.test',
 };
 
 /**
@@ -88,7 +82,7 @@ const SETUP_VALUES = {
  * checked state (setup step, error, open editor).
  */
 const ROUTES = [
-  ...[1, 2, 3, 4, 5, 6].map((n) => ({
+  ...[1, 2, 3, 4].map((n) => ({
     id: `/setup (step ${n})`,
     path: '/setup',
     opts: { setup: true },
@@ -608,17 +602,6 @@ async function setupStep(page, n) {
         .locator(`#${f.id}`)
         .fill(value)
         .catch(() => {});
-    }
-    // Radio groups (mail server of the system email): choose the first option if none is chosen.
-    await page.evaluate(() => {
-      for (const g of document.querySelectorAll('[role=radiogroup]'))
-        if (window.__a11y.vis(g) && !g.querySelector('[aria-checked=true]')) g.querySelector('[role=radio]')?.click();
-    });
-    // Register the OAuth client (step 4), otherwise "Continue".
-    const register = page.locator('button.register').filter({ visible: true });
-    if ((await register.count()) && (await register.first().isEnabled())) {
-      await register.first().click();
-      await settle(page, 600);
     }
     const primary = page.locator('button.primary').filter({ visible: true });
     if (await primary.count()) await primary.last().click();

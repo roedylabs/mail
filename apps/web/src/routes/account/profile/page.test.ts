@@ -62,19 +62,19 @@ describe('Profile page', () => {
 
   it('edits the name with the "Unsaved changes" bar and saves', async () => {
     const { calls } = mockApi({
-      'PATCH auth/me': [{ body: { status: 'ok', user: { ...USER, display_name: 'Jane D.' } } }],
+      'PATCH auth/me': [{ body: { status: 'ok', user: { ...USER, display_name: 'Jane Dorn' } } }],
     });
     const view = render(Page);
     await fireEvent.click(view.getByRole('button', { name: 'Edit display name' }));
     const input = view.getByRole('textbox', { name: 'Display name' });
     expect(input).toHaveFocus();
-    await fireEvent.input(input, { target: { value: 'Jane D.' } });
+    await fireEvent.input(input, { target: { value: 'Jane Dorn' } });
     const bar = view.getByRole('region', { name: 'Unsaved changes' });
     await fireEvent.click(within(bar).getByRole('button', { name: 'Save' }));
     await vi.waitFor(() => expect(ui.toast?.text).toBe('Changes saved'));
-    expect(calls.map((c) => c.body)).toEqual([{ display_name: 'Jane D.' }]);
+    expect(calls.map((c) => c.body)).toEqual([{ display_name: 'Jane Dorn' }]);
     expect(view.queryByRole('region', { name: 'Unsaved changes' })).toBeNull();
-    expect(view.getAllByText('Jane D.')).toHaveLength(2);
+    expect(view.getAllByText('Jane Dorn')).toHaveLength(2);
   });
 
   it('asks for password and code for a new address and then shows "Confirmation pending"', async () => {

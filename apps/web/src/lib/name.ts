@@ -16,15 +16,16 @@ export function normalizeName(value: string): string {
 }
 
 /**
- * Invisible characters a name must not contain; `normalizeName` already replaces control and whitespace
- * characters (also U+2028/2029, U+FEFF).
+ * Characters of a name: letters of any language with their marks (such as a combining umlaut), spaces,
+ * hyphens and apostrophes (`'` and `’`). `normalizeName` already turns control and whitespace characters
+ * into single spaces.
  */
-const INVISIBLE = /[\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u206F]/u;
+const NAME = /^[\p{L}\p{M} '’-]*$/u;
 
-/** Error of a name: too long or with invisible characters, otherwise empty. */
+/** Error of a name: other characters or too long, otherwise empty (also for an empty name). */
 export function nameError(value: string): '' | 'too_long' | 'invalid' {
   const name = normalizeName(value);
-  if (INVISIBLE.test(name)) return 'invalid';
+  if (!NAME.test(name)) return 'invalid';
   return [...name].length > MAX_NAME ? 'too_long' : '';
 }
 

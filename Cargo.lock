@@ -1659,6 +1659,7 @@ dependencies = [
  "hmac",
  "http-body-util",
  "icu_normalizer",
+ "icu_properties",
  "image-webp",
  "imagesize",
  "jiff",

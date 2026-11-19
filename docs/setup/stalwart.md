@@ -190,7 +190,7 @@ Stalwart states the limits in the JMAP session; Roedy Mail follows them. If a va
 | CORS headers | `origin_not_allowed` | `Access-Control-Allow-Origin` is missing or does not match: turn on [CORS](#cors) and reload the settings. |
 | | `authorization_not_allowed`, `content_type_not_allowed` | `Access-Control-Allow-Headers` does not name `Authorization` or `Content-Type`. |
 | | `preflight_failed`, `preflight_status` | The preflight failed or did not get a 2xx response. |
-| | `no_public_url` (unk) | The app's address is not known (`ROEDY_PUBLIC_URL` or setup). |
+| | `no_public_url` (unk) | The app's address is not known (`ROEDY_PUBLIC_URL`). |
 | OAuth client | `unsupported_version` | The OAuth metadata are not those of Stalwart v1 (`revocation_endpoint` and `protected_resources` are missing): upgrade Stalwart to v1.x ("Upgrading from 0.16" in Stalwart's documentation). Also occurs without a client ID. |
 | | `no_client_id` | No client ID configured: create an [OAuth client](#oauth-client). |
 | | `no_metadata`, `metadata_unreachable` | No OAuth metadata at `/.well-known/oauth-authorization-server`. |

@@ -56,8 +56,8 @@ pub struct AppState {
     /// Intermediate steps of a multi-factor sign-in.
     pub challenges: Arc<Challenges>,
     pub trust_proxy: TrustProxy,
-    /// `ROEDY_PUBLIC_URL`; otherwise the address from the initial setup applies
-    /// ([`Self::public_url`]).
+    /// `ROEDY_PUBLIC_URL`; otherwise the address an older initial setup stored
+    /// applies ([`Self::public_url`]).
     pub configured_url: Option<Url>,
     /// Key for secrets in the database.
     pub secrets: Arc<SecretKey>,
@@ -200,8 +200,8 @@ impl AppState {
         }
     }
 
-    /// Public address of the app: `ROEDY_PUBLIC_URL` or the one from the
-    /// initial setup; the redirect URI and the CORS check depend on it.
+    /// Public address of the app: `ROEDY_PUBLIC_URL` or the one an older
+    /// initial setup stored; the redirect URI and the CORS check depend on it.
     pub async fn public_url(&self) -> anyhow::Result<Option<Url>> {
         if let Some(url) = &self.configured_url {
             return Ok(Some(url.clone()));
@@ -293,6 +293,9 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     let blocking_config = config.clone();
     let (conn, token, (secrets, key_source)) = db::blocking(move || {
         let conn = db::open(&blocking_config.data_dir)?;
+        // Before the setup token: without an address the setup would create
+        // an instance that cannot send links.
+        require_public_url(&conn, &blocking_config)?;
         let token = setup_token::ensure(&conn)?;
         // After `open`: the data directory exists by then.
         let key = SecretKey::load(&blocking_config)?;
@@ -350,6 +353,20 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     closed?;
     tracing::info!("Roedy Mail stopped");
     Ok(())
+}
+
+/// `ROEDY_PUBLIC_URL` is required; instances whose address an older setup
+/// stored (`app_settings.public_url`) keep starting with that one.
+fn require_public_url(conn: &Connection, config: &Config) -> anyhow::Result<()> {
+    if config.public_url.is_some()
+        || app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)?.is_some()
+    {
+        return Ok(());
+    }
+    anyhow::bail!(
+        "ROEDY_PUBLIC_URL is not set – set it to the public address of the app, \
+         e.g. https://mail.example.com (docs/ops.md › Configuration)"
+    )
 }
 
 async fn run_http(

@@ -83,7 +83,7 @@ describe('values', () => {
     expect(v.acctNameEditing).toBe(true);
     expect(v.acctNameVal).toBe('Max Miller');
     expect(v.nameDirty).toBe(false);
-    v.onNameDraft('Max M.');
+    v.onNameDraft('Max Mann');
     expect(profileValues(p).nameDirty).toBe(true);
     v.onNameDraft('  ');
     profileValues(p).onNameBlur();
@@ -135,16 +135,16 @@ describe('values', () => {
 describe('saving', () => {
   it('saves name and user name immediately with a toast without undo', async () => {
     const { calls } = mockApi({
-      'PATCH auth/me': [{ body: { status: 'ok', user: { ...USER, display_name: 'Max M.', username: 'mm' } } }],
+      'PATCH auth/me': [{ body: { status: 'ok', user: { ...USER, display_name: 'Max Mann', username: 'mm' } } }],
     });
     const p = new ProfilePage();
     p.editName();
-    p.setName(' Max   M. ');
+    p.setName(' Max   Mann ');
     p.edit('login');
     p.setField('login', 'mm');
     await p.save();
-    expect(sent(calls)).toEqual([{ call: 'PATCH auth/me', body: { display_name: 'Max M.', username: 'mm' } }]);
-    expect(session.user).toMatchObject({ display_name: 'Max M.', username: 'mm', mfa_enabled: false });
+    expect(sent(calls)).toEqual([{ call: 'PATCH auth/me', body: { display_name: 'Max Mann', username: 'mm' } }]);
+    expect(session.user).toMatchObject({ display_name: 'Max Mann', username: 'mm', mfa_enabled: false });
     expect(ui.toast).toMatchObject({ text: 'Changes saved', undo: false });
     expect(profileValues(p).nameDirty).toBe(false);
   });
@@ -224,7 +224,7 @@ describe('saving', () => {
     });
     const p = new ProfilePage();
     p.editName();
-    p.setName('Max M.');
+    p.setName('Max Mann');
     await p.save();
     await vi.waitFor(() => expect(session.user).toBeNull());
     expect(ui.toast).toBeNull();

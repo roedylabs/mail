@@ -107,15 +107,9 @@ const SETUP_VALUES = {
   'su-email': 'alex@example.com',
   'su-pw': 'Lakeside-Harbor-2026!',
   'su-pw2': 'Lakeside-Harbor-2026!',
-  'su-srv': 'https://mail.example.com',
-  'su-srvlabel': 'Lakeside Mail',
-  'su-srvdoms': 'example.com',
-  'su-oauser': 'admin@example.com',
-  'su-oapw': 'demo-app-password',
-  'su-pub': 'https://webmail.example.com',
 };
 
-/** Fills the visible setup fields with the demo values and registers the OAuth client. */
+/** Fills the visible setup fields with the demo values. */
 async function fillSetup(page) {
   const fields = await page.evaluate(() =>
     [...document.querySelectorAll('input')]
@@ -123,26 +117,15 @@ async function fillSetup(page) {
       .map((i) => ({ id: i.id, type: i.type, value: i.value })),
   );
   for (const f of fields) {
-    // The public URL is preset with the dev server's address.
-    if (!['text', 'password', 'email', 'url'].includes(f.type)) continue;
-    if (f.value && (f.id !== 'su-pub' || f.value === SETUP_VALUES['su-pub'])) continue;
+    if (f.value || !['text', 'password', 'email', 'url'].includes(f.type)) continue;
     await page
       .locator(`#${f.id}`)
       .fill(SETUP_VALUES[f.id] ?? (f.type === 'password' ? 'demo-app-password' : 'noreply@example.com'))
       .catch(() => {});
   }
-  await page.evaluate(() => {
-    for (const g of document.querySelectorAll('[role=radiogroup]'))
-      if (g.offsetParent && !g.querySelector('[aria-checked=true]')) g.querySelector('[role=radio]')?.click();
-  });
-  const register = page.locator('button.register').filter({ visible: true });
-  if ((await register.count()) && (await register.first().isEnabled())) {
-    await register.first().click();
-    await settle(page, 600);
-  }
 }
 
-/** Walks the setup wizard to step `n` (1–6): fills each step, then "Continue". */
+/** Walks the setup wizard to step `n` (1–4): fills each step, then "Continue". */
 async function setupStep(page, n) {
   const stepOf = () =>
     page.evaluate(() => {
@@ -199,24 +182,12 @@ const SHOTS = [
   // Walkthrough
   { name: 'setup-token', path: '/setup', opts: { setup: true }, prepare: lightTheme },
   {
-    name: 'setup-server',
-    path: '/setup',
-    opts: { setup: true },
-    prepare: async (p) => {
-      await lightTheme(p);
-      await setupStep(p, 4);
-      await fillSetup(p);
-      await p.locator('button.primary').filter({ visible: true }).last().click();
-      await settle(p, 1500);
-    },
-  },
-  {
     name: 'setup-review',
     path: '/setup',
     opts: { setup: true },
     prepare: async (p) => {
       await lightTheme(p);
-      await setupStep(p, 6);
+      await setupStep(p, 4);
     },
   },
   { name: 'login', path: '/login', opts: { guest: true }, prepare: lightTheme },

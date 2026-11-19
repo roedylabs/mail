@@ -31,14 +31,14 @@ The basis is [`deploy/compose.yml`](../deploy/compose.yml): a container `roedy-m
    chmod 600 .env
    ```
 
-   It lists every variable of `compose.yml`. Replace `webmail.example.com` with your own public host name; the minimum is:
+   It lists every variable of `compose.yml`. Replace `mail.example.com` with your own public host name; the minimum is:
 
    ```sh
-   ROEDY_PUBLIC_URL=https://webmail.example.com
+   ROEDY_PUBLIC_URL=https://mail.example.com
    ROEDY_IMAGE_TAG=0.1
    ```
 
-   `ROEDY_PUBLIC_URL` sets the address for the setup, links in emails and the redirect URI; without it, the setup asks for it. A fixed version in the tag (`0.1` follows the patches of 0.1.x, `0.1.0` is exactly that version) makes updates predictable; `latest` is the default. Pre-releases such as `0.2.0-rc.1` are only available under their own name. All variables: [Configuration](#configuration).
+   `ROEDY_PUBLIC_URL` is required: it sets the address for links in emails and the redirect URI; without it, the server does not start (instances set up before 0.2 keep the address their setup stored). A fixed version in the tag (`0.1` follows the patches of 0.1.x, `0.1.0` is exactly that version) makes updates predictable; `latest` is the default. Pre-releases such as `0.2.0-rc.1` are only available under their own name. All variables: [Configuration](#configuration).
 
 2. Start and check the health (the image is public, no `docker login` needed):
 
@@ -137,7 +137,7 @@ All settings come from environment variables, with Compose from the `.env` file 
 |---|---|---|
 | `ROEDY_LISTEN` | `0.0.0.0:8080` | Address and port of the HTTP server. The reverse proxy handles TLS. |
 | `ROEDY_DATA_DIR` | `data` relative to the working directory (in the image `/data`) | [Data directory](#data-directory) with the database `roedy.sqlite3`. Must be on a local file system (SQLite in WAL mode). |
-| `ROEDY_PUBLIC_URL` | – | Public address, e.g. `https://webmail.example.com` (without credentials, query or fragment). If set, it fixes the value in the setup; otherwise the setup asks for it. |
+| `ROEDY_PUBLIC_URL` | – | **Required.** Public address, e.g. `https://mail.example.com` (without credentials, query or fragment). Without it, `serve` exits with an error, unless the setup of an older version stored an address. |
 | `ROEDY_LOG` | `info` | Log filter in the format of [`EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html), e.g. `warn` or `info,roedy_mail_server=debug`. The setup token always appears. |
 | `ROEDY_LOG_FORMAT` | `json` | `json` (one line per event) or `text`. Logs go to stderr. |
 | `ROEDY_WEB_DIR` | – | Directory with the web app build (e.g. `apps/web/build`). Takes precedence over the embedded web app; for development. |
@@ -161,7 +161,7 @@ docker exec roedy-mail roedy-mail setup-token   # alternatively
 
 The token is valid until the setup is completed; afterwards `roedy-mail setup-token` reports `error: Setup is complete; there is no setup token anymore.` (exit code 1). After five wrong entries, input from that address is blocked for 30 seconds.
 
-The setup has six steps: (1) setup token, (2) administrator with name and email address, (3) password, (4) mail server with connection test, OAuth client ([`stalwart.md`](setup/stalwart.md#oauth-client)) and public address of the app (preset if `ROEDY_PUBLIC_URL` is set), (5) system emails (optional, [sender account](setup/stalwart.md#sender-account-for-system-emails)) and (6) a summary. Afterwards the administrator is signed in.
+The setup creates the administrator: setup token, name and email address, password and a summary. Afterwards the administrator is signed in and adds the mail server ([`stalwart.md`](setup/stalwart.md#oauth-client)) under Administration › Mail servers and the system emails ([sender account](setup/stalwart.md#sender-account-for-system-emails)) under Administration › Email.
 
 Next:
 
