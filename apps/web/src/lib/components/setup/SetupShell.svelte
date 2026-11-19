@@ -65,11 +65,15 @@
     canBack?: boolean;
     onback?: () => void;
     primary?: Primary;
+    /** Width of the action row in two columns, at its right edge (default: the right column). */
+    actionsW?: string;
     onsubmit?: () => void;
     /** Registers the heading and the card for the focus and the shake. */
     reg: (key: 'heading' | 'card') => Attachment<HTMLElement>;
     /** Fields of the step (right column) or the done screen's content, with the current values and level. */
     fields: Snippet<[look: Look, level: number]>;
+    /** Layer above the page (a popover or sheet of the step), positioned in the whole window. */
+    overlay?: Snippet<[look: Look]>;
   }
 
   let {
@@ -84,9 +88,11 @@
     canBack = false,
     onback,
     primary,
+    actionsW,
     onsubmit,
     reg,
     fields,
+    overlay,
   }: Props = $props();
 
   let root: HTMLDivElement | undefined = $state();
@@ -295,7 +301,12 @@
               </div>
 
               {#if !mobile && primary}
-                <div class="actions" style:margin-top={look.btnLeft ? '16px' : look.btnTop}>
+                <div
+                  class="actions"
+                  style:margin-top={look.btnLeft ? '16px' : look.btnTop}
+                  style:width={look.two && !look.btnLeft ? actionsW : undefined}
+                  style:margin-left={look.two && !look.btnLeft && actionsW ? 'auto' : undefined}
+                >
                   {#if canBack}
                     <button type="button" class="back lift press" onclick={back}>
                       <span class="bi"><Icon name="ti-arrow-left" /></span><span class="ell">{m.setup_back()}</span>
@@ -341,6 +352,7 @@
   {#if swipe}
     <div class="chip" data-setup-chip aria-hidden="true"><Icon name="ti-chevron-left" /></div>
   {/if}
+  {@render overlay?.(look)}
 </div>
 
 <style>
@@ -661,6 +673,7 @@
   /* Actions: Back directly left of the primary button, 1/3 : 2/3 */
   .actions {
     grid-area: actions;
+    max-width: 100%;
     min-width: 0;
     display: flex;
     align-items: center;

@@ -89,7 +89,13 @@ async function openThread(page, subject) {
 async function ensureTheme(page, mode) {
   for (let i = 0; i < 3; i++) {
     if ((await page.evaluate(() => document.documentElement.dataset.mode)) === mode) return;
-    const toggle = button(page, mode === 'dark' ? 'Dark theme' : 'Light theme').filter({ visible: true });
+    let toggle = button(page, mode === 'dark' ? 'Dark theme' : 'Light theme').filter({ visible: true });
+    // The setup wizard: the theme cards of its first step.
+    if (!(await toggle.count())) {
+      toggle = page
+        .getByRole('radio', { name: mode === 'dark' ? 'Dark' : 'Light', exact: true })
+        .filter({ visible: true });
+    }
     if (!(await toggle.count())) return;
     await toggle.first().click();
     await settle(page, 400);
@@ -180,14 +186,22 @@ const SHOTS = [
   { name: 'mobile-mailbox', path: ALL, mobile: true },
   { name: 'mobile-message', path: ALL, mobile: true, prepare: (p) => openThread(p, 'Q4 roadmap review') },
   // Walkthrough
-  { name: 'setup-token', path: '/setup', opts: { setup: true }, prepare: lightTheme },
+  {
+    name: 'setup-token',
+    path: '/setup',
+    opts: { setup: true },
+    prepare: async (p) => {
+      await lightTheme(p);
+      await setupStep(p, 2);
+    },
+  },
   {
     name: 'setup-review',
     path: '/setup',
     opts: { setup: true },
     prepare: async (p) => {
       await lightTheme(p);
-      await setupStep(p, 4);
+      await setupStep(p, 5);
     },
   },
   { name: 'login', path: '/login', opts: { guest: true }, prepare: lightTheme },
