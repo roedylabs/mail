@@ -42,7 +42,10 @@ describe('Setup page', () => {
     expect(view.getByRole('img', { name: 'Step 2 of 5' })).toBeInTheDocument();
     expect(ui.setupTitle).toBe('Setup token · Setup');
     expect(view.getByRole('button', { name: 'Back' })).toBeInTheDocument();
-    expect(view.getByText('docker logs roedy-mail 2>&1 | grep Setup-Token')).toBeInTheDocument();
+    // One line of text with its spaces (a selection copies the command as it is).
+    expect(view.container.querySelector('.cmd-parts')?.textContent).toBe(
+      'docker logs roedy-mail 2>&1 | grep Setup-Token',
+    );
     expect(view.getByText('Setup-Token:')).toBeInTheDocument();
     await fireEvent.click(view.getByRole('button', { name: 'Copy: docker logs roedy-mail 2>&1 | grep Setup-Token' }));
     expect(writeText).toHaveBeenCalledWith('docker logs roedy-mail 2>&1 | grep Setup-Token');

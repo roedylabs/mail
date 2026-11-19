@@ -47,8 +47,9 @@
    * the search word in sage, redirects dimmed. Inline with real spaces
    * between them, so a selected command copies as one line.
    */
-  const CMD_PARTS = LOG_CMD.split(' ').map((t) => ({
+  const CMD_PARTS = LOG_CMD.split(' ').map((t, i) => ({
     t,
+    sep: i > 0 ? ' ' : '',
     tone:
       t === 'docker' || t === 'grep' ? 'prog' : t === 'Setup-Token' ? 'word' : t === '|' || t === '2>&1' ? 'dim' : '',
   }));
@@ -136,7 +137,7 @@
           <div class="cmd">
             <span class="prompt" aria-hidden="true">$</span>
             <div class="cmd-parts">
-              {#each CMD_PARTS as p, i (i)}{#if i > 0}{' '}{/if}<span class={p.tone}>{p.t}</span>{/each}
+              {#each CMD_PARTS as p, i (i)}{p.sep}<span class={p.tone}>{p.t}</span>{/each}
             </div>
           </div>
           <div class="log">
