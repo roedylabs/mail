@@ -39,6 +39,16 @@ async function atAdmin() {
   return view;
 }
 
+/** Opens the wizard at the password step (via the token and administrator steps). */
+async function atPassword() {
+  const view = await atAdmin();
+  await type('Your name', 'Anna Becker');
+  await type('Email address', 'anna@example.com');
+  await next();
+  await vi.waitFor(() => expect(view.getByLabelText(/^Password$/)).toHaveFocus());
+  return view;
+}
+
 /** Opens the wizard at the token step (a reload there after step 1). */
 function atToken() {
   sessionStorage.setItem('roedy-setup-step', '2');
@@ -383,26 +393,20 @@ describe('Setup page', () => {
     await type('Email address', 'anna@example.com');
     await next();
 
-    // 4: password with rules as chips
+    // 4: password with the check card (Continue greyed out until all four chips are met)
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set password');
     expect(view.getByText('anna@example.com')).toBeInTheDocument();
     const rules = view.getByRole('list', { name: 'Password requirements' });
     await type(/^Password$/, 'kurz');
     await next();
-    expect(
-      within(rules)
-        .getAllByRole('listitem')
-        .filter((li) => li.classList.contains('bad')),
-    ).toHaveLength(3);
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(within(rules).getAllByText(': not met yet')).toHaveLength(4);
     await type(/^Password$/, 'Safe-enough1');
-    expect(
-      within(rules)
-        .getAllByRole('listitem')
-        .filter((li) => li.classList.contains('ok')),
-    ).toHaveLength(3);
-    await fireEvent.click(view.getByRole('button', { name: 'Show password' }));
-    expect(view.getByLabelText(/^Password$/)).toHaveAttribute('type', 'text');
+    expect(within(rules).getAllByText(': met')).toHaveLength(3);
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
     await type('Confirm password', 'Safe-enough1');
+    expect(within(rules).getAllByText(': met')).toHaveLength(4);
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'false');
     await next();
 
     // 5: overview and completion
@@ -414,8 +418,9 @@ describe('Setup page', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Change Administrator' }));
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator');
     await vi.waitFor(() => expect(view.getByLabelText('Your name')).toHaveFocus());
-    // On through 3 and 4 again.
+    // On through 3 and 4 again: both passwords are still there.
     await next();
+    expect(view.getByLabelText('Confirm password')).toHaveValue('Safe-enough1');
     await next();
     await next('Finish setup');
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
@@ -668,5 +673,149 @@ describe('Step 3: administrator', () => {
     expect(view.getByLabelText('E-Mail-Adresse')).toHaveAttribute('placeholder', 'name@beispiel.example');
     await type('Ihr Name', 'Anna 1');
     expect(view.getByRole('alert')).toHaveTextContent('Name ungültig.');
+  });
+});
+
+describe('Step 4: password', () => {
+  it('shows the check card with strength and four chips, live while typing', async () => {
+    const view = await atPassword();
+    expect(ui.setupTitle).toBe('Password · Setup');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set password');
+    const rules = view.getByRole('list', { name: 'Password requirements' });
+    expect(
+      within(rules)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.trim()),
+    ).toEqual([
+      'At least 10 characters: not met yet',
+      'Upper- and lowercase letters: not met yet',
+      'A number or special character: not met yet',
+      'Passwords match: not met yet',
+    ]);
+    expect(view.getByText('Password strength')).toBeInTheDocument();
+    const word = view.getByText('Not set yet');
+    expect(word).toHaveAttribute('aria-live', 'polite');
+    await type(/^Password$/, 'a');
+    expect(word).toHaveTextContent('Weak');
+    await type(/^Password$/, 'Abcdefghij');
+    expect(word).toHaveTextContent('Fair');
+    await type(/^Password$/, 'Abcdefghi1');
+    expect(word).toHaveTextContent('Good');
+    await type(/^Password$/, 'Abcdefghijklm1');
+    expect(word).toHaveTextContent('Strong');
+    // The match chip does not count towards the strength.
+    await type('Confirm password', 'Abcdefghijklm1');
+    expect(within(rules).getByText('Passwords match').parentElement).toHaveClass('ok');
+    expect(word).toHaveTextContent('Strong');
+    expect(view.container.querySelector('#su-pw2-ok')).toHaveTextContent('Passwords match');
+  });
+
+  it('has a hidden username field and separate eyes outside the Tab order', async () => {
+    const view = await atPassword();
+    const user = view.container.querySelector<HTMLInputElement>('input[name="username"]');
+    expect(user).toHaveValue('anna@example.com');
+    expect(user).toHaveAttribute('autocomplete', 'username');
+    expect(user).not.toBeVisible();
+    expect(user).toHaveAttribute('tabindex', '-1');
+    const pw = view.getByLabelText(/^Password$/);
+    const pw2 = view.getByLabelText('Confirm password');
+    const eye = view.getByRole('button', { name: 'Show password' });
+    const eye2 = view.getByRole('button', { name: 'Show confirmed password' });
+    expect([eye.tabIndex, eye2.tabIndex]).toEqual([-1, -1]);
+    expect(eye).toHaveAttribute('aria-pressed', 'false');
+    await fireEvent.click(eye);
+    expect(pw).toHaveAttribute('type', 'text');
+    expect(pw2).toHaveAttribute('type', 'password');
+    expect(view.getByRole('button', { name: 'Hide password' })).toHaveAttribute('aria-pressed', 'true');
+    await fireEvent.click(eye2);
+    expect(pw2).toHaveAttribute('type', 'text');
+    expect(view.getByRole('button', { name: 'Hide confirmed password' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('shows "too long" while typing and the mismatch on Enter', async () => {
+    const view = await atPassword();
+    const pw = view.getByLabelText(/^Password$/);
+    const pw2 = view.getByLabelText('Confirm password');
+    await type(/^Password$/, `Safe-enough1${'ä'.repeat(507)}`);
+    expect(view.getByRole('alert')).toHaveTextContent('The password is too long (1024 bytes at most).');
+    expect(pw).toHaveAttribute('aria-invalid', 'true');
+    expect(pw).toHaveAttribute('aria-describedby', 'su-pw-err su-pw-rules');
+    await type(/^Password$/, 'Safe-enough1');
+    expect(view.queryByRole('alert')).toBeNull();
+    // Incomplete: Enter moves to the field that is missing something, no message.
+    await fireEvent.keyDown(pw, { key: 'Enter' });
+    expect(pw2).toHaveFocus();
+    expect(view.queryByRole('alert')).toBeNull();
+    await type('Confirm password', 'Safe-enough2');
+    await fireEvent.keyDown(pw2, { key: 'Enter' });
+    expect(view.getByRole('alert')).toHaveTextContent('The passwords don’t match.');
+    expect(pw2).toHaveAttribute('aria-invalid', 'true');
+    // A new password clears it.
+    await type(/^Password$/, 'Safe-enough2');
+    expect(view.queryByRole('alert')).toBeNull();
+    await fireEvent.keyDown(pw2, { key: 'Enter' });
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
+    // Passwords live in memory only.
+    expect(Object.values(sessionStorage)).not.toContain('Safe-enough2');
+  });
+
+  it('keeps "too long" after Back and forward again', async () => {
+    const view = await atPassword();
+    const long = `Safe-enough1${'ä'.repeat(507)}`;
+    await type(/^Password$/, long);
+    await type('Confirm password', long);
+    await fireEvent.click(view.getByRole('button', { name: 'Back' }));
+    await next();
+    expect(view.getByLabelText(/^Password$/)).toHaveValue(long);
+    expect(view.getByRole('alert')).toHaveTextContent('The password is too long (1024 bytes at most).');
+    expect(view.getByLabelText(/^Password$/)).toHaveAttribute('aria-invalid', 'true');
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
+  it('shows the Caps Lock hint at the focused field and forgets it on leaving', async () => {
+    const view = await atPassword();
+    const pw = view.getByLabelText(/^Password$/);
+    const pw2 = view.getByLabelText('Confirm password');
+    const hints = () => [...view.container.querySelectorAll<HTMLElement>('.note.caps')];
+    await fireEvent.keyDown(pw, { key: 'A', modifierCapsLock: true });
+    expect(hints()).toHaveLength(1);
+    expect(hints()[0]).toHaveTextContent('Caps Lock is on');
+    expect(view.getByRole('status')).toHaveTextContent('Caps Lock is on');
+    await fireEvent.keyDown(pw, { key: 'a' });
+    expect(hints()).toHaveLength(0);
+    // The Caps Lock key itself toggles the known state.
+    await fireEvent.keyDown(pw, { key: 'CapsLock' });
+    await fireEvent.keyUp(pw, { key: 'CapsLock' });
+    expect(hints()).toHaveLength(1);
+    // To the other password field: kept, shown there.
+    await fireEvent.blur(pw, { relatedTarget: pw2 });
+    await fireEvent.focus(pw2);
+    expect(hints()).toHaveLength(1);
+    expect(pw2.closest('.fld')).toContainElement(hints()[0]!);
+    // Anywhere else: forgotten.
+    await fireEvent.blur(pw2, { relatedTarget: null });
+    await fireEvent.focus(pw2);
+    expect(hints()).toHaveLength(0);
+    expect(view.getByRole('status')).toHaveTextContent('');
+  });
+
+  it('speaks German', async () => {
+    sessionStorage.setItem('roedy-setup-lang', 'de');
+    mockApi({ 'POST setup/token': [{ body: {} }] });
+    atToken();
+    const view = render(Page);
+    await vi.waitFor(() => expect(view.getByLabelText('Setup-Token')).toHaveFocus());
+    await type('Setup-Token', 'abcd-efgh-jklm');
+    await next('Weiter');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Administrator anlegen'));
+    await type('Ihr Name', 'Anna Becker');
+    await type('E-Mail-Adresse', 'anna@example.com');
+    await next('Weiter');
+    expect(ui.setupTitle).toBe('Passwort · Einrichtung');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Passwort festlegen');
+    expect(view.getByText('Noch leer')).toBeInTheDocument();
+    expect(view.getByRole('list', { name: 'Anforderungen an das Passwort' })).toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'Wiederholtes Passwort anzeigen' })).toBeInTheDocument();
+    expect(view.getByText(/Damit melden Sie sich künftig an\./)).toBeInTheDocument();
   });
 });

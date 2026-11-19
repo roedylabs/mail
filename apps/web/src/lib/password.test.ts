@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { PW_RULES, meetsPolicy, tooLong } from './password.ts';
+import { PW_RULES, meetsPolicy, strength, tooLong } from './password.ts';
 
 describe('password policy', () => {
   it('checks the three rules like the backend', () => {
@@ -28,5 +28,20 @@ describe('password policy', () => {
     expect(tooLong('a'.repeat(1024))).toBe(false);
     expect(tooLong('a'.repeat(1025))).toBe(true);
     expect(tooLong('\u00e4'.repeat(513))).toBe(true);
+  });
+});
+
+describe('password strength', () => {
+  it('counts the rules met, one more for 14 characters, anything typed at least weak', () => {
+    expect(strength('')).toBe(0);
+    expect(strength('a')).toBe(1);
+    expect(strength('abcdefghij')).toBe(1);
+    expect(strength('abcdefghij1')).toBe(2);
+    expect(strength('Abcdefghij')).toBe(2);
+    expect(strength('Abcdefghi1')).toBe(3);
+    expect(strength('Abcdefghijkl1')).toBe(3);
+    expect(strength('Abcdefghijklm1')).toBe(4);
+    // 14 characters alone do not make a password strong.
+    expect(strength('abcdefghijklmn')).toBe(1);
   });
 });
