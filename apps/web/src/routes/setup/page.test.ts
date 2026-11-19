@@ -759,27 +759,44 @@ describe('Step 4: password', () => {
     expect(Object.values(sessionStorage)).not.toContain('Safe-enough2');
   });
 
+  it('keeps "too long" after Back and forward again', async () => {
+    const view = await atPassword();
+    const long = `Safe-enough1${'ä'.repeat(507)}`;
+    await type(/^Password$/, long);
+    await type('Confirm password', long);
+    await fireEvent.click(view.getByRole('button', { name: 'Back' }));
+    await next();
+    expect(view.getByLabelText(/^Password$/)).toHaveValue(long);
+    expect(view.getByRole('alert')).toHaveTextContent('The password is too long (1024 bytes at most).');
+    expect(view.getByLabelText(/^Password$/)).toHaveAttribute('aria-invalid', 'true');
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
+  });
+
   it('shows the Caps Lock hint at the focused field and forgets it on leaving', async () => {
     const view = await atPassword();
     const pw = view.getByLabelText(/^Password$/);
     const pw2 = view.getByLabelText('Confirm password');
+    const hints = () => [...view.container.querySelectorAll<HTMLElement>('.note.caps')];
     await fireEvent.keyDown(pw, { key: 'A', modifierCapsLock: true });
-    expect(view.getByText('Caps Lock is on')).toBeInTheDocument();
+    expect(hints()).toHaveLength(1);
+    expect(hints()[0]).toHaveTextContent('Caps Lock is on');
+    expect(view.getByRole('status')).toHaveTextContent('Caps Lock is on');
     await fireEvent.keyDown(pw, { key: 'a' });
-    expect(view.queryByText('Caps Lock is on')).toBeNull();
+    expect(hints()).toHaveLength(0);
     // The Caps Lock key itself toggles the known state.
     await fireEvent.keyDown(pw, { key: 'CapsLock' });
     await fireEvent.keyUp(pw, { key: 'CapsLock' });
-    expect(view.getByText('Caps Lock is on')).toBeInTheDocument();
+    expect(hints()).toHaveLength(1);
     // To the other password field: kept, shown there.
     await fireEvent.blur(pw, { relatedTarget: pw2 });
     await fireEvent.focus(pw2);
-    expect(view.getAllByText('Caps Lock is on')).toHaveLength(1);
-    expect(pw2.closest('.fld')).toHaveTextContent('Caps Lock is on');
+    expect(hints()).toHaveLength(1);
+    expect(pw2.closest('.fld')).toContainElement(hints()[0]!);
     // Anywhere else: forgotten.
     await fireEvent.blur(pw2, { relatedTarget: null });
     await fireEvent.focus(pw2);
-    expect(view.queryByText('Caps Lock is on')).toBeNull();
+    expect(hints()).toHaveLength(0);
+    expect(view.getByRole('status')).toHaveTextContent('');
   });
 
   it('speaks German', async () => {

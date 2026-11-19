@@ -40,8 +40,21 @@ describe('Caps Lock', () => {
         ev('keyup', 'CapsLock', false),
       ]),
     ).toEqual([true, true, true, false]);
+    // Turned off right after turning it on, nothing typed in between.
+    expect(run([ev('keydown', 'CapsLock', true), ev('keyup', 'CapsLock', false)])).toEqual([true, false]);
     // On from an earlier key, then turned off: only the keyup arrives.
     expect(run([ev('keydown', 'A', true), ev('keyup', 'CapsLock', false)])).toEqual([true, false]);
+  });
+
+  it('keeps a press that reports the new state on both events (Windows)', () => {
+    expect(
+      run([
+        ev('keydown', 'CapsLock', true),
+        ev('keyup', 'CapsLock', true),
+        ev('keydown', 'CapsLock', false),
+        ev('keyup', 'CapsLock', false),
+      ]),
+    ).toEqual([true, true, false, false]);
   });
 
   it('ignores a repeated keydown', () => {

@@ -18,7 +18,7 @@
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
   import { CAPS_OFF, capsAfter } from '#lib/caps-lock.ts';
   import { m } from '#lib/paraglide/messages.js';
-  import { PW_RULES, strength } from '#lib/password.ts';
+  import { PW_RULES, strength, tooLong } from '#lib/password.ts';
   import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
   import type { SetupFlow } from '#lib/setup.svelte.ts';
 
@@ -55,7 +55,10 @@
     { id: 'match', label: m.setup_pw_match(), ok: !!flow.pw2 && flow.pw2 === flow.pw },
   ]);
 
-  const pwErr = $derived(typeof flow.err.pw === 'string' ? flow.err.pw : '');
+  /** Also for a too long password kept from before (Back and forward again clear the step's errors). */
+  const pwErr = $derived(typeof flow.err.pw === 'string' ? flow.err.pw : tooLong(flow.pw) ? m.setup_pw_too_long() : '');
+  /** Field marked invalid: its message, or the server's rules error without a text (`true`). */
+  const bad = $derived({ pw: !!pwErr || !!flow.err.pw, pw2: !!flow.err.pw2 });
   const pw2Err = $derived(typeof flow.err.pw2 === 'string' ? flow.err.pw2 : '');
   const match = $derived(!!flow.pw2 && flow.pw2 === flow.pw && !flow.err.pw2);
 
@@ -85,7 +88,8 @@
 
 {#snippet note(kind: 'caps' | 'err', text: string, id?: string)}
   {#if kind === 'caps'}
-    <div class="note caps">
+    <!-- Read by the status region below the card instead -->
+    <div class="note caps" aria-hidden="true">
       <span class="note-icon" aria-hidden="true"><Icon name="ti-arrow-big-up-lines" /></span><span>{text}</span>
     </div>
   {:else}
@@ -101,7 +105,7 @@
     key === 'pw' ? (show ? m.password_hide() : m.password_show()) : show ? m.setup_pw2_hide() : m.setup_pw2_show()}
   <div class="fld">
     <label for="su-{key}">{label}</label>
-    <div class="ctl" class:bad={!!flow.err[key]}>
+    <div class="ctl" class:bad={bad[key]}>
       <span class="icon"><Icon name={icon} /></span>
       <input
         id="su-{key}"
@@ -118,7 +122,7 @@
         onkeyup={onKey}
         onfocus={() => (focused = key)}
         onblur={onBlur}
-        aria-invalid={flow.err[key] ? 'true' : 'false'}
+        aria-invalid={bad[key] ? 'true' : 'false'}
         aria-describedby={describedby}
       />
       <!-- The eyes are out of the Tab order (password → confirm → Back → Continue); pointer, touch and screen readers reach them.
@@ -152,7 +156,7 @@
   {intro}
   {desk}
   {mob}
-  contentKey={[flow.err.pw ? 'p' : '', flow.err.pw2 ? 'q' : '', capsAt ?? ''].join('|')}
+  contentKey={[bad.pw ? 'p' : '', bad.pw2 ? 'q' : '', capsAt ?? ''].join('|')}
   {hidden}
   canBack={flow.canBack}
   onback={() => flow.back()}
@@ -208,6 +212,8 @@
     </div>
 
     <div class="flds">
+      <!-- The Caps Lock hint for screen readers: a status region that stays mounted, so the change is announced -->
+      <span class="sr-only" role="status">{capsAt ? m.setup_pw_caps() : ''}</span>
       <!-- For password managers: the account the new password belongs to; hidden, not focusable -->
       <input
         type="text"
