@@ -83,16 +83,19 @@
     return ctrl.signal;
   }
 
-  /** Session load of an attempt; a later attempt waits for it instead of starting a second one that could finish first. */
+  /**
+   * Session load of an attempt or of the sign-in, `true` if the server answered. One at a time: a later caller waits
+   * for the running one instead of starting a second one that could finish first. Its own deadline: a request that
+   * hangs counts as no answer. A start from the local copy (`fromCopy`) is no answer of the server either.
+   */
   let loading: Promise<boolean> | null = null;
+  const loaded = () =>
+    (loading ??= session
+      .load(undefined, deadline(NET_PROBE_MS))
+      .then(() => (session.status !== 'error' || session.failure !== 'offline') && !session.fromCopy)
+      .finally(() => (loading = null)));
+
   async function probe(signal: AbortSignal): Promise<boolean> {
-    // Shared by the attempts, so its own deadline: a request that hangs counts as no answer.
-    // A start from the local copy (`fromCopy`) is no answer of the server either.
-    const loaded = () =>
-      (loading ??= session
-        .load(undefined, deadline(NET_PROBE_MS))
-        .then(() => (session.status !== 'error' || session.failure !== 'offline') && !session.fromCopy)
-        .finally(() => (loading = null)));
     // The status could not be loaded before the first step: load the session again (a server error then shows the error page).
     if (session.status === 'error') return loaded();
     try {
@@ -106,22 +109,26 @@
 
   /**
    * After the done screen: load the signed-in session and open Administration › Mail servers. The done screen stays
-   * until that page is there (no detour via the start page). The server is asked first within the deadline of an
-   * attempt (a failed session load would replace the page): without an answer "No connection" shows, and the sign-in
-   * goes on once the server answers.
+   * until that page is there (no detour via the start page). Without an answer (the session or the page's code)
+   * "No connection" shows, and the sign-in goes on once the server answers. A run ends when the page goes or a newer
+   * run starts.
    */
+  let signInRun = 0;
+  let gone = false;
   async function signIn(): Promise<void> {
+    const run = ++signInRun;
+    const owns = () => !gone && run === signInRun;
+    const retryOnAnswer = () => {
+      signInOnAnswer = true;
+      net.show();
+    };
     ui.setupLeaving = true;
-    try {
-      await api<PublicConfig>('GET', 'public/config', undefined, { signal: deadline(NET_PROBE_MS) });
-    } catch (error) {
-      if (error instanceof NetworkError) {
-        signInOnAnswer = true;
-        net.show();
-        return;
-      }
+    const answered = await loaded();
+    if (!owns()) return;
+    if (!answered) {
+      retryOnAnswer();
+      return;
     }
-    await session.load();
     if (!session.authed) {
       // No session (cookie rejected) or a server error: the layout shows the sign-in or the error page.
       ui.setupLeaving = false;
@@ -132,11 +139,12 @@
     } catch {
       // The look chosen in the wizard stays applied.
     }
+    if (!owns()) return;
     try {
       await goto(resolve('/admin/mail-servers'), { replace: true });
     } catch {
-      // Navigation failed: the layout's usual redirect applies again.
-      ui.setupLeaving = false;
+      // The page did not load (no answer): stay on the done screen and try again with the next answer.
+      if (owns()) retryOnAnswer();
     }
   }
 
@@ -167,6 +175,7 @@
     } else flow.enter();
   });
   onDestroy(() => {
+    gone = true;
     for (const timer of enterTimers) clearTimeout(timer);
     flow.dispose();
     net.close();

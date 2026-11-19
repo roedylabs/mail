@@ -596,9 +596,9 @@ describe('Step 5: review', () => {
     expect(session.authed).toBe(true);
   });
 
-  it('lets the layout redirect again when opening Administration fails', async () => {
+  it('tries Administration › Mail servers again when the page did not load', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    nav.goto.mockRejectedValueOnce(new Error('navigation aborted'));
+    nav.goto.mockRejectedValueOnce(new Error('Failed to fetch dynamically imported module'));
     const view = await atReview();
     const config = {
       body: {
@@ -611,17 +611,55 @@ describe('Step 5: review', () => {
         setup_required: false,
       },
     };
+    const me = { body: { id: '1', email: 'anna@example.com', display_name: 'Anna Becker', role: 'admin' } };
     mockApi({
       'POST setup/complete': [{ status: 201, body: {} }],
-      'GET public/config': [config, config],
+      'GET public/config': Array.from({ length: 6 }, () => config),
+      'GET auth/me': Array.from({ length: 4 }, () => me),
+      'GET settings': Array.from({ length: 3 }, () => ({ body: { version: 1, settings: {} } })),
+    });
+    await next('Finish setup');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
+    await vi.advanceTimersByTimeAsync(2700);
+    // The done screen stays (no redirect to the start page), "No connection" offers the next attempt.
+    await view.findByRole('alertdialog', { name: 'No connection' });
+    expect(ui.setupLeaving).toBe(true);
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(nav.goto).toHaveBeenCalledTimes(2));
+    expect(nav.goto).toHaveBeenLastCalledWith('/admin/mail-servers', { replace: true });
+  });
+
+  it('does not navigate once the page has gone during the sign-in', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = await atReview();
+    let answer: (a: { status: number; body: unknown }) => void = () => {};
+    mockApi({
+      'POST setup/complete': [{ status: 201, body: {} }],
+      'GET public/config': [() => new Promise((resolve) => (answer = resolve))],
       'GET auth/me': [{ body: { id: '1', email: 'anna@example.com', display_name: 'Anna Becker', role: 'admin' } }],
       'GET settings': [{ body: { version: 1, settings: {} } }],
     });
     await next('Finish setup');
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
     await vi.advanceTimersByTimeAsync(2700);
-    await vi.waitFor(() => expect(nav.goto).toHaveBeenCalled());
-    await vi.waitFor(() => expect(ui.setupLeaving).toBe(false));
+    view.unmount();
+    expect(ui.setupLeaving).toBe(false);
+    // The server answers with the signed-in session after all: the old page no longer navigates.
+    answer({
+      status: 200,
+      body: {
+        name: 'Roedy Mail',
+        branding: BRAND0,
+        org: {},
+        maintenance: { on: false, message: null },
+        version: '0.2.0',
+        update: null,
+        setup_required: false,
+      },
+    });
+    await vi.waitFor(() => expect(session.authed).toBe(true));
+    await vi.advanceTimersByTimeAsync(100);
+    expect(nav.goto).not.toHaveBeenCalled();
   });
 
   it('shows "No connection" when Finish gets no answer', async () => {
