@@ -72,11 +72,12 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   const editor = page.getByRole('dialog', { name: 'More colors' });
   await expect(editor).toBeFocused();
   expect(await axeViolations(page), 'axe: colour editor').toEqual([]);
-  await editor.getByLabel('Or your own hex code').fill('#4a7bd0');
+  // A colour whose ink reaches 4.5 : 1 (the ink rule for custom colours is #164).
+  await editor.getByLabel('Or your own hex code').fill('#5b8def');
   await editor.getByRole('button', { name: 'Apply' }).click();
   await expect(editor).toBeHidden();
-  await expect(page.getByRole('radio', { name: 'Custom #4A7BD0' })).toBeFocused();
-  await page.getByRole('radio', { name: 'Custom #4A7BD0' }).press('Enter');
+  await expect(page.getByRole('radio', { name: 'Custom #5B8DEF' })).toBeFocused();
+  await page.getByRole('radio', { name: 'Custom #5B8DEF' }).press('Enter');
 
   // 2 Token
   await step(page, 'Set up Roedy Mail');
