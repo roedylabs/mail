@@ -43,3 +43,20 @@ export function meetsPolicy(value: string): boolean {
 export function tooLong(value: string): boolean {
   return new TextEncoder().encode(value).length > MAX_PASSWORD_BYTES;
 }
+
+/** 0 not set yet, 1 weak, 2 fair, 3 good, 4 strong. */
+export type Strength = 0 | 1 | 2 | 3 | 4;
+
+/** Length from which a password that meets all rules counts as strong. */
+export const STRONG_LENGTH = 14;
+
+/**
+ * Strength for the meter of the setup: the rules met (0–3), plus one for
+ * 14 or more characters once all are met; anything typed counts at least as
+ * weak.
+ */
+export function strength(value: string): Strength {
+  if (!value) return 0;
+  const met = PW_RULES.filter((rule) => rule.test(value)).length;
+  return Math.max(1, met + (met === PW_RULES.length && value.length >= STRONG_LENGTH ? 1 : 0)) as Strength;
+}

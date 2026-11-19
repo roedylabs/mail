@@ -395,24 +395,40 @@ describe('Steps 3 and 4', () => {
 
   it('checks policy, length and repetition of the password', () => {
     const { flow, h } = at(4);
-    flow.pw = 'tooshort';
+    flow.edit('pw', '');
+    flow.edit('pw2', '');
+    expect(flow.pwReady).toBe(false);
+    // Incomplete: no message, the focus moves to the field that is missing something.
+    flow.edit('pw', 'tooshort');
     flow.submitPw();
-    expect(flow.err.pw).toBe(true);
-    expect(h.fail).toHaveBeenCalledWith('pw');
-    flow.pw = `A1${'a'.repeat(1023)}`;
+    expect(h.focus).toHaveBeenLastCalledWith('pw');
+    expect(flow.err).toEqual({});
+    // Too long shows while typing and goes again as soon as it fits.
+    flow.edit('pw', `A1${'a'.repeat(1023)}`);
+    expect(flow.err.pw).toBe('The password is too long (1024 bytes at most).');
     flow.submitPw();
-    expect(flow.err.pw).toBe('The password is too long.');
+    expect(h.focus).toHaveBeenLastCalledWith('pw');
     flow.edit('pw', 'Safe-enough1');
-    flow.pw2 = '';
+    expect(flow.err.pw).toBeUndefined();
     flow.submitPw();
-    expect(flow.err.pw2).toBe('Please confirm the password.');
-    flow.pw2 = 'Safe-enough2';
+    expect(h.focus).toHaveBeenLastCalledWith('pw2');
+    expect(h.fail).not.toHaveBeenCalled();
+    // A filled confirmation that differs: its message with the shake; a new password clears it.
+    flow.edit('pw2', 'Safe-enough2');
+    expect(flow.pwReady).toBe(false);
     flow.submitPw();
     expect(flow.err.pw2).toBe('The passwords don’t match.');
-    flow.pw2 = 'Safe-enough1';
+    expect(h.fail).toHaveBeenCalledWith('pw2');
+    flow.edit('pw', 'Safe-enough2');
+    expect(flow.err.pw2).toBeUndefined();
+    expect(flow.pwReady).toBe(true);
     flow.submitPw();
     expect(flow.step).toBe(5);
     expect(h.entered).toHaveBeenLastCalledWith(5, 'heading');
+    // Kept in memory for the way back.
+    flow.back();
+    expect([flow.step, flow.pw, flow.pw2, flow.pwReady]).toEqual([4, 'Safe-enough2', 'Safe-enough2', true]);
+    expect(Object.keys(sessionStorage).filter((k) => /pw|password/.test(k))).toEqual([]);
   });
 
   it('goes back keeping everything entered, not from the first step', () => {
@@ -488,7 +504,7 @@ describe('Step 5: completion', () => {
     expect(await finish()).toEqual([3, { name: 'The name is too long.' }]);
     expect(h.fail).toHaveBeenLastCalledWith('name');
     expect(await finish()).toEqual([3, { name: 'Use letters, spaces, hyphens and apostrophes only.' }]);
-    expect(await finish()).toEqual([4, { pw: 'The password is too long.' }]);
+    expect(await finish()).toEqual([4, { pw: 'The password is too long (1024 bytes at most).' }]);
     expect(h.error).not.toHaveBeenCalled();
     // A field without text: error toast, the overview stays.
     expect((await finish())[0]).toBe(5);

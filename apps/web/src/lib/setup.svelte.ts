@@ -283,12 +283,18 @@ export class SetupFlow {
   /** Step 3 complete: a name with allowed characters only and a valid email address (Continue is greyed out until then). */
   adminReady = $derived(!!normalizeName(this.name) && !nameError(this.name) && isEmail(this.email.trim()));
 
+  /** The password meets the rules and fits (1024 bytes). */
+  pwOk = $derived(meetsPolicy(this.pw) && !tooLong(this.pw));
+  /** Step 4 complete: the password is fine and the confirmation equals it (Continue is greyed out until then). */
+  pwReady = $derived(this.pwOk && !!this.pw2 && this.pw2 === this.pw);
+
   // ---- Inputs ----
 
   /**
    * Changes a field and discards its error. The name is checked while
    * typing: at most 100 characters (pasting is cut off too), invalid
-   * characters show their message at once.
+   * characters show their message at once. So is the password's length (over
+   * 1024 bytes); a new password discards the mismatch of the confirmation.
    */
   edit(field: Exclude<Field, 'token'>, value: string): void {
     if (field === 'name') value = limitName(value);
@@ -297,6 +303,7 @@ export class SetupFlow {
     const err = { ...this.err, [field]: undefined };
     if (field === 'pw') err.pw2 = undefined;
     if (field === 'name' && nameError(value) === 'invalid') err.name = m.setup_name_invalid_text();
+    if (field === 'pw' && tooLong(value)) err.pw = m.setup_pw_too_long();
     this.err = err;
   }
 
@@ -393,13 +400,21 @@ export class SetupFlow {
     this.go(4);
   }
 
+  /**
+   * "Continue" on step 4 (Enter too while it is greyed out): a filled
+   * confirmation that differs shows its message (with the shake); otherwise
+   * the focus moves to the field that is missing something, no message.
+   */
   submitPw(): void {
-    const err: Errors = {};
-    if (tooLong(this.pw)) err.pw = m.password_too_long();
-    else if (!meetsPolicy(this.pw)) err.pw = true;
-    else if (this.pw2 !== this.pw) err.pw2 = this.pw2 ? m.setup_pw2_mismatch() : m.setup_pw2_required();
-    if (this.failWith(err, ['pw', 'pw2'])) return;
-    this.go(5);
+    if (this.pwReady) {
+      this.go(5);
+      return;
+    }
+    if (this.pwOk && this.pw2) {
+      this.failWith({ pw2: m.setup_pw2_mismatch() }, ['pw2']);
+      return;
+    }
+    this.hooks.focus?.(this.pwOk ? 'pw2' : 'pw');
   }
 
   async finish(): Promise<void> {
@@ -539,7 +554,7 @@ function fieldText(field: Field, code: string): FieldError | null {
     case 'email':
       return required ? m.setup_email_required() : m.setup_email_invalid();
     case 'pw':
-      return code === 'too_long' ? m.password_too_long() : null;
+      return code === 'too_long' ? m.setup_pw_too_long() : null;
     default:
       return null;
   }

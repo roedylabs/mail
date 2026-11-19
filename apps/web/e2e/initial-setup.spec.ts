@@ -148,8 +148,47 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
 
   // 4 Password
   await step(page, 'Set password', 'Password');
-  await page.getByLabel('Password', { exact: true }).fill(admin.password);
-  await page.getByLabel('Confirm password', { exact: true }).fill(admin.password);
+  const pw = page.getByLabel('Password', { exact: true });
+  const pw2 = page.getByLabel('Confirm password', { exact: true });
+  const rules = page.getByRole('list', { name: 'Password requirements' });
+  await expect(page).toHaveTitle('Password · Setup');
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+  // A hidden username field for password managers.
+  await expect(page.locator('input[name="username"]')).toHaveValue(stalwart.admin.email);
+  // Enter on the incomplete step stays in the field that is missing something, without a message.
+  await pw.press('Enter');
+  await expect(pw).toBeFocused();
+  await expect(alert).toBeHidden();
+  await pw.fill('short');
+  await expect(page.getByText('Weak', { exact: true })).toBeVisible();
+  await pw.fill(admin.password);
+  await expect(rules.getByText(': met')).toHaveCount(3);
+  // Each field has its own eye, outside the Tab order: password → confirm → Back → Continue.
+  await page.getByRole('button', { name: 'Show password' }).click();
+  await expect(pw).toHaveAttribute('type', 'text');
+  await expect(pw2).toHaveAttribute('type', 'password');
+  await expect(pw).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(pw2).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Back' })).toBeFocused();
+  // A confirmation that differs: the message on Enter.
+  await pw2.fill(`${admin.password}x`);
+  await pw2.press('Enter');
+  await expect(alert).toContainText('The passwords don’t match.');
+  expect(await axeViolations(page), 'axe: passwords differ').toEqual([]);
+  await pw2.fill(admin.password);
+  await expect(alert).toBeHidden();
+  await expect(rules.getByText(': met')).toHaveCount(4);
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'false');
+  // Back and forward again: both passwords are kept (in memory only).
+  await page.getByRole('button', { name: 'Back' }).click();
+  await step(page, 'Create administrator', 'Your name');
+  await next(page).click();
+  await step(page, 'Set password', 'Password');
+  await expect(pw).toHaveValue(admin.password);
+  await expect(pw2).toHaveValue(admin.password);
+  expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(admin.password);
   await next(page).click();
 
   // 5 Review and completion
