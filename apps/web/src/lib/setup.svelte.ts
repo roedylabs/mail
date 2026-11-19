@@ -23,7 +23,7 @@ import { isHexColor, parseHex, type HexColor } from '#lib/color.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
 import { failText } from '#lib/errors.ts';
-import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
+import { limitName, nameError, normalizeName } from '#lib/name.ts';
 import { meetsPolicy, tooLong } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { isLocale } from '#lib/paraglide/runtime.js';
@@ -194,6 +194,8 @@ export interface ReviewRow {
 export interface SetupHooks {
   /** Input rejected: shake the card, focus the field. */
   fail?: (field?: Field) => void;
+  /** Incomplete step: focus the field, no message. */
+  focus?: (field: Field) => void;
   /** Step changed: focus the field or heading (`null`: the focus follows from `fail`). */
   entered?: (step: Step, focus: Focus | null) => void;
   /** Error without a text of its own: error toast (`ui.toasts.error`). */
@@ -278,14 +280,23 @@ export class SetupFlow {
 
   firstName = $derived(normalizeName(this.name).split(' ')[0] ?? '');
 
+  /** Step 3 complete: a name with allowed characters only and a valid email address (Continue is greyed out until then). */
+  adminReady = $derived(!!normalizeName(this.name) && !nameError(this.name) && isEmail(this.email.trim()));
+
   // ---- Inputs ----
 
-  /** Changes a field and discards its error. */
+  /**
+   * Changes a field and discards its error. The name is checked while
+   * typing: at most 100 characters (pasting is cut off too), invalid
+   * characters show their message at once.
+   */
   edit(field: Exclude<Field, 'token'>, value: string): void {
+    if (field === 'name') value = limitName(value);
     this[field] = value;
     if (field === 'name' || field === 'email') writeSession(field, value);
     const err = { ...this.err, [field]: undefined };
     if (field === 'pw') err.pw2 = undefined;
+    if (field === 'name' && nameError(value) === 'invalid') err.name = m.setup_name_invalid_text();
     this.err = err;
   }
 
@@ -356,14 +367,29 @@ export class SetupFlow {
     }
   }
 
+  /**
+   * "Continue" on step 3 (Enter too while it is greyed out): moves the focus
+   * to the first empty field, shows the name's message (with the shake) or
+   * moves the focus to an invalid address; no message for the address.
+   */
   submitAdmin(): void {
-    const err: Errors = {};
-    const nameBad = nameError(this.name);
-    if (!this.name.trim()) err.name = m.setup_name_required();
-    else if (nameBad) err.name = nameErrorText(nameBad);
+    const name = normalizeName(this.name);
     const email = this.email.trim();
-    if (!isEmail(email)) err.email = email ? m.setup_email_invalid() : m.setup_email_required();
-    if (this.failWith(err, ['name', 'email'])) return;
+    if (!name || !email) {
+      this.hooks.focus?.(name ? 'email' : 'name');
+      return;
+    }
+    const bad = nameError(this.name);
+    if (bad) {
+      this.failWith({ name: bad === 'invalid' ? m.setup_name_invalid_text() : m.error_name_long() }, ['name']);
+      return;
+    }
+    if (!isEmail(email)) {
+      this.hooks.focus?.('email');
+      return;
+    }
+    writeSession('name', this.name.trim());
+    writeSession('email', email);
     this.go(4);
   }
 
@@ -508,7 +534,7 @@ function fieldText(field: Field, code: string): FieldError | null {
         : code === 'too_long'
           ? m.error_name_long()
           : code === 'invalid'
-            ? m.error_name_invalid()
+            ? m.setup_name_invalid_text()
             : null;
     case 'email':
       return required ? m.setup_email_required() : m.setup_email_invalid();

@@ -29,6 +29,7 @@ afterEach(() => {
 function hooks() {
   return {
     fail: vi.fn<(field?: Field) => void>(),
+    focus: vi.fn<(field: Field) => void>(),
     entered: vi.fn<(step: Step, focus: Focus | null) => void>(),
     error: vi.fn<(text: string) => void>(),
     reload: vi.fn(() => Promise.resolve()),
@@ -341,28 +342,55 @@ describe('Step 2: setup token', () => {
 });
 
 describe('Steps 3 and 4', () => {
-  it('checks name and email', () => {
-    const { flow, h } = at(3);
-    flow.name = ' ';
-    flow.email = '';
-    flow.submitAdmin();
-    expect(flow.err).toEqual({
-      name: 'Please enter your name.',
-      email: 'Please enter your email address.',
-    });
-    expect(h.fail).toHaveBeenCalledWith('name');
-    flow.edit('name', 'Anna');
+  it('checks the name while typing and cuts it at 100 characters', () => {
+    const { flow } = at(3);
+    flow.edit('name', 'Anna Baker (Admin 1)');
+    expect(flow.err.name).toBe('Use letters, spaces, hyphens and apostrophes only.');
+    expect(flow.adminReady).toBe(false);
+    flow.edit('name', 'Anna O’Brien-Müller');
     expect(flow.err.name).toBeUndefined();
-    flow.email = 'anna@example';
+    expect(flow.adminReady).toBe(true);
+    // Pasting is cut off too; no error at the limit.
+    flow.edit('name', 'Anna Baker '.repeat(12));
+    expect(flow.name).toHaveLength(100);
+    expect(flow.err.name).toBeUndefined();
+    expect(readSession('name')).toBe(flow.name);
+  });
+
+  it('is ready only with a valid name and a valid address', () => {
+    const { flow } = at(3);
+    expect(flow.adminReady).toBe(true);
+    flow.edit('email', 'anna@example');
+    expect(flow.adminReady).toBe(false);
+    flow.edit('email', ' anna@example.com ');
+    flow.edit('name', '   ');
+    expect(flow.adminReady).toBe(false);
+  });
+
+  it('moves to the first empty or invalid field, with a message for the name only', () => {
+    const { flow, h } = at(3);
+    flow.edit('name', ' ');
+    flow.edit('email', '');
     flow.submitAdmin();
-    expect(flow.err.email).toBe('Please check the email address.');
-    flow.email = 'anna@example.com';
-    flow.name = 'Anna Baker 2';
+    expect(h.focus).toHaveBeenLastCalledWith('name');
+    flow.edit('name', 'Anna Baker 2');
     flow.submitAdmin();
-    expect(flow.err.name).toBe('The name contains invalid characters.');
-    flow.name = 'Anna O’Brien-Müller';
+    expect(h.focus).toHaveBeenLastCalledWith('email');
+    flow.edit('email', 'anna@example');
+    flow.submitAdmin();
+    // Invalid name: its message and the shake (`fail`), before the address.
+    expect(flow.err).toEqual({ name: 'Use letters, spaces, hyphens and apostrophes only.' });
+    expect(h.fail).toHaveBeenLastCalledWith('name');
+    flow.edit('name', 'Anna O’Brien-Müller ');
+    flow.submitAdmin();
+    expect(h.focus).toHaveBeenLastCalledWith('email');
+    expect(flow.err).toEqual({});
+    expect(h.fail).toHaveBeenCalledTimes(1);
+    expect(flow.step).toBe(3);
+    flow.edit('email', ' anna@example.com');
     flow.submitAdmin();
     expect(flow.step).toBe(4);
+    expect([readSession('name'), readSession('email')]).toEqual(['Anna O’Brien-Müller', 'anna@example.com']);
   });
 
   it('checks policy, length and repetition of the password', () => {
@@ -459,7 +487,7 @@ describe('Step 5: completion', () => {
     expect(h.entered).toHaveBeenLastCalledWith(3, null);
     expect(await finish()).toEqual([3, { name: 'The name is too long.' }]);
     expect(h.fail).toHaveBeenLastCalledWith('name');
-    expect(await finish()).toEqual([3, { name: 'The name contains invalid characters.' }]);
+    expect(await finish()).toEqual([3, { name: 'Use letters, spaces, hyphens and apostrophes only.' }]);
     expect(await finish()).toEqual([4, { pw: 'The password is too long.' }]);
     expect(h.error).not.toHaveBeenCalled();
     // A field without text: error toast, the overview stays.

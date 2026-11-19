@@ -115,10 +115,35 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await token.fill(await instance.setupToken());
   await next(page).click();
 
-  // 3 Administrator
+  // 3 Administrator: Continue greyed out until both fields are valid; the name is checked while typing
   await step(page, 'Create administrator', 'Your name');
-  await page.getByLabel('Your name').fill(admin.name);
-  await page.getByLabel('Email address').fill(stalwart.admin.email);
+  const name = page.getByLabel('Your name');
+  const email = page.getByLabel('Email address');
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+  // Enter on the empty step moves to the first empty field, without a message.
+  await name.press('Enter');
+  await expect(name).toBeFocused();
+  await expect(alert).toBeHidden();
+  await name.fill(`${admin.name} (1)`);
+  await expect(alert).toContainText('Invalid name.');
+  await expect(name).toHaveAttribute('aria-invalid', 'true');
+  expect(await axeViolations(page), 'axe: invalid name').toEqual([]);
+  // At most 100 characters (pasting is cut off too), the counter turns red at the limit; no error.
+  await name.fill(`${admin.name} `.repeat(12));
+  await expect(name).toHaveValue(`${admin.name} `.repeat(12).slice(0, 100));
+  await expect(page.locator('#su-name-count')).toHaveText('100 / 100');
+  await expect(alert).toBeHidden();
+  await name.fill(admin.name);
+  // Live account preview with the initials.
+  await expect(page.locator('.acct .avatar')).toHaveText('AA');
+  await email.fill('alex@example');
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+  // An invalid address: Enter moves there, no message.
+  await name.press('Enter');
+  await expect(email).toBeFocused();
+  await expect(alert).toBeHidden();
+  await email.fill(stalwart.admin.email);
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'false');
   await next(page).click();
 
   // 4 Password

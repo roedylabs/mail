@@ -17,6 +17,27 @@ describe('twoCol', () => {
 });
 
 describe('stepLook', () => {
+  it('takes the step’s own space above the fields in one column', () => {
+    const own = stepLook(
+      640,
+      false,
+      0,
+      DESK_LEVELS.map((l) => ({ ...l, fieldsTop: l.gap })),
+      MOB_LEVELS.map((l) => ({ ...l, fieldsTop: l.gap })),
+    );
+    expect(own.fieldsTop).toBe('28px');
+    expect(
+      stepLook(
+        390,
+        false,
+        0,
+        DESK_LEVELS,
+        MOB_LEVELS.map((l) => ({ ...l, fieldsTop: l.gap })),
+      ).fieldsTop,
+    ).toBe('26px');
+    expect(look(390, false).fieldsTop).toBe('20px');
+  });
+
   it('lays out mobile, one column and two columns', () => {
     const mob = look(390, false);
     expect([mob.tier, mob.cardMaxW, mob.cardPad, mob.h1, mob.rootPad]).toEqual([

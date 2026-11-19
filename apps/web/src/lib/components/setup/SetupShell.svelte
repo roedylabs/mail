@@ -53,6 +53,8 @@
     /** Document title of the step ("Setup token · Setup"). */
     docTitle: string;
     title?: string;
+    /** The heading never grows wider than the left column (a long single word such as "Administrator"). */
+    fitTitle?: boolean;
     /** Intro under the heading; `short` at the denser levels. */
     intro?: Snippet<[short: boolean]>;
     /** Height levels of the step (its own values on top of the shared ones). */
@@ -82,6 +84,7 @@
     step,
     docTitle,
     title = '',
+    fitTitle = false,
     intro,
     desk,
     mob,
@@ -268,6 +271,7 @@
               novalidate
               class:two={look.two}
               class:btn-left={look.btnLeft}
+              class:fit-title={fitTitle}
               style:grid-template-columns={look.cols}
               style:column-gap={look.colGap}
               style:--f-h1={look.h1}
@@ -603,6 +607,10 @@
     flex-direction: column;
   }
 
+  .fit-title .left {
+    container-type: inline-size;
+  }
+
   h1 {
     margin: 0;
     outline: none;
@@ -612,6 +620,10 @@
     line-height: 1.1;
     letter-spacing: -0.01em;
     text-wrap: balance;
+  }
+
+  .fit-title h1 {
+    font-size: min(var(--f-h1), 14.6cqi);
   }
 
   .intro {
