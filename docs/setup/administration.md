@@ -25,7 +25,7 @@ Only administrators see the pages: the menu entry is missing for everyone else, 
 
 ## Email: system email
 
-Invitations, confirmation links, security notices and notifications go out through the sender account. How the account is created in Stalwart is described under [Stalwart › Sender account for system emails](stalwart.md#sender-account-for-system-emails). The setup can already create the account; the page changes it afterwards.
+Invitations, confirmation links, security notices and notifications go out through the sender account. How the account is created in Stalwart is described under [Stalwart › Sender account for system emails](stalwart.md#sender-account-for-system-emails). The initial setup only creates the administrator: set up the sender account here right after the setup, and change it here later.
 
 | Section | Content |
 |---|---|

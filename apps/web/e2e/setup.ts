@@ -75,11 +75,13 @@ export async function connectServer(context: BrowserContext, instance: Instance,
     client_id: registered.client_id,
     domains: [stalwart.domain],
   });
-  await send('PUT', 'admin/system-mail', {
+  const mail = await send('PUT', 'admin/system-mail', {
     server_id: server.id,
     user: stalwart.admin.email,
     app_password: stalwart.admin.appPassword,
   });
+  // Saved even if the sign-in fails (`status: err` with `reason`).
+  expect(mail.status, `system mail usable (reason: ${String(mail.reason)})`).toBe('ok');
 }
 
 /**

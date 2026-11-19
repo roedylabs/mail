@@ -186,8 +186,11 @@ describe('Setup page', () => {
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
     expect(view.getByRole('img', { name: 'Step 4 of 4' })).toBeInTheDocument();
     expect(view.getByText('Anna Becker · anna@example.com')).toBeInTheDocument();
+    // No field in the overview: the focus moves to its heading.
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
     await fireEvent.click(view.getByRole('button', { name: 'Change Administrator' }));
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator');
+    await vi.waitFor(() => expect(view.getByLabelText('Your name')).toHaveFocus());
     // On through 2 and 3 again.
     await next();
     await next();

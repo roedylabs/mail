@@ -1,8 +1,8 @@
 # Preparing Stalwart for Roedy Mail
 
-> **Tested with Stalwart v1.1.0.** Covered are address, CORS and OAuth client – what the setup and Administration › Mail servers check –, rate limit, bans and reverse proxy, the sender account for system emails, "Send later", push, rules (Sieve), token lifetimes, emptying trash and spam and the JMAP limits. Operating Roedy Mail itself is described in [`docs/ops.md`](../ops.md).
+> **Tested with Stalwart v1.1.0.** Covered are address, CORS and OAuth client – what Administration › Mail servers checks –, rate limit, bans and reverse proxy, the sender account for system emails, "Send later", push, rules (Sieve), token lifetimes, emptying trash and spam and the JMAP limits. Operating Roedy Mail itself is described in [`docs/ops.md`](../ops.md).
 
-Roedy Mail speaks JMAP with Stalwart **directly from the browser**. The backend only issues short-lived access tokens. For this to work, every mail server needs three things, which the setup (step "Connect mail server") and "Test connection" under Administration › Mail servers check:
+Roedy Mail speaks JMAP with Stalwart **directly from the browser**. The backend only issues short-lived access tokens. For this to work, every mail server needs three things, which "Test connection" under Administration › Mail servers checks (add the server there right after the initial setup):
 
 | Diagnostic row | Condition | Section |
 |---|---|---|
@@ -102,13 +102,13 @@ Stalwart must then only be reachable via the proxy, otherwise a client could sta
 
 ## Sender account for system emails
 
-Roedy Mail sends invitations, password reset links and security notices via JMAP through an account on a server of the list. It is set up in the setup (step "System emails", on the server from the step before) or later under Administration › Email ([Administration](administration.md#email-system-email)). "Check and continue" signs in as before sending (identity, mailbox "Drafts"), but sends nothing.
+Roedy Mail sends invitations, password reset links and security notices via JMAP through an account on a server of the list. It is set up under Administration › Email ([Administration](administration.md#email-system-email)) once its server is in the list. "Test connection" signs in as before sending (identity, mailbox "Drafts"), but sends nothing.
 
 - **Account:** a mailbox of its own, e.g. `noreply@example.com`, with the right to send emails (JMAP Submission). The account's identity is the sender; name and reply-to address can be overridden in Roedy Mail. Stalwart rejects emails whose sender does not match the chosen identity.
 - **Sign-in:** ideally an **app password** created in this account's Account Manager (Account › Credentials › App Passwords); it bypasses a second factor. Stalwart allows at most five app passwords per account (`Authentication.maxAppPasswords`). Alternatively an access token. Roedy Mail sends user and app password via Basic Auth only to the server's address, never to another one (not even after a redirect). The migration to v1 carries app passwords over.
 - **Mailboxes:** the email is created as a draft in the mailbox with the role "Drafts" and ends up in "Sent" after sending (can be turned off; it is then deleted). Stalwart creates both mailboxes for every account.
-- **Rejected sign-ins:** they count in Stalwart against the address of the Roedy Mail server ([Bans](#rate-limit-and-bans)). After five rejected sign-ins at one server within 15 minutes (counting from the first, including the test in the setup; a successful send or test resets the counter) Roedy Mail stops trying there for 15 minutes; invitations and confirmation links then report "Not sent". So after a new app password, change the credentials in Roedy Mail first.
-- **Errors** of sending are in the server log (`System mail not sent` or `Sending account not usable` with `reason`, e.g. `auth_failed`, `unreachable`, `no_identity`, `no_mailbox`, `not_created` with Stalwart's error type such as `forbiddenFrom` or `forbiddenToSend`, `auth_locked`); Administration › Email shows the status, the test there and in the setup also the reason.
+- **Rejected sign-ins:** they count in Stalwart against the address of the Roedy Mail server ([Bans](#rate-limit-and-bans)). After five rejected sign-ins at one server within 15 minutes (counting from the first, including the tests under Administration › Email; a successful send or test resets the counter) Roedy Mail stops trying there for 15 minutes; invitations and confirmation links then report "Not sent". So after a new app password, change the credentials in Roedy Mail first.
+- **Errors** of sending are in the server log (`System mail not sent` or `Sending account not usable` with `reason`, e.g. `auth_failed`, `unreachable`, `no_identity`, `no_mailbox`, `not_created` with Stalwart's error type such as `forbiddenFrom` or `forbiddenToSend`, `auth_locked`); Administration › Email shows the status, the test there also the reason.
 
 ## Send later
 
@@ -176,7 +176,7 @@ Stalwart states the limits in the JMAP session; Roedy Mail follows them. If a va
 
 ## Diagnostic reasons
 
-"Test connection" answers each row with `ok`, `err` or `unk` (not checked) and names the cause in `reasons`; the app shows a hint for each reason. If the server is not reachable, CORS and OAuth stay unchecked (`not_reachable`). If Stalwart throttles the backend's requests (HTTP 429, [anonymous limit](#rate-limit-and-bans)), the affected row and all following ones stay unchecked (`throttled`), and the response names the waiting time in `retry_after` (seconds); so the address of the Roedy Mail server belongs on the allow list. If the server is reachable and there are only hints about CORS or OAuth, the setup can be continued with "Continue anyway". Without CORS and an OAuth client, however, users cannot connect their accounts; after the correction in Stalwart, test the server again under Administration › Mail servers.
+"Test connection" answers each row with `ok`, `err` or `unk` (not checked) and names the cause in `reasons`; the app shows a hint for each reason. If the server is not reachable, CORS and OAuth stay unchecked (`not_reachable`). If Stalwart throttles the backend's requests (HTTP 429, [anonymous limit](#rate-limit-and-bans)), the affected row and all following ones stay unchecked (`throttled`), and the response names the waiting time in `retry_after` (seconds); so the address of the Roedy Mail server belongs on the allow list. If the server is reachable and there are only hints about CORS or OAuth, it can still be saved. Without CORS and an OAuth client, however, users cannot connect their accounts; after the correction in Stalwart, test the server again under Administration › Mail servers.
 
 | Row | Reason | Meaning, remedy |
 |---|---|---|

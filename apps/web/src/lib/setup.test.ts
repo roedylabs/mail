@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
-import { DONE_MS, SetupFlow, formatToken, type Field, type Step } from './setup.svelte.ts';
+import { DONE_MS, SetupFlow, formatToken, type Field, type Focus, type Step } from './setup.svelte.ts';
 
 const TOKEN = 'ABCD-EFGH-JKLM';
 
@@ -12,7 +12,7 @@ afterEach(() => {
 function hooks() {
   return {
     fail: vi.fn<(field?: Field) => void>(),
-    entered: vi.fn<(step: Step, field?: Field) => void>(),
+    entered: vi.fn<(step: Step, focus?: Focus) => void>(),
     error: vi.fn<(text: string) => void>(),
     reload: vi.fn(() => Promise.resolve()),
   };
@@ -155,7 +155,7 @@ describe('Steps 2 and 3', () => {
     flow.pw2 = 'Safe-enough1';
     flow.submitPw();
     expect(flow.step).toBe(4);
-    expect(h.entered).toHaveBeenLastCalledWith(4, undefined);
+    expect(h.entered).toHaveBeenLastCalledWith(4, 'review');
   });
 });
 
@@ -163,8 +163,15 @@ describe('Step 4: completion', () => {
   it('shows the overview and sets up with the default appearance, then reloads the session', async () => {
     vi.useFakeTimers();
     const { flow, h } = at(4);
+    // A tab from a copied table cell: checked and sent as a space.
+    flow.name = ' Anna\tBaker ';
     const { calls } = mockApi({ 'POST setup/complete': [{ status: 201, body: { user: {} } }] });
     expect(flow.review.map((r) => [r.label, r.value])).toEqual([['Administrator', 'Anna Baker · anna@example.com']]);
+    flow.revisit(2);
+    expect(h.entered).toHaveBeenLastCalledWith(2, 'name');
+    flow.revisit(3);
+    expect(h.entered).toHaveBeenLastCalledWith(3, 'pw');
+    flow.step = 4;
     await flow.finish();
     expect(calls[0]?.headers['X-Setup-Token']).toBe(TOKEN);
     expect(calls[0]?.body).toEqual({

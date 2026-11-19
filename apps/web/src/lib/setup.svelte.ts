@@ -12,7 +12,7 @@ import { ApiError, api, fieldsOf, retryAfter } from '#lib/api.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
 import { failText } from '#lib/errors.ts';
-import { nameError, nameErrorText } from '#lib/name.ts';
+import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
 import { meetsPolicy, tooLong } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { getLocale } from '#lib/paraglide/runtime.js';
@@ -30,6 +30,8 @@ const ACCENT = 'apricot';
 
 export type Step = 1 | 2 | 3 | 4;
 export type Field = 'token' | 'name' | 'email' | 'pw' | 'pw2';
+/** Where focus goes when a step opens: a field or, in the overview, its heading. */
+export type Focus = Field | 'review';
 
 /** `true` marks a field without its own text (password rules as chips). */
 export type FieldError = string | true;
@@ -54,8 +56,8 @@ export type Phase = 'token' | 'admin' | 'password' | 'review' | 'loading' | 'err
 export interface SetupHooks {
   /** Input rejected: shake the card, focus the field. */
   fail?: (field?: Field) => void;
-  /** Step changed: focus the field. */
-  entered?: (step: Step, field?: Field) => void;
+  /** Step changed: focus the field or heading. */
+  entered?: (step: Step, focus?: Focus) => void;
   /** Error without a text of its own: error toast (`ui.toasts.error`). */
   error?: (text: string) => void;
   /** Reload the session: after completion signed in to the start page, on `setup_done` to the sign-in. */
@@ -69,6 +71,9 @@ export function formatToken(input: string): string {
   const raw = (match ? match[0] : upper).replace(/[^A-Z0-9]/g, '').slice(0, 12);
   return (raw.match(/.{1,4}/g) ?? []).join('-');
 }
+
+/** First field per step for "Change" in the overview. */
+const FIRST: Partial<Record<Step, Field>> = { 1: 'token', 2: 'name', 3: 'pw' };
 
 export class SetupFlow {
   step = $state<Step>(1);
@@ -114,12 +119,12 @@ export class SetupFlow {
     {
       icon: 'ti-user-shield',
       label: m.setup_review_admin(),
-      value: `${this.name.trim()} · ${this.email.trim()}`,
+      value: `${normalizeName(this.name)} · ${this.email.trim()}`,
       step: 2,
     },
   ]);
 
-  firstName = $derived(this.name.trim().split(/\s+/)[0] ?? '');
+  firstName = $derived(normalizeName(this.name).split(' ')[0] ?? '');
 
   phase = $derived.by((): Phase => {
     if (this.view === 'done') return 'success';
@@ -149,16 +154,16 @@ export class SetupFlow {
     if (this.step > 1 && !this.loading) this.go((this.step - 1) as Step);
   }
 
-  /** "Change" in the overview; not while completion is running. */
+  /** "Change" in the overview, into the first field of the step; not while completion is running. */
   revisit(step: Step): void {
-    if (!this.loading) this.go(step);
+    if (!this.loading) this.go(step, FIRST[step]);
   }
 
-  go(step: Step, field?: Field): void {
+  go(step: Step, focus?: Focus): void {
     this.step = step;
     this.loading = false;
     this.err = {};
-    this.hooks.entered?.(step, field);
+    this.hooks.entered?.(step, focus);
   }
 
   // ---- Steps ----
@@ -199,14 +204,15 @@ export class SetupFlow {
     else if (!meetsPolicy(this.pw)) err.pw = true;
     else if (this.pw2 !== this.pw) err.pw2 = this.pw2 ? m.setup_pw2_mismatch() : m.setup_pw2_required();
     if (this.failWith(err, ['pw', 'pw2'])) return;
-    this.go(4);
+    this.go(4, 'review');
   }
 
   async finish(): Promise<void> {
     if (this.loading) return;
     this.loading = true;
     const body = {
-      name: this.name.trim(),
+      // The same value the check of step 2 saw (a tab from a copied cell becomes a space).
+      name: normalizeName(this.name),
       email: this.email.trim(),
       password: this.pw,
       settings: { lang: getLocale(), mode: MODE, accent: ACCENT },

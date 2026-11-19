@@ -21,7 +21,7 @@
   import { shake } from '#lib/shake.ts';
   import { m } from '#lib/paraglide/messages.js';
   import { PW_RULES } from '#lib/password.ts';
-  import { LOG_CMD, SetupFlow, type Field, type SetupPageValues } from '#lib/setup.svelte.ts';
+  import { LOG_CMD, SetupFlow, type Field, type Focus, type SetupPageValues } from '#lib/setup.svelte.ts';
   import { prefs } from '#lib/state/prefs.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
@@ -34,6 +34,8 @@
   /** Tile of the graphic that shakes on errors. */
   let artTile: HTMLElement | undefined = $state();
   let tokInput: HTMLInputElement | undefined = $state();
+  /** Heading of the overview: focus target after the password step (no field there). */
+  let reviewHeading: HTMLHeadingElement | undefined = $state();
   const inputs: Partial<Record<Field, HTMLInputElement>> = $state({});
 
   const flow = new SetupFlow({
@@ -43,15 +45,15 @@
         if (field) focus(field);
       });
     },
-    entered: (_step, field) => {
-      if (!field) return;
+    entered: (_step, target) => {
+      if (!target) return;
       // Only after the fields have switched; if someone has chosen a field of the
       // card themselves in the meantime (fast typing, autofill), the focus stays
       // there instead of jumping in the middle of the input.
       const before = document.activeElement;
       setTimeout(() => {
         const now = document.activeElement;
-        if (now === before || !card?.contains(now)) focus(field);
+        if (now === before || !card?.contains(now)) focus(target);
       }, 40);
     },
     error: (text) => ui.toasts.error(text),
@@ -70,8 +72,8 @@
     copied.stop();
   });
 
-  function focus(field: Field) {
-    (field === 'token' ? tokInput : inputs[field])?.focus();
+  function focus(target: Focus) {
+    (target === 'token' ? tokInput : target === 'review' ? reviewHeading : inputs[target])?.focus();
   }
 
   // ---- Presentation ----
@@ -461,7 +463,7 @@
             </form>
           {:else}
             <form onsubmit={submit(() => flow.finish())} novalidate>
-              <h1>{m.setup_review_title()}</h1>
+              <h1 bind:this={reviewHeading} tabindex="-1">{m.setup_review_title()}</h1>
               <p class="intro">{m.setup_review_intro()}</p>
               <div class="review gap-m">
                 {#each flow.review as row (row.label)}
@@ -727,6 +729,11 @@
     line-height: 1.1;
     letter-spacing: -0.01em;
     text-wrap: balance;
+  }
+
+  /* Focus target after the password step, not an interactive element. */
+  h1:focus {
+    outline: none;
   }
 
   .intro {
