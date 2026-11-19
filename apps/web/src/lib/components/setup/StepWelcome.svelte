@@ -261,7 +261,7 @@
               {#if x.prev}
                 <span class="lprev" aria-hidden="true">
                   {#if c.other}
-                    <span class="b2 behind">{c.other}</span><span class="b2 front">{c.hello}</span>
+                    <span class="b2 behind" data-text={c.other}></span><span class="b2 front">{c.hello}</span>
                   {:else}
                     <span class="b1">{c.hello}<span class="bang">!</span></span>
                   {/if}
@@ -580,6 +580,12 @@
     border-radius: 11px 11px 11px 4px;
     background: var(--surface);
     opacity: 0.5;
+  }
+
+  /* The faded greeting is decoration only (the preview is hidden from screen readers): generated text, so no
+     contrast check counts it as content. */
+  .b2.behind::before {
+    content: attr(data-text);
   }
 
   .b2.front {
