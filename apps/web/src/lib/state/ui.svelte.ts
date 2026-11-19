@@ -155,6 +155,8 @@ export class Ui {
    * everything (desktop) or as a sheet (mobile).
    */
   pageDialog = $state.raw<(() => PageDialog | null) | null>(null);
+  /** Document title of the open setup step ("Setup token · Setup"); `null` outside the setup wizard. */
+  setupTitle = $state<string | null>(null);
   /** "Add mail server" from the command palette: the page opens the dialog as soon as it is there. */
   serverAdd = $state(false);
   /** "Set up push notifications" from the command palette: Settings › Notifications opens the push dialog. */
@@ -281,6 +283,7 @@ export class Ui {
     this.keepMenuAt = null;
     this.pick = null;
     this.pageDialog = null;
+    this.setupTitle = null;
     this.serverAdd = false;
     this.pushOpen = false;
     this.userInvite = false;

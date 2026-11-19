@@ -21,6 +21,8 @@ export interface PageTitleInput {
   compose: string | null;
   /** Heading of the sign-in page (branding, otherwise "Welcome back"). */
   loginTitle: string;
+  /** Title of the open setup step ("Setup token · Setup"), set by the wizard; stands alone. */
+  setup?: string | null;
 }
 
 /** Separator between the parts of the title. */
@@ -54,6 +56,7 @@ function headingOf(input: PageTitleInput): string[] {
 }
 
 export function pageTitle(input: PageTitleInput): string {
+  if (input.path === '/setup' && input.setup && !input.error) return input.setup;
   const parts = headingOf(input).filter(Boolean);
   const last = parts.at(-1);
   if (last?.includes(input.appName)) return parts.join(SEP);

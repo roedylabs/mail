@@ -1821,15 +1821,21 @@
   /** Page dialog above the shell, e.g. the mail server dialog (`srvDesk`, `srvMob`). */
   const pageDialog = $derived(ui.pageDialog?.() ?? null);
 
+  /** No answer while loading the setup status on `/setup`: the wizard's "No connection" instead of the error page. */
+  const setupOffline = $derived(
+    session.status === 'error' && session.failure === 'offline' && path === ENTRY['/setup'],
+  );
   /** Error page instead of the page: session, "Access denied", router error. */
   const errorShown: ErrorCode | null = $derived(
-    session.status === 'error'
-      ? (session.failure ?? '500')
-      : forbidden
-        ? '403'
-        : page.error
-          ? errorCodeOf(page.status)
-          : null,
+    setupOffline
+      ? null
+      : session.status === 'error'
+        ? (session.failure ?? '500')
+        : forbidden
+          ? '403'
+          : page.error
+            ? errorCodeOf(page.status)
+            : null,
   );
   /** Document title per route (WCAG 2.4.2). */
   const title = $derived(
@@ -1840,6 +1846,7 @@
       mailbox: mailboxLocation && accounts.list ? appListView(mailboxLocation, scopeAccounts, scope.all).title : null,
       compose: compose.current ? composeTitle(compose.current) : null,
       loginTitle: loginTitleOf(session.branding),
+      setup: ui.setupTitle,
     }),
   );
 </script>
@@ -1932,7 +1939,11 @@
   {/if}
 {/snippet}
 
-{#if session.status === 'error'}
+{#if session.status === 'error' && setupOffline}
+  <!-- The setup status got no answer: the wizard shows "No connection" and tries again by itself. -->
+  <div class="bare">{@render children()}</div>
+  <div class="layer">{@render overlays(false)}</div>
+{:else if session.status === 'error'}
   <div class="bare"><ErrorView code={session.failure ?? '500'} retry={boot} /></div>
   <div class="layer">{@render overlays(false)}</div>
 {:else if ready && !target}
