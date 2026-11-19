@@ -1,4 +1,5 @@
-// First flow: setup in five steps, then mail server (OAuth client via DCR) and
+// First flow: setup in five steps (a wrong token up to the lock, then the
+// right one), then mail server (OAuth client via DCR) and
 // system mails via the administration API → invitations to two addresses,
 // links from the system mails →
 // accept both (with mandatory MFA) → connect an account via the mail server's
@@ -57,6 +58,8 @@ function next(page: Page) {
 }
 
 test('setup: five steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
+  // The token lock alone takes 30 s.
+  test.slow();
   const context = await browser.newContext();
   const page = await newPage(context);
   await page.goto(`${instance.url}/`);
@@ -79,9 +82,34 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await expect(page.getByRole('radio', { name: 'Custom #5B8DEF' })).toBeFocused();
   await page.getByRole('radio', { name: 'Custom #5B8DEF' }).press('Enter');
 
-  // 2 Token
+  // 2 Token: a wrong one uses up attempts, the fifth locks the entry (30 s), also after a reload
   await step(page, 'Set up Roedy Mail');
-  await page.getByLabel('Setup token').fill(await instance.setupToken());
+  const token = page.getByLabel('Setup token');
+  const alert = page.getByRole('alert');
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+  await token.fill('2345-6789-ABCD');
+  for (const left of ['4 attempts left', '3 attempts left', '2 attempts left', '1 attempt left']) {
+    await next(page).click();
+    await expect(alert).toContainText('Invalid token.');
+    await expect(alert).toContainText(left);
+  }
+  await next(page).click();
+  await expect(alert).toContainText('Too many attempts.');
+  await expect(token).toBeDisabled();
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+  expect(await axeViolations(page), 'axe: token locked').toEqual([]);
+  // A reload forgets the lock in the page; the server's answer brings it back with the time left.
+  await page.reload();
+  await settled(page);
+  await step(page, 'Set up Roedy Mail');
+  await token.fill(await instance.setupToken());
+  await next(page).click();
+  await expect(alert).toContainText('Too many attempts.');
+  await expect(token).toBeDisabled();
+  // Usable again once the lock is over.
+  await expect(token).toBeEnabled({ timeout: 35_000 });
+  await expect(alert).toBeHidden();
+  await token.fill(await instance.setupToken());
   await next(page).click();
 
   // 3 Administrator

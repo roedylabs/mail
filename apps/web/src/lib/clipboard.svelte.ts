@@ -61,11 +61,13 @@ export class Copied<K extends string> {
   key = $state<K | null>(null);
   #timer: ReturnType<typeof setTimeout> | undefined;
 
-  async copy(text: string, key: K): Promise<void> {
-    if (!(await copyText(text))) return;
+  /** Copies `text`; `false` if that failed (then nothing shows "Copied"). */
+  async copy(text: string, key: K): Promise<boolean> {
+    if (!(await copyText(text))) return false;
     clearTimeout(this.#timer);
     this.key = key;
     this.#timer = setTimeout(() => (this.key = null), COPIED_MS);
+    return true;
   }
 
   /** When leaving the page. */

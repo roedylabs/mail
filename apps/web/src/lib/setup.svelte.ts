@@ -28,10 +28,24 @@ import { meetsPolicy, tooLong } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { isLocale } from '#lib/paraglide/runtime.js';
 import type { AccentChoice, LangChoice, ModeName } from '#lib/state/prefs.svelte.ts';
-import { waitText } from '#lib/wait.ts';
 
 /** Command in the terminal box of the token step. */
 export const LOG_CMD = 'docker logs roedy-mail 2>&1 | grep Setup-Token';
+/**
+ * Log lines under the command: the container's real output, so English
+ * whatever the language of the page.
+ */
+export const LOG_LINES = {
+  shell: 'roedy-mail — bash',
+  pending: '[setup] Not set up yet',
+  prefix: '[setup] ',
+  token: 'Setup-Token: ',
+  sample: 'XXXX-XXXX-XXXX',
+} as const;
+/** Length of the token lock the attempt bar is relative to (seconds). */
+export const TOKEN_LOCK_S = 30;
+/** Failed attempts until the lock. */
+export const TOKEN_TRIES = 5;
 
 /** Duration of the welcome page until the sign-in (progress bar 2.6 s). */
 export const DONE_MS = 2700;
@@ -211,11 +225,14 @@ export class SetupFlow {
   loading = $state(false);
   err = $state<Errors>({});
 
-  // Step 2
+  // Step 2 (the token lives in memory only)
   token = $state('');
-  tokErr = $state<'short' | 'invalid' | 'locked' | null>(null);
+  /** Invalid token, locked after too many attempts, or the check failed on the server. */
+  tokErr = $state<'invalid' | 'locked' | 'server' | null>(null);
   /** Attempts until the lock from `remaining`. */
   remaining = $state<number | null>(null);
+  /** The server accepted the token: coming back to step 2 needs no new check until it is edited. */
+  tokOk = $state(false);
 
   // Steps 3 and 4
   name = $state('');
@@ -247,13 +264,8 @@ export class SetupFlow {
 
   locked = $derived(this.locks.active('token'));
   tokLeft = $derived(this.locks.left('token'));
-
-  tokErrText = $derived.by(() => {
-    if (this.tokErr === 'locked') return m.setup_token_locked_text({ wait: waitText(this.tokLeft) });
-    const n = this.remaining;
-    const rest = n === null ? '' : ` ${n === 1 ? m.setup_token_remaining_one() : m.setup_token_remaining({ n })}`;
-    return m.setup_token_invalid_text() + rest;
-  });
+  /** All twelve characters entered (Continue is greyed out until then). */
+  tokFull = $derived(this.token.replace(/-/g, '').length === 12);
 
   review = $derived.by((): ReviewRow[] => [
     {
@@ -277,10 +289,15 @@ export class SetupFlow {
     this.err = err;
   }
 
-  /** Token input; not while it is being checked (completion sends the token the server accepted). */
+  /**
+   * Token input; not while it is being checked (completion sends the token
+   * the server accepted). Editing an accepted token makes it unaccepted.
+   */
   editToken(value: string): void {
     if (this.loading) return;
-    this.token = formatToken(value);
+    const token = formatToken(value);
+    if (token !== this.token) this.tokOk = false;
+    this.token = token;
     if (this.tokErr !== 'locked') this.tokErr = null;
   }
 
@@ -311,11 +328,16 @@ export class SetupFlow {
     if (this.step === 1) this.go(2);
   }
 
+  /**
+   * "Continue" on step 2: checks the token (incomplete: nothing happens, the
+   * button is greyed out); an accepted token goes on without a new check.
+   * Any answer other than accepted, `invalid_token`, the lock or
+   * `setup_done` shows the server error in place; no attempt is used up.
+   */
   async submitToken(): Promise<void> {
-    if (this.loading || this.locked) return;
-    if (this.token.replace(/-/g, '').length < 12) {
-      this.tokErr = 'short';
-      this.hooks.fail?.('token');
+    if (this.loading || this.locked || !this.tokFull) return;
+    if (this.tokOk) {
+      this.go(3);
       return;
     }
     this.loading = true;
@@ -323,10 +345,14 @@ export class SetupFlow {
     try {
       await api('POST', 'setup/token', { token: this.token });
       this.remaining = null;
+      this.tokOk = true;
       this.go(3);
     } catch (error) {
       this.loading = false;
-      await this.rejected(error);
+      await this.rejected(error, () => {
+        this.tokErr = 'server';
+        this.hooks.fail?.();
+      });
     }
   }
 
@@ -403,9 +429,10 @@ export class SetupFlow {
   /**
    * Responses every step can get: token wrong or locked (back to the token
    * step), setup already complete (reload, the layout redirects to the
-   * sign-in), no answer ("No connection"); everything else as a toast.
+   * sign-in), no answer ("No connection"); everything else `other`, by
+   * default as a toast.
    */
-  private async rejected(error: unknown): Promise<void> {
+  private async rejected(error: unknown, other?: () => void): Promise<void> {
     if (error instanceof NetworkError && this.hooks.offline) {
       this.hooks.offline();
       return;
@@ -418,6 +445,7 @@ export class SetupFlow {
       if (error.code === 'invalid_token') {
         const remaining = error.body.remaining;
         this.remaining = typeof remaining === 'number' ? remaining : null;
+        this.tokOk = false;
         if (this.step !== 2) this.go(2, null);
         this.tokErr = 'invalid';
         this.hooks.fail?.('token');
@@ -426,6 +454,7 @@ export class SetupFlow {
       if (error.status === 429) {
         if (this.step !== 2) this.go(2, null);
         this.token = '';
+        this.tokOk = false;
         this.tokErr = 'locked';
         this.remaining = null;
         this.locks.start('token', retryAfter(error));
@@ -433,7 +462,8 @@ export class SetupFlow {
         return;
       }
     }
-    this.hooks.error?.(failText(error));
+    if (other) other();
+    else this.hooks.error?.(failText(error));
   }
 
   /** Field errors of `setup/complete`: to the first affected step with the text of the field. */
