@@ -1,21 +1,33 @@
 /**
- * Flow of the setup page against the setup API: token, administrator,
- * password and review, then `setup/complete`. The setup token goes along in
- * the header `X-Setup-Token`; every response can reject it (back to step 1)
+ * Flow of the setup wizard against the setup API in five steps: language
+ * and appearance, setup token, administrator, password and review, then
+ * `setup/complete`. The setup token goes along in the header
+ * `X-Setup-Token`; every response can reject it (back to the token step)
  * or report that the setup is already complete (then the page reloads the
- * session and the layout redirects to the sign-in).
+ * session and the layout redirects to the sign-in). A request without an
+ * answer shows "No connection" (`offline`); everything entered stays.
+ *
+ * Session of this browser tab (`sessionStorage`, keys `roedy-setup-*`):
+ * language, theme, accent, name and email, and the step to return to on a
+ * reload. The setup token and the passwords live in memory only. A reload on
+ * steps 3–5 returns to step 2 with the stored values prefilled; a tab
+ * without setup data starts with language System, theme System, accent
+ * Apricot.
  *
  * Mail servers and system emails are added afterwards under Administration;
  * the public address comes from `ROEDY_PUBLIC_URL`.
  */
-import { ApiError, api, fieldsOf, retryAfter } from '#lib/api.ts';
+import { ACCENTS, DEFAULT_ACCENT, type AccentName } from '@roedy/tokens';
+import { ApiError, NetworkError, api, fieldsOf, retryAfter } from '#lib/api.ts';
+import { isHexColor, parseHex } from '#lib/color.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
 import { failText } from '#lib/errors.ts';
 import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
 import { meetsPolicy, tooLong } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
-import { getLocale } from '#lib/paraglide/runtime.js';
+import { isLocale } from '#lib/paraglide/runtime.js';
+import type { AccentChoice, LangChoice, ModeName } from '#lib/state/prefs.svelte.ts';
 import { waitText } from '#lib/wait.ts';
 
 /** Command in the terminal box of step 1. */
@@ -24,14 +36,113 @@ export const LOG_CMD = 'docker logs roedy-mail 2>&1 | grep Setup-Token';
 /** Duration of the welcome page until the sign-in (progress bar 2.6 s). */
 export const DONE_MS = 2700;
 
-/** Appearance of the new administrator until the wizard asks for it. */
-const MODE = 'system';
-const ACCENT = 'apricot';
+/** Number of steps (step indicator "Step {n} of 5"). */
+export const STEPS = 5;
 
-export type Step = 1 | 2 | 3 | 4;
+/**
+ * 1 language and appearance, 2 setup token, 3 administrator, 4 password,
+ * 5 review.
+ */
+export type Step = 1 | 2 | 3 | 4 | 5;
+/**
+ * First step the wizard shows. The language and appearance step is not
+ * there yet: until it is, the wizard starts with the setup token.
+ */
+export const FIRST_STEP: Step = 2;
+
 export type Field = 'token' | 'name' | 'email' | 'pw' | 'pw2';
-/** Where focus goes when a step opens: a field or, in the overview, its heading. */
-export type Focus = Field | 'review';
+/** Where focus goes when a step opens: a field or the step heading. */
+export type Focus = Field | 'heading';
+
+// ---- Session of this browser tab ----
+
+/** Keys in `sessionStorage` (with the prefix `roedy-setup-`); token and passwords are never stored. */
+export type SessionKey = 'lang' | 'dark' | 'accent' | 'accentHex' | 'name' | 'email' | 'step';
+export const SESSION_PREFIX = 'roedy-setup-';
+
+function store(): Storage | null {
+  try {
+    return globalThis.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function readSession(key: SessionKey): string | null {
+  try {
+    return store()?.getItem(SESSION_PREFIX + key) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/** Stores a value; `null` removes it. */
+export function writeSession(key: SessionKey, value: string | null): void {
+  try {
+    const s = store();
+    if (!s) return;
+    if (value === null) s.removeItem(SESSION_PREFIX + key);
+    else s.setItem(SESSION_PREFIX + key, value);
+  } catch {
+    // Storage full or blocked: the values stay in memory only.
+  }
+}
+
+/** Removes all `roedy-setup-*` keys (the done screen, once it has read the first name). */
+export function clearSession(): void {
+  try {
+    const s = store();
+    if (!s) return;
+    for (let i = s.length - 1; i >= 0; i--) {
+      const key = s.key(i);
+      if (key?.startsWith(SESSION_PREFIX)) s.removeItem(key);
+    }
+  } catch {
+    // Nothing to remove.
+  }
+}
+
+/** Language, theme and accent of the first step; stored as the administrator's settings by `setup/complete`. */
+export interface SetupChoices {
+  lang: LangChoice;
+  mode: ModeName;
+  accent: AccentChoice;
+}
+
+/** Theme in the session: `sys`, `1` (dark) or `0` (light). */
+const MODE_KEYS: Record<ModeName, string> = { system: 'sys', dark: '1', light: '0' };
+
+/** Stored choices; a tab without setup data: language System, theme System, accent Apricot. */
+export function choicesOf(): SetupChoices {
+  const lang = readSession('lang');
+  const dark = readSession('dark');
+  const accent = readSession('accent');
+  const hex = parseHex(readSession('accentHex') ?? '');
+  const named = (Object.keys(ACCENTS) as AccentName[]).find((a) => a === accent);
+  return {
+    lang: lang !== null && isLocale(lang) ? lang : 'system',
+    mode: dark === '1' ? 'dark' : dark === '0' ? 'light' : 'system',
+    accent: accent === 'custom' && hex ? hex : (named ?? DEFAULT_ACCENT),
+  };
+}
+
+/** Stores one choice of the first step. */
+export function storeChoice(patch: Partial<SetupChoices>): void {
+  if (patch.lang !== undefined) writeSession('lang', patch.lang);
+  if (patch.mode !== undefined) writeSession('dark', MODE_KEYS[patch.mode]);
+  if (patch.accent !== undefined) {
+    const custom = isHexColor(patch.accent);
+    writeSession('accent', custom ? 'custom' : patch.accent);
+    if (custom) writeSession('accentHex', patch.accent);
+  }
+}
+
+/** Step after a reload: step 1 stays, steps 2–5 return to step 2 (token and password must be entered again). */
+export function resumeStep(): Step {
+  const stored = Number(readSession('step'));
+  const step: Step = stored === 1 ? 1 : stored >= 2 ? 2 : 1;
+  return step < FIRST_STEP ? FIRST_STEP : step;
+}
 
 /** `true` marks a field without its own text (password rules as chips). */
 export type FieldError = string | true;
@@ -50,16 +161,15 @@ export interface ReviewRow {
   step: Step;
 }
 
-/** Phase of the page; decides the icon of the tile in the background. */
-export type Phase = 'token' | 'admin' | 'password' | 'review' | 'loading' | 'error' | 'locked' | 'success';
-
 export interface SetupHooks {
   /** Input rejected: shake the card, focus the field. */
   fail?: (field?: Field) => void;
-  /** Step changed: focus the field or heading. */
-  entered?: (step: Step, focus?: Focus) => void;
+  /** Step changed: focus the field or heading (`null`: the focus follows from `fail`). */
+  entered?: (step: Step, focus: Focus | null) => void;
   /** Error without a text of its own: error toast (`ui.toasts.error`). */
   error?: (text: string) => void;
+  /** A request got no answer: "No connection". */
+  offline?: () => void;
   /** Reload the session: after completion signed in to the start page, on `setup_done` to the sign-in. */
   reload?: () => Promise<void>;
 }
@@ -72,22 +182,26 @@ export function formatToken(input: string): string {
   return (raw.match(/.{1,4}/g) ?? []).join('-');
 }
 
-/** First field per step for "Change" in the overview. */
-const FIRST: Partial<Record<Step, Field>> = { 1: 'token', 2: 'name', 3: 'pw' };
+/** Focus when a step opens: its first field, otherwise its heading. */
+const FIRST: Partial<Record<Step, Field>> = { 2: 'token', 3: 'name', 4: 'pw' };
+
+export function focusOf(step: Step): Focus {
+  return FIRST[step] ?? 'heading';
+}
 
 export class SetupFlow {
-  step = $state<Step>(1);
+  step = $state<Step>(FIRST_STEP);
   view = $state<'form' | 'done'>('form');
   loading = $state(false);
   err = $state<Errors>({});
 
-  // Step 1
+  // Step 2
   token = $state('');
   tokErr = $state<'short' | 'invalid' | 'locked' | null>(null);
   /** Attempts until the lock from `remaining`. */
   remaining = $state<number | null>(null);
 
-  // Steps 2 and 3
+  // Steps 3 and 4
   name = $state('');
   email = $state('');
   pw = $state('');
@@ -101,6 +215,16 @@ export class SetupFlow {
 
   constructor(hooks: SetupHooks = {}) {
     this.hooks = hooks;
+    // Reload: back to step 1 or 2 with the stored values.
+    this.step = resumeStep();
+    this.name = readSession('name') ?? '';
+    this.email = readSession('email') ?? '';
+    writeSession('step', String(this.step));
+  }
+
+  /** Opening the wizard: focus as on entering the step. */
+  enter(): void {
+    this.hooks.entered?.(this.step, focusOf(this.step));
   }
 
   // ---- Derivations ----
@@ -120,49 +244,47 @@ export class SetupFlow {
       icon: 'ti-user-shield',
       label: m.setup_review_admin(),
       value: `${normalizeName(this.name)} · ${this.email.trim()}`,
-      step: 2,
+      step: 3,
     },
   ]);
 
   firstName = $derived(normalizeName(this.name).split(' ')[0] ?? '');
-
-  phase = $derived.by((): Phase => {
-    if (this.view === 'done') return 'success';
-    if (this.loading) return 'loading';
-    if (this.locked) return 'locked';
-    if ((this.step === 1 && this.tokErr === 'invalid') || Object.values(this.err).some(Boolean)) return 'error';
-    return (['token', 'admin', 'password', 'review'] as const)[this.step - 1] ?? 'review';
-  });
 
   // ---- Inputs ----
 
   /** Changes a field and discards its error. */
   edit(field: Exclude<Field, 'token'>, value: string): void {
     this[field] = value;
+    if (field === 'name' || field === 'email') writeSession(field, value);
     const err = { ...this.err, [field]: undefined };
     if (field === 'pw') err.pw2 = undefined;
     this.err = err;
   }
 
+  /** Token input; not while it is being checked (completion sends the token the server accepted). */
   editToken(value: string): void {
+    if (this.loading) return;
     this.token = formatToken(value);
     if (this.tokErr !== 'locked') this.tokErr = null;
   }
 
-  /** "Back"; not while completion is running. */
+  /** "Back" keeps everything entered; not while a request is running. */
+  canBack = $derived(this.step > FIRST_STEP && !this.loading);
+
   back(): void {
-    if (this.step > 1 && !this.loading) this.go((this.step - 1) as Step);
+    if (this.canBack) this.go((this.step - 1) as Step);
   }
 
   /** "Change" in the overview, into the first field of the step; not while completion is running. */
   revisit(step: Step): void {
-    if (!this.loading) this.go(step, FIRST[step]);
+    if (!this.loading) this.go(step);
   }
 
-  go(step: Step, focus?: Focus): void {
+  go(step: Step, focus: Focus | null = focusOf(step)): void {
     this.step = step;
     this.loading = false;
     this.err = {};
+    writeSession('step', String(step));
     this.hooks.entered?.(step, focus);
   }
 
@@ -180,7 +302,7 @@ export class SetupFlow {
     try {
       await api('POST', 'setup/token', { token: this.token });
       this.remaining = null;
-      this.go(2, 'name');
+      this.go(3);
     } catch (error) {
       this.loading = false;
       await this.rejected(error);
@@ -195,7 +317,7 @@ export class SetupFlow {
     const email = this.email.trim();
     if (!isEmail(email)) err.email = email ? m.setup_email_invalid() : m.setup_email_required();
     if (this.failWith(err, ['name', 'email'])) return;
-    this.go(3, 'pw');
+    this.go(4);
   }
 
   submitPw(): void {
@@ -204,7 +326,7 @@ export class SetupFlow {
     else if (!meetsPolicy(this.pw)) err.pw = true;
     else if (this.pw2 !== this.pw) err.pw2 = this.pw2 ? m.setup_pw2_mismatch() : m.setup_pw2_required();
     if (this.failWith(err, ['pw', 'pw2'])) return;
-    this.go(4, 'review');
+    this.go(5);
   }
 
   async finish(): Promise<void> {
@@ -215,7 +337,7 @@ export class SetupFlow {
       name: normalizeName(this.name),
       email: this.email.trim(),
       password: this.pw,
-      settings: { lang: getLocale(), mode: MODE, accent: ACCENT },
+      settings: choicesOf(),
     };
     try {
       await api('POST', 'setup/complete', body, this.withToken());
@@ -254,15 +376,19 @@ export class SetupFlow {
   /** The token lock has expired: release the field. */
   private freed(): void {
     this.tokErr = null;
-    if (this.step === 1) this.hooks.entered?.(1, 'token');
+    if (this.step === 2) this.hooks.entered?.(2, 'token');
   }
 
   /**
-   * Responses every step can get: token wrong or locked (back to step 1), setup
-   * already complete (reload, the layout redirects to the sign-in); everything
-   * else as a toast.
+   * Responses every step can get: token wrong or locked (back to the token
+   * step), setup already complete (reload, the layout redirects to the
+   * sign-in), no answer ("No connection"); everything else as a toast.
    */
   private async rejected(error: unknown): Promise<void> {
+    if (error instanceof NetworkError && this.hooks.offline) {
+      this.hooks.offline();
+      return;
+    }
     if (error instanceof ApiError) {
       if (error.code === 'setup_done') {
         await this.hooks.reload?.();
@@ -271,13 +397,13 @@ export class SetupFlow {
       if (error.code === 'invalid_token') {
         const remaining = error.body.remaining;
         this.remaining = typeof remaining === 'number' ? remaining : null;
-        if (this.step !== 1) this.go(1);
+        if (this.step !== 2) this.go(2, null);
         this.tokErr = 'invalid';
         this.hooks.fail?.('token');
         return;
       }
       if (error.status === 429) {
-        if (this.step !== 1) this.go(1);
+        if (this.step !== 2) this.go(2, null);
         this.token = '';
         this.tokErr = 'locked';
         this.remaining = null;
@@ -292,9 +418,9 @@ export class SetupFlow {
   /** Field errors of `setup/complete`: to the first affected step with the text of the field. */
   private completeInvalid(error: ApiError): void {
     const targets: Record<string, [Step, Field]> = {
-      name: [2, 'name'],
-      email: [2, 'email'],
-      password: [3, 'pw'],
+      name: [3, 'name'],
+      email: [3, 'email'],
+      password: [4, 'pw'],
     };
     let step: Step | null = null;
     let first: Field | undefined;
@@ -315,7 +441,7 @@ export class SetupFlow {
       this.hooks.error?.(failText(error));
       return;
     }
-    this.go(step);
+    this.go(step, null);
     this.err = err;
     this.hooks.fail?.(first);
   }
