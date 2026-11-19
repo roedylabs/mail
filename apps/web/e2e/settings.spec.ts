@@ -75,13 +75,17 @@ test('create a rule: script valid, delivery sorted', async ({ browser, instance,
   const key = word('important');
   await main.getByRole('button', { name: 'Add rule' }).click();
   const editor = main.getByRole('group', { name: 'New rule' });
-  await editor.getByRole('textbox', { name: 'Rule name' }).fill(name);
-  await editor.getByRole('combobox', { name: 'Field' }).selectOption({ label: 'Subject contains' });
-  await editor.getByRole('textbox', { name: 'Value' }).fill(key);
-  await editor.getByRole('combobox', { name: /^Folder/ }).click();
-  await editor.getByRole('listbox', { name: 'Folder' }).getByRole('option', { name: folder }).click();
+  // Exact names: the folder picker's name contains the random folder name.
+  await editor.getByRole('textbox', { name: 'Rule name', exact: true }).fill(name);
+  await editor.getByRole('combobox', { name: 'Field', exact: true }).selectOption({ label: 'Subject contains' });
+  await editor.getByRole('textbox', { name: 'Value', exact: true }).fill(key);
+  await editor.getByRole('combobox', { name: /^Folder(:|$)/ }).click();
+  await editor
+    .getByRole('listbox', { name: 'Folder', exact: true })
+    .getByRole('option', { name: folder, exact: true })
+    .click();
   expect(await axeViolations(page), 'axe: edit rule').toEqual([]);
-  await editor.getByRole('button', { name: 'Save' }).click();
+  await editor.getByRole('button', { name: 'Save', exact: true }).click();
   await expect(page.getByText('Rule added', { exact: true })).toBeVisible();
   await expect(main.getByRole('switch', { name: `${name} active` })).toHaveAttribute('aria-checked', 'true');
 
