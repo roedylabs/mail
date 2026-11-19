@@ -13,9 +13,10 @@ use super::device::Device;
 use crate::{
     db::repo::{
         sessions,
-        users::{Profile, Role},
+        users::{self, Profile, Role},
     },
     random,
+    settings::Language,
 };
 
 /// `__Host-`: only with `Secure`, `Path=/` and without `Domain` – a subdomain
@@ -141,6 +142,9 @@ pub struct Client<'a> {
     pub place: Option<&'a str>,
     /// Reports itself as an installed app ([`installed_app`]).
     pub app: bool,
+    /// Language the browser prefers ([`accept_language`]); a session stores
+    /// it as the user's sign-in language.
+    pub lang: Option<Language>,
 }
 
 /// Origin of a request: user agent, client IP and place (GeoIP) – for
@@ -154,6 +158,8 @@ pub struct Origin {
     pub device_hash: [u8; 32],
     /// Reports itself as an installed app ([`installed_app`]).
     pub app: bool,
+    /// Language the browser prefers ([`accept_language`]).
+    pub lang: Option<Language>,
 }
 
 impl Origin {
@@ -163,6 +169,7 @@ impl Origin {
             ip: Some(self.ip),
             place: self.place.as_deref(),
             app: self.app,
+            lang: self.lang,
         }
     }
 
@@ -180,6 +187,15 @@ pub fn user_agent(headers: &HeaderMap) -> Option<String> {
         .map(|ua| sessions::truncate(ua, sessions::MAX_USER_AGENT).to_owned())
 }
 
+/// Language the browser prefers, from `Accept-Language`
+/// ([`Language::from_accept_language`]).
+pub fn accept_language(headers: &HeaderMap) -> Option<Language> {
+    headers
+        .get(header::ACCEPT_LANGUAGE)
+        .and_then(|value| value.to_str().ok())
+        .and_then(Language::from_accept_language)
+}
+
 /// Whether the web app reports that it runs installed (`X-Roedy-App: 1`).
 /// This is a client claim only for the device list, not
 /// proof: it decides nothing.
@@ -191,7 +207,8 @@ pub fn installed_app(headers: &HeaderMap) -> bool {
 /// [`Token::cookie`]. Synchronous so that callers can include it in their
 /// transaction (e.g. `setup/complete`). Beyond
 /// [`sessions::MAX_PER_USER`] the user's least recently used session
-/// ends.
+/// ends. A language of the client becomes the user's sign-in language
+/// (backend texts and mails for the language `system`).
 pub fn start(
     conn: &Connection,
     user_id: &str,
@@ -201,6 +218,9 @@ pub fn start(
     let token = Token::generate()?;
     let id = sessions::insert(conn, user_id, &token.hash(), client, persistent)?;
     sessions::trim(conn, user_id, &id, sessions::MAX_PER_USER)?;
+    if let Some(lang) = client.lang {
+        users::set_sign_in_lang(conn, user_id, lang)?;
+    }
     Ok(Started {
         id,
         cookie: token.cookie(persistent),

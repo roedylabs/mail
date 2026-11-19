@@ -564,7 +564,8 @@ struct PreviewQuery {
     /// Only for HTML.
     #[serde(default)]
     theme: Theme,
-    /// Language of the template (`de`, `en`); without it the administrator's.
+    /// Language of the template (`de`, `en`); without it (or `system`) the
+    /// administrator's.
     lang: Option<Language>,
 }
 
@@ -607,9 +608,10 @@ async fn preview(
         Ok((settings::format_of(conn, &user_id)?, sender(conn)?))
     })
     .await?;
+    // `system` is the administrator's own language.
     let format = match query.lang {
-        Some(lang) => format.with_lang(lang),
-        None => format,
+        Some(lang) if lang != Language::System => format.with_lang(lang),
+        _ => format,
     };
     let brand = state.brand();
     let ctx = Context {

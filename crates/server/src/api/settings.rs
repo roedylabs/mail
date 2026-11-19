@@ -125,14 +125,11 @@ async fn put_settings(
             return Ok(Outcome::Saved(current));
         }
         // Read in the same transaction, so the version still applies.
-        let version = settings::save(&tx, &user.id, current.version, &next)?
+        settings::save(&tx, &user.id, current.version, &next)?
             .ok_or_else(|| anyhow::anyhow!("settings version has changed"))?;
+        let saved = settings::load(&tx, &user.id)?;
         tx.commit()?;
-        Ok(Outcome::Saved(Stored {
-            version,
-            settings: next,
-            rewrite: false,
-        }))
+        Ok(Outcome::Saved(saved))
     })
     .await?;
     match outcome {

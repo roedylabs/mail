@@ -156,11 +156,28 @@ impl Env {
         body: Option<Value>,
         session: Option<&str>,
     ) -> Reply {
+        self.request_in(None, agent, method, path, body, session)
+            .await
+    }
+
+    /// [`Self::request`] with `Accept-Language`.
+    async fn request_in(
+        &self,
+        languages: Option<&str>,
+        agent: &str,
+        method: Method,
+        path: &str,
+        body: Option<Value>,
+        session: Option<&str>,
+    ) -> Reply {
         let mut builder = Request::builder()
             .method(method)
             .uri(format!("/api/v1{path}"))
             .header(api::CSRF_HEADER, "fetch")
             .header(header::USER_AGENT, agent);
+        if let Some(languages) = languages {
+            builder = builder.header(header::ACCEPT_LANGUAGE, languages);
+        }
         if let Some(session) = session {
             builder = builder.header(header::COOKIE, format!("{}={session}", session::COOKIE));
         }
@@ -190,8 +207,14 @@ impl Env {
     }
 
     async fn session(&self, agent: &str, login: &str) -> String {
+        self.session_in(None, agent, login).await
+    }
+
+    /// [`Self::session`] from a browser with `Accept-Language`.
+    async fn session_in(&self, languages: Option<&str>, agent: &str, login: &str) -> String {
         let reply = self
-            .request(
+            .request_in(
+                languages,
                 agent,
                 Method::POST,
                 "/auth/login",
@@ -502,6 +525,50 @@ async fn security_mails_use_the_recipients_zone_and_format() {
     assert_ne!(chrome, "Chrome on macOS");
     assert!(text.contains(&format!(": {chrome}\n")), "{text}");
     assert!(text.contains(" PM\n") || text.contains(" AM\n"), "{text}");
+}
+
+#[tokio::test]
+async fn system_language_mails_in_the_sign_in_language_and_custom_accents() {
+    let (env, server) = env_with_mail().await;
+    env.add_user("max", "max@example.com", Role::User).await;
+    let desktop = env.session_in(Some("en-GB,en;q=0.9"), FIREFOX, "max").await;
+    mails(&server, 1).await;
+    let reply = env
+        .put_settings(&desktop, 0, json!({ "lang": "system", "accent": "#ABC" }))
+        .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    let saved = reply.json();
+    assert_eq!(saved["settings"]["lang"], "system");
+    assert_eq!(saved["settings"]["accent"], "#aabbcc");
+    let reply = env
+        .put_settings(&desktop, 1, json!({ "accent": "#12345" }))
+        .await;
+    assert_eq!(
+        reply.status,
+        StatusCode::UNPROCESSABLE_ENTITY,
+        "{}",
+        reply.body
+    );
+    assert_eq!(
+        env.get_settings(&desktop).await["settings"]["accent"],
+        "#aabbcc"
+    );
+
+    // A sign-in from a German browser: its notice (and later ones) in German.
+    env.session_in(Some("de-DE,de;q=0.9,en;q=0.8"), IPHONE, "max")
+        .await;
+    let german = mails(&server, 2).await.pop().unwrap();
+    let subject = i18n::tf(
+        Language::German,
+        "mail.security_login.subject",
+        &[("app", &"Roedy Mail")],
+    );
+    assert_eq!(german["subject"], subject);
+    // Back in an English browser.
+    env.session_in(Some("fr-FR,en;q=0.5"), CHROME_MAC, "max")
+        .await;
+    let english = mails(&server, 3).await.pop().unwrap();
+    assert_eq!(english["subject"], "New sign-in to Roedy Mail");
 }
 
 #[tokio::test]

@@ -67,7 +67,7 @@ async fn list(
 ) -> Result<Json<Value>, ApiError> {
     let admin = user.role == Role::Admin;
     let (lang, listed, unread) = db::call(&state.db, move |conn| {
-        let lang = settings::load(conn, &user.id)?.settings.lang;
+        let lang = settings::lang_of(conn, &user.id)?;
         let listed = notifications::visible(conn, &user.id, admin, notifications::MAX_PER_USER)?;
         let unread = notifications::unread(conn, &user.id, admin, notifications::MAX_PER_USER)?;
         Ok((lang, listed, unread))

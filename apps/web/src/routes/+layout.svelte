@@ -507,7 +507,8 @@
       quiet: { on, from, to, tz: displayZone(prefs.values, browserTimeZone()) },
       accounts: Object.fromEntries(accounts.list.map((account) => [account.id, account.email])),
       appName: session.appName,
-      lang: prefs.values.lang,
+      // The language shown, also for `system`: the service worker has no language of its own.
+      lang: prefs.lang,
     });
   });
 
@@ -540,7 +541,7 @@
   $effect(() => {
     const lang = prefs.lang;
     document.documentElement.lang = lang;
-    if (prefs.remote) rememberLang(lang);
+    if (prefs.remote) rememberLang(prefs.values.lang === 'system' ? 'system' : lang);
   });
 
   // Close open menus on a page change – except for `ui.keepMenuAt` (account selection in the "Mailboxes" sheet, paging).

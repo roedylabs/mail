@@ -4,7 +4,7 @@
 use anyhow::Context as _;
 use rusqlite::{Connection, OptionalExtension as _};
 
-use crate::{auth::username, db};
+use crate::{auth::username, db, settings::Language};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -284,6 +284,35 @@ pub fn set_email(conn: &Connection, id: &str, email: &str) -> rusqlite::Result<(
         (id, email.trim()),
     )?;
     Ok(())
+}
+
+/// Stores the language of a sign-in (`German` or `English`; `System` is not
+/// a sign-in language and leaves the stored one as it is).
+pub fn set_sign_in_lang(conn: &Connection, id: &str, lang: Language) -> rusqlite::Result<()> {
+    if lang != Language::System {
+        conn.execute(
+            "UPDATE users SET sign_in_lang = ?2 WHERE id = ?1",
+            (id, lang.code()),
+        )?;
+    }
+    Ok(())
+}
+
+/// Language of the last sign-in that named one.
+pub fn sign_in_lang(conn: &Connection, id: &str) -> rusqlite::Result<Option<Language>> {
+    let code: Option<String> = conn
+        .query_row(
+            "SELECT sign_in_lang FROM users WHERE id = ?1",
+            [id],
+            |row| row.get(0),
+        )
+        .optional()?
+        .flatten();
+    Ok(code.and_then(|code| match code.as_str() {
+        "de" => Some(Language::German),
+        "en" => Some(Language::English),
+        _ => None,
+    }))
 }
 
 /// Administrators for `roedy-mail reset-admin`, oldest first.

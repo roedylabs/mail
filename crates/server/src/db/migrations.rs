@@ -22,6 +22,11 @@ pub const MIGRATIONS: &[Migration] = &[
         name: "backend_exchange",
         sql: include_str!("migrations/0002_backend_exchange.sql"),
     },
+    Migration {
+        version: 3,
+        name: "sign_in_lang",
+        sql: include_str!("migrations/0003_sign_in_lang.sql"),
+    },
 ];
 
 /// Applies all pending migrations and returns the schema version.

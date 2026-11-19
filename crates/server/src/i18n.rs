@@ -26,7 +26,8 @@ static GERMAN: LazyLock<Texts> = LazyLock::new(|| parse("de", include_str!("../l
 
 fn texts(lang: Language) -> &'static Texts {
     match lang {
-        Language::English => &ENGLISH,
+        // `System` is resolved before (`settings::Stored::lang`).
+        Language::English | Language::System => &ENGLISH,
         Language::German => &GERMAN,
     }
 }

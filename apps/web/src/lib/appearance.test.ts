@@ -73,6 +73,13 @@ describe('Appearance', () => {
     expect(ctx.set).not.toHaveBeenCalled();
   });
 
+  it('a custom accent selects no swatch, a click on one replaces it', () => {
+    const { v, ctx } = setup({ values: { ...RESET0, accent: '#336699' } });
+    expect(v.accentOpts.filter((a) => a.on)).toEqual([]);
+    v.accentOpts.find((a) => a.name === 'sky')!.onClick();
+    expect(ctx.set).toHaveBeenCalledWith({ accent: 'sky' });
+  });
+
   it('takes the own choice before the brand colour with userAccent', () => {
     const { v } = setup({ values: { ...RESET0, accent: 'rose' }, brand: { userAccent: true, color: 'sage' } });
     expect(v.accentOpts.filter((a) => a.on).map((a) => a.name)).toEqual(['rose']);

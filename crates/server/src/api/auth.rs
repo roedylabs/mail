@@ -145,6 +145,7 @@ pub fn origin(state: &AppState, headers: &HeaderMap, ip: ClientIp) -> Origin {
         place: state.place(ip.0),
         device_hash,
         app: session::installed_app(headers),
+        lang: session::accept_language(headers),
     }
 }
 
@@ -682,6 +683,7 @@ mod tests {
             place: None,
             device_hash: [7; 32],
             app: false,
+            lang: None,
         }
     }
 
