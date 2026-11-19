@@ -5,6 +5,7 @@ import {
   SetupFlow,
   choicesOf,
   clearSession,
+  customHexOf,
   formatToken,
   readSession,
   resumeStep,
@@ -19,7 +20,9 @@ const TOKEN = 'ABCD-EFGH-JKLM';
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  vi.restoreAllMocks();
   vi.useRealTimers();
+  clearSession();
   sessionStorage.clear();
 });
 
@@ -57,9 +60,9 @@ describe('Session of the tab', () => {
   it('starts a tab without setup data with System, System, Apricot at the first step', () => {
     expect(choicesOf()).toEqual({ lang: 'system', mode: 'system', accent: 'apricot' });
     const flow = new SetupFlow(hooks());
-    expect(flow.step).toBe(2);
+    expect(flow.step).toBe(1);
     expect(flow.name).toBe('');
-    expect(readSession('step')).toBe('2');
+    expect(readSession('step')).toBe('1');
   });
 
   it('keeps the choices, a custom accent as its hex value', () => {
@@ -71,12 +74,18 @@ describe('Session of the tab', () => {
     expect(sessionStorage.getItem('roedy-setup-accent')).toBe('custom');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#4a7bd0');
     expect(choicesOf()).toEqual({ lang: 'de', mode: 'light', accent: '#4a7bd0' });
+    // A named accent again: the custom colour stays for the swatch "Custom".
+    storeChoice({ accent: 'rose' });
+    expect(choicesOf().accent).toBe('rose');
+    expect(customHexOf()).toBe('#4a7bd0');
     storeChoice({ mode: 'system' });
     expect(choicesOf().mode).toBe('system');
     // Unknown values: the defaults.
     writeSession('lang', 'xx');
     writeSession('accentHex', 'nope');
+    writeSession('accent', 'custom');
     expect(choicesOf()).toEqual({ lang: 'system', mode: 'system', accent: 'apricot' });
+    expect(customHexOf()).toBeNull();
   });
 
   it('returns to step 2 after a reload on steps 3–5 with name and email, never token or password', async () => {
@@ -107,11 +116,28 @@ describe('Session of the tab', () => {
   });
 
   it('stays on the first step after a reload there', () => {
+    expect(resumeStep()).toBe(1);
     writeSession('step', '1');
-    // Until the language and appearance step is there, the wizard starts with the token.
-    expect(resumeStep()).toBe(2);
+    expect(resumeStep()).toBe(1);
     writeSession('step', '4');
     expect(resumeStep()).toBe(2);
+  });
+
+  it('keeps the choices in memory when the storage refuses them, and sends them on completion', async () => {
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    });
+    storeChoice({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
+    expect(sessionStorage.length).toBe(0);
+    expect(choicesOf()).toEqual({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
+    expect(customHexOf()).toBe('#4a7bd0');
+    const { flow } = at(5);
+    const { calls } = mockApi({ 'POST setup/complete': [{ status: 201, body: { user: {} } }] });
+    await flow.finish();
+    expect(calls[0]?.body).toMatchObject({ settings: { lang: 'de', mode: 'dark', accent: '#4a7bd0' } });
+    flow.dispose();
+    clearSession();
+    expect(choicesOf()).toEqual({ lang: 'system', mode: 'system', accent: 'apricot' });
   });
 
   it('removes all setup keys and nothing else', () => {
@@ -125,7 +151,23 @@ describe('Session of the tab', () => {
   it('enters the current step with its first field', () => {
     const h = hooks();
     new SetupFlow(h).enter();
-    expect(h.entered).toHaveBeenCalledWith(2, 'token');
+    expect(h.entered).toHaveBeenCalledWith(1, 'lang');
+  });
+
+  it('starts with the token step on "Get started", sending nothing', () => {
+    const { calls } = mockApi({});
+    const h = hooks();
+    const flow = new SetupFlow(h);
+    expect(flow.canBack).toBe(false);
+    flow.start();
+    expect(flow.step).toBe(2);
+    expect(readSession('step')).toBe('2');
+    expect(h.entered).toHaveBeenLastCalledWith(2, 'token');
+    expect(flow.canBack).toBe(true);
+    // Only from step 1.
+    flow.start();
+    expect(flow.step).toBe(2);
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -269,9 +311,13 @@ describe('Steps 3 and 4', () => {
     flow.back();
     expect(flow.step).toBe(2);
     expect(flow.token).toBe(TOKEN);
+    flow.back();
+    expect(flow.step).toBe(1);
+    expect(h.entered).toHaveBeenLastCalledWith(1, 'lang');
     expect(flow.canBack).toBe(false);
     flow.back();
-    expect(flow.step).toBe(2);
+    expect(flow.step).toBe(1);
+    expect(flow.token).toBe(TOKEN);
   });
 });
 

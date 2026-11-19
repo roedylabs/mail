@@ -7,7 +7,8 @@
  * without `userAccent`), the group has no tab stop.
  *
  * Selection happens via `click()` of the option, i.e. the same way as with
- * the mouse. With `select: false` the arrows only move focus, selection is
+ * the mouse. An option that opens a dialog (`data-opens-dialog`, "Custom" accent)
+ * only takes the focus; activating it opens the dialog. With `select: false` the arrows only move focus, selection is
  * by Space or Enter – for groups whose choice triggers more than a
  * setting (switching account, language).
  */
@@ -75,7 +76,7 @@ export function radiogroup(
     event.stopPropagation();
     if (!next) return;
     next.focus();
-    if (select && next.getAttribute('aria-checked') !== 'true') next.click();
+    if (select && next.getAttribute('aria-checked') !== 'true' && !next.hasAttribute('data-opens-dialog')) next.click();
   }
 
   const observer = new MutationObserver(sync);

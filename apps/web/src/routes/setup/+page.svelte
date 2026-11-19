@@ -13,6 +13,7 @@
   import StepPassword from '#lib/components/setup/StepPassword.svelte';
   import StepReview from '#lib/components/setup/StepReview.svelte';
   import StepToken from '#lib/components/setup/StepToken.svelte';
+  import StepWelcome from '#lib/components/setup/StepWelcome.svelte';
   import { SetupTargets } from '#lib/components/setup/targets.ts';
   import { NetworkError, api } from '#lib/api.ts';
   import { NET_PROBE_MS, Reconnect } from '#lib/no-connection.svelte.ts';
@@ -59,14 +60,16 @@
 
   /**
    * Entering a step (`entering`): desktop the step's target without
-   * scrolling; on mobile the heading, so the on-screen keyboard does not open
-   * at once. A rejected field gets the focus on mobile too.
+   * scrolling; on mobile the heading instead of a field, so the on-screen
+   * keyboard does not open at once (the language card of step 1 opens none).
+   * A rejected field gets the focus on mobile too.
    */
   function focus(target: Focus, entering = true) {
     // "No connection" keeps the focus until it closes.
     if (net.open) return;
     const mobile = isMobileWidth(ui.width);
-    const el = targets.get(mobile && entering ? 'heading' : target) ?? targets.get('heading');
+    const keyboard = target !== 'lang' && target !== 'heading';
+    const el = targets.get(mobile && entering && keyboard ? 'heading' : target) ?? targets.get('heading');
     if (!el || (el instanceof HTMLInputElement && el.disabled)) return;
     el.focus(mobile ? undefined : { preventScroll: true });
   }
@@ -130,6 +133,8 @@
 
 {#if flow.view === 'done'}
   <SetupDone {flow} {targets} hidden={net.open} />
+{:else if flow.step === 1}
+  <StepWelcome {flow} {targets} hidden={net.open} />
 {:else if flow.step === 2}
   <StepToken {flow} {targets} hidden={net.open} />
 {:else if flow.step === 3}

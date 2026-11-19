@@ -1,4 +1,4 @@
-// First flow: setup in four steps, then mail server (OAuth client via DCR) and
+// First flow: setup in five steps, then mail server (OAuth client via DCR) and
 // system mails via the administration API → invitations to two addresses,
 // links from the system mails →
 // accept both (with mandatory MFA) → connect an account via the mail server's
@@ -56,35 +56,54 @@ function next(page: Page) {
   return page.getByRole('button', { name: 'Continue', exact: true });
 }
 
-test('setup: four steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
+test('setup: five steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
   const context = await browser.newContext();
   const page = await newPage(context);
   await page.goto(`${instance.url}/`);
   await expect(page).toHaveURL(/\/setup$/);
   await settled(page);
 
-  // 1 Token
+  // 1 Language and appearance: applies at once, a custom accent from the colour editor
+  await step(page, 'Welcome');
+  await expect(page.getByRole('radio', { name: 'System' }).first()).toBeFocused();
+  await page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Dark' }).click();
+  await expect(page.locator('html')).toHaveAttribute('data-mode', 'dark');
+  await page.getByRole('radio', { name: 'More' }).click();
+  const editor = page.getByRole('dialog', { name: 'More colors' });
+  await expect(editor).toBeFocused();
+  expect(await axeViolations(page), 'axe: colour editor').toEqual([]);
+  // A colour whose ink reaches 4.5 : 1 (the ink rule for custom colours is #164).
+  await editor.getByLabel('Or your own hex code').fill('#5b8def');
+  await editor.getByRole('button', { name: 'Apply' }).click();
+  await expect(editor).toBeHidden();
+  await expect(page.getByRole('radio', { name: 'Custom #5B8DEF' })).toBeFocused();
+  await page.getByRole('radio', { name: 'Custom #5B8DEF' }).press('Enter');
+
+  // 2 Token
   await step(page, 'Set up Roedy Mail');
   await page.getByLabel('Setup token').fill(await instance.setupToken());
   await next(page).click();
 
-  // 2 Administrator
+  // 3 Administrator
   await step(page, 'Create administrator', 'Your name');
   await page.getByLabel('Your name').fill(admin.name);
   await page.getByLabel('Email address').fill(stalwart.admin.email);
   await next(page).click();
 
-  // 3 Password
+  // 4 Password
   await step(page, 'Set password', 'Password');
   await page.getByLabel('Password', { exact: true }).fill(admin.password);
   await page.getByLabel('Confirm password', { exact: true }).fill(admin.password);
   await next(page).click();
 
-  // 4 Review and completion
+  // 5 Review and completion
   await step(page, 'All set?');
   await page.getByRole('button', { name: 'Finish setup' }).click();
   await expect(page.getByRole('heading', { name: 'Welcome, Alex' })).toBeVisible();
   await expect(page).toHaveURL(/\/no-account$/);
+  // The choices of step 1 are the administrator's settings.
+  await expect(page.locator('html')).toHaveAttribute('data-mode', 'dark');
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom');
   await expect(page.getByRole('heading', { name: 'Connect your first email account' })).toBeVisible();
   expect(await axeViolations(page), 'axe: no account').toEqual([]);
 

@@ -26,17 +26,22 @@ async function next(name: string | RegExp = 'Continue') {
   await fireEvent.click(screen.getByRole('button', { name }));
 }
 
+/** Opens the wizard at the token step (a reload there after step 1). */
+function atToken() {
+  sessionStorage.setItem('roedy-setup-step', '2');
+}
+
 describe('Setup page', () => {
   it('shows the token step with brand, terminal, progress and document title', async () => {
     const writeText = vi.fn(() => Promise.resolve());
     vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    atToken();
     const view = render(Page);
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up Roedy Mail');
     expect(view.getByText('Roedy Mail')).toBeInTheDocument();
     expect(view.getByRole('img', { name: 'Step 2 of 5' })).toBeInTheDocument();
     expect(ui.setupTitle).toBe('Setup token · Setup');
-    // The first step the wizard shows has no "Back".
-    expect(view.queryByRole('button', { name: 'Back' })).toBeNull();
+    expect(view.getByRole('button', { name: 'Back' })).toBeInTheDocument();
     expect(view.getByText('docker logs roedy-mail 2>&1 | grep Setup-Token')).toBeInTheDocument();
     await fireEvent.click(view.getByRole('button', { name: 'Copy' }));
     expect(writeText).toHaveBeenCalledWith('docker logs roedy-mail 2>&1 | grep Setup-Token');
@@ -47,6 +52,7 @@ describe('Setup page', () => {
     vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
     const execCommand = vi.fn(() => false);
     Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    atToken();
     const view = render(Page);
     await fireEvent.click(view.getByRole('button', { name: 'Copy' }));
     expect(execCommand).toHaveBeenCalledWith('copy');
@@ -70,6 +76,7 @@ describe('Setup page', () => {
 
   it('goes back keeping the values; Enter on the heading continues', async () => {
     mockApi({ 'POST setup/token': [{ body: {} }] });
+    atToken();
     const view = render(Page);
     await type('Setup token', 'abcd-efgh-jklm');
     await next();
@@ -93,6 +100,7 @@ describe('Setup page', () => {
       'POST setup/token': [],
       'GET public/config': [{ body: { setup_required: true } }],
     });
+    atToken();
     const view = render(Page);
     await type('Setup token', 'abcd-efgh-jklm');
     const field = view.getByLabelText('Setup token');
@@ -139,6 +147,7 @@ describe('Setup page', () => {
       return Promise.resolve(new Response(JSON.stringify(config), { status: 200 }));
     });
     vi.stubGlobal('fetch', fetch);
+    atToken();
     const view = render(Page);
     expect(await view.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
     // First attempt after 5 s; it hangs and ends after 10 s without an answer.
@@ -183,6 +192,7 @@ describe('Setup page', () => {
   it('focuses the first field unless someone already chose another one', async () => {
     mockApi({ 'POST setup/token': [{ body: {} }] });
     vi.useFakeTimers();
+    atToken();
     render(Page);
     await type('Setup token', 'abcd-efgh-jklm');
     await next();
@@ -202,6 +212,7 @@ describe('Setup page', () => {
 
   it('reports an unexpected error as an error toast', async () => {
     mockApi({ 'POST setup/token': [{ status: 500, body: { error: 'internal' } }] });
+    atToken();
     render(Page);
     await type('Setup token', 'abcd-efgh-jklm');
     await next();
@@ -216,6 +227,7 @@ describe('Setup page', () => {
   it('shows the token in boxes, too short and locked', async () => {
     vi.useFakeTimers();
     mockApi({ 'POST setup/token': [{ status: 429, body: { error: 'rate_limited', retry_after: 30 } }] });
+    atToken();
     const view = render(Page);
     const input = view.getByLabelText('Setup token');
     await fireEvent.input(input, { target: { value: 'ab12' } });
@@ -262,6 +274,12 @@ describe('Setup page', () => {
       'GET settings': [{ body: { version: 1, settings: {} } }],
     });
     const view = render(Page);
+
+    // 1: language and appearance
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome');
+    await fireEvent.click(view.getByRole('radio', { name: 'Dark' }));
+    await fireEvent.click(view.getByRole('radio', { name: 'Sage' }));
+    await next('Get started');
 
     // 2: Token
     await type('Setup token', 'abcd-efgh-jklm');
@@ -319,7 +337,7 @@ describe('Setup page', () => {
       name: 'Anna Becker',
       email: 'anna@example.com',
       password: 'Safe-enough1',
-      settings: { lang: 'system', mode: 'system', accent: 'apricot' },
+      settings: { lang: 'system', mode: 'dark', accent: 'sage' },
     });
     expect(ui.setupTitle).toBe('Done · Setup');
     // The done screen has read the first name: the session keys go.
@@ -328,5 +346,141 @@ describe('Setup page', () => {
     await vi.advanceTimersByTimeAsync(2700);
     await vi.waitFor(() => expect(session.authed).toBe(true));
     expect(calls.map((c) => c.path)).toContain('settings');
+  });
+});
+
+describe('Step 1: language and appearance', () => {
+  /** The radio group `name` and its options. */
+  function group(name: string) {
+    const el = screen.getByRole('radiogroup', { name });
+    return { el, option: (option: string) => within(el).getByRole('radio', { name: option }) };
+  }
+
+  it('shows the choices with the defaults and focuses the selected language', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = render(Page);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome');
+    expect(
+      view.getByText(
+        'Roedy Mail is set up in a few steps. First, choose your language and appearance. This becomes your default, and you can change it later in Settings.',
+      ),
+    ).toBeInTheDocument();
+    expect(view.getByRole('img', { name: 'Step 1 of 5' })).toBeInTheDocument();
+    expect(ui.setupTitle).toBe('Language and appearance · Setup');
+    expect(view.queryByRole('button', { name: 'Back' })).toBeNull();
+
+    const lang = group('Language');
+    expect(
+      within(lang.el)
+        .getAllByRole('radio')
+        .map((r) => r.textContent?.trim()),
+    ).toEqual([
+      expect.stringContaining('System'),
+      expect.stringContaining('Deutsch'),
+      expect.stringContaining('English'),
+    ]);
+    expect(lang.option('System')).toHaveAttribute('aria-checked', 'true');
+    expect(group('Theme').option('System')).toHaveAttribute('aria-checked', 'true');
+    const accent = group('Accent color');
+    expect(within(accent.el).getAllByRole('radio')).toHaveLength(6);
+    expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'true');
+    expect(accent.option('More')).toHaveAttribute('aria-checked', 'false');
+    await vi.waitFor(() => expect(lang.option('System')).toHaveFocus());
+  });
+
+  it('applies every choice at once and keeps it in the session, sending nothing', async () => {
+    const { calls } = mockApi({});
+    const view = render(Page);
+    await fireEvent.click(group('Language').option('Deutsch'));
+    expect(prefs.values.lang).toBe('de');
+    expect(sessionStorage.getItem('roedy-setup-lang')).toBe('de');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Willkommen');
+    expect(ui.setupTitle).toBe('Sprache und Design · Einrichtung');
+
+    await fireEvent.click(group('Design').option('Hell'));
+    expect(prefs.values.mode).toBe('light');
+    expect(sessionStorage.getItem('roedy-setup-dark')).toBe('0');
+
+    // Arrow keys pick within a group.
+    const accent = group('Akzentfarbe');
+    await fireEvent.keyDown(accent.option('Aprikose'), { key: 'ArrowRight' });
+    expect(accent.option('Salbei')).toHaveAttribute('aria-checked', 'true');
+    expect(accent.option('Salbei')).toHaveFocus();
+    expect(prefs.values.accent).toBe('sage');
+    expect(sessionStorage.getItem('roedy-setup-accent')).toBe('sage');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('starts with Enter on a card and keeps the choices on the way back', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = render(Page);
+    await vi.waitFor(() => expect(group('Language').option('System')).toHaveFocus());
+    const dark = group('Theme').option('Dark');
+    await fireEvent.click(dark);
+    await fireEvent.keyDown(dark, { key: 'Enter' });
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up Roedy Mail');
+    await vi.waitFor(() => expect(view.getByLabelText('Setup token')).toHaveFocus());
+    await fireEvent.click(view.getByRole('button', { name: 'Back' }));
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome');
+    expect(group('Theme').option('Dark')).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('keeps the choices after a reload on step 1', () => {
+    sessionStorage.setItem('roedy-setup-step', '1');
+    sessionStorage.setItem('roedy-setup-lang', 'en');
+    sessionStorage.setItem('roedy-setup-accent', 'custom');
+    sessionStorage.setItem('roedy-setup-accentHex', '#4a7bd0');
+    render(Page);
+    expect(group('Language').option('English')).toHaveAttribute('aria-checked', 'true');
+    expect(group('Accent color').option('Custom #4A7BD0')).toHaveAttribute('aria-checked', 'true');
+    expect(prefs.values.accent).toBe('#4a7bd0');
+  });
+
+  it('picks a custom colour in the editor', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    render(Page);
+    await vi.waitFor(() => expect(group('Language').option('System')).toHaveFocus());
+    const accent = group('Accent color');
+    // The arrows only move the focus onto "Custom"; it opens on activation.
+    await fireEvent.keyDown(accent.option('Rose'), { key: 'ArrowRight' });
+    expect(accent.option('More')).toHaveFocus();
+    expect(screen.queryByRole('dialog')).toBeNull();
+
+    await fireEvent.click(accent.option('More'));
+    const dialog = screen.getByRole('dialog', { name: 'More colors' });
+    await vi.waitFor(() => expect(dialog).toHaveFocus());
+    // Escape closes without a change.
+    await fireEvent.keyDown(dialog, { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'true');
+
+    await fireEvent.click(accent.option('More'));
+    const again = screen.getByRole('dialog', { name: 'More colors' });
+    await fireEvent.click(within(again).getByRole('radio', { name: 'Mint' }));
+    await fireEvent.click(within(again).getByRole('button', { name: 'Apply' }));
+    expect(screen.queryByRole('dialog')).toBeNull();
+    expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'true');
+    expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'false');
+    await vi.waitFor(() => expect(accent.option('Mint')).toHaveFocus());
+    expect(prefs.values.accent).toBe('#78c895');
+    expect(sessionStorage.getItem('roedy-setup-accent')).toBe('custom');
+    expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#78c895');
+
+    // A named accent again: the swatch keeps the custom colour.
+    await fireEvent.click(accent.option('Sky'));
+    expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'false');
+    expect(prefs.values.accent).toBe('sky');
+  });
+
+  it('hides an open colour editor behind "No connection"', async () => {
+    mockApi({});
+    render(Page);
+    await fireEvent.click(group('Accent color').option('More'));
+    const editor = screen.getByRole('dialog', { name: 'More colors' });
+    window.dispatchEvent(new Event('offline'));
+    expect(await screen.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
+    const layer = editor.closest<HTMLElement>('[aria-hidden="true"]');
+    expect(layer).not.toBeNull();
+    expect(layer?.inert).toBe(true);
   });
 });

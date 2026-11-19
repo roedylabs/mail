@@ -19,7 +19,7 @@
  */
 import { ACCENTS, DEFAULT_ACCENT, type AccentName } from '@roedy/tokens';
 import { ApiError, NetworkError, api, fieldsOf, retryAfter } from '#lib/api.ts';
-import { isHexColor, parseHex } from '#lib/color.ts';
+import { isHexColor, parseHex, type HexColor } from '#lib/color.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
 import { failText } from '#lib/errors.ts';
@@ -30,7 +30,7 @@ import { isLocale } from '#lib/paraglide/runtime.js';
 import type { AccentChoice, LangChoice, ModeName } from '#lib/state/prefs.svelte.ts';
 import { waitText } from '#lib/wait.ts';
 
-/** Command in the terminal box of step 1. */
+/** Command in the terminal box of the token step. */
 export const LOG_CMD = 'docker logs roedy-mail 2>&1 | grep Setup-Token';
 
 /** Duration of the welcome page until the sign-in (progress bar 2.6 s). */
@@ -44,15 +44,15 @@ export const STEPS = 5;
  * 5 review.
  */
 export type Step = 1 | 2 | 3 | 4 | 5;
-/**
- * First step the wizard shows. The language and appearance step is not
- * there yet: until it is, the wizard starts with the setup token.
- */
-export const FIRST_STEP: Step = 2;
+/** First step the wizard shows: language and appearance. */
+export const FIRST_STEP: Step = 1;
 
 export type Field = 'token' | 'name' | 'email' | 'pw' | 'pw2';
-/** Where focus goes when a step opens: a field or the step heading. */
-export type Focus = Field | 'heading';
+/**
+ * Where focus goes when a step opens: a field, the selected language card
+ * (`lang`, step 1) or the step heading.
+ */
+export type Focus = Field | 'lang' | 'heading';
 
 // ---- Session of this browser tab ----
 
@@ -68,7 +68,14 @@ function store(): Storage | null {
   }
 }
 
+/**
+ * Values whose write failed (storage full or blocked): kept for the life of
+ * the page, so the wizard and `setup/complete` still see what was chosen.
+ */
+let unsaved: Partial<Record<SessionKey, string | null>> = {};
+
 export function readSession(key: SessionKey): string | null {
+  if (key in unsaved) return unsaved[key] ?? null;
   try {
     return store()?.getItem(SESSION_PREFIX + key) ?? null;
   } catch {
@@ -80,16 +87,22 @@ export function readSession(key: SessionKey): string | null {
 export function writeSession(key: SessionKey, value: string | null): void {
   try {
     const s = store();
-    if (!s) return;
-    if (value === null) s.removeItem(SESSION_PREFIX + key);
-    else s.setItem(SESSION_PREFIX + key, value);
+    if (s) {
+      if (value === null) s.removeItem(SESSION_PREFIX + key);
+      else s.setItem(SESSION_PREFIX + key, value);
+      delete unsaved[key];
+      return;
+    }
   } catch {
-    // Storage full or blocked: the values stay in memory only.
+    // Storage full or blocked: below.
   }
+  // The value stays in memory only (lost on a reload).
+  unsaved[key] = value;
 }
 
 /** Removes all `roedy-setup-*` keys (the done screen, once it has read the first name). */
 export function clearSession(): void {
+  unsaved = {};
   try {
     const s = store();
     if (!s) return;
@@ -126,6 +139,11 @@ export function choicesOf(): SetupChoices {
   };
 }
 
+/** Custom accent of the session (kept while a named accent is chosen), `null` without one. */
+export function customHexOf(): HexColor | null {
+  return parseHex(readSession('accentHex') ?? '');
+}
+
 /** Stores one choice of the first step. */
 export function storeChoice(patch: Partial<SetupChoices>): void {
   if (patch.lang !== undefined) writeSession('lang', patch.lang);
@@ -139,9 +157,7 @@ export function storeChoice(patch: Partial<SetupChoices>): void {
 
 /** Step after a reload: step 1 stays, steps 2–5 return to step 2 (token and password must be entered again). */
 export function resumeStep(): Step {
-  const stored = Number(readSession('step'));
-  const step: Step = stored === 1 ? 1 : stored >= 2 ? 2 : 1;
-  return step < FIRST_STEP ? FIRST_STEP : step;
+  return Number(readSession('step')) >= 2 ? 2 : FIRST_STEP;
 }
 
 /** `true` marks a field without its own text (password rules as chips). */
@@ -182,8 +198,8 @@ export function formatToken(input: string): string {
   return (raw.match(/.{1,4}/g) ?? []).join('-');
 }
 
-/** Focus when a step opens: its first field, otherwise its heading. */
-const FIRST: Partial<Record<Step, Field>> = { 2: 'token', 3: 'name', 4: 'pw' };
+/** Focus when a step opens: its first field or the selected language card, otherwise its heading. */
+const FIRST: Partial<Record<Step, Focus>> = { 1: 'lang', 2: 'token', 3: 'name', 4: 'pw' };
 
 export function focusOf(step: Step): Focus {
   return FIRST[step] ?? 'heading';
@@ -289,6 +305,11 @@ export class SetupFlow {
   }
 
   // ---- Steps ----
+
+  /** "Get started" on step 1: nothing is sent, the choices are already in the session. */
+  start(): void {
+    if (this.step === 1) this.go(2);
+  }
 
   async submitToken(): Promise<void> {
     if (this.loading || this.locked) return;
