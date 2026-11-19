@@ -390,7 +390,8 @@
   }
 
   .cmd-parts .dim {
-    color: rgba(239, 230, 218, 0.5);
+    /* 0.52, not 0.5: at 12.5 px the redirects need 4.5 : 1 on the terminal (0.5 gives 4.48) */
+    color: rgba(239, 230, 218, 0.52);
   }
 
   .log {
@@ -639,8 +640,9 @@
     text-wrap: pretty;
   }
 
+  /* A little towards --fg: --mfg alone stays under 4.5 : 1 on the sage tint in the dark theme */
   .msg-text .ok-text {
-    color: var(--mfg);
+    color: color-mix(in oklab, var(--mfg) 80%, var(--fg));
   }
 
   /* Attempts left (five bars, the remaining ones filled) or the countdown of the lock */

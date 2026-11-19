@@ -97,7 +97,10 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await expect(alert).toContainText('Too many attempts.');
   await expect(token).toBeDisabled();
   await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+  // The countdown bar moves every second; without motion axe need not wait for it.
+  await page.emulateMedia({ reducedMotion: 'reduce' });
   expect(await axeViolations(page), 'axe: token locked').toEqual([]);
+  await page.emulateMedia({ reducedMotion: null });
   // A reload forgets the lock in the page; the server's answer brings it back with the time left.
   await page.reload();
   await settled(page);
