@@ -204,6 +204,24 @@ describe('session', () => {
     expect([session.status, session.failure]).toEqual(['error', 'offline']);
   });
 
+  it('keeps the result of the newest load when an older one finishes later', async () => {
+    let fail: () => void = () => {};
+    const { calls } = mockApi({
+      'GET public/config': [
+        () => new Promise((_resolve, reject) => (fail = () => reject(new TypeError('network')))),
+        { body: { ...CONFIG, setup_required: true } },
+      ],
+    });
+    const session = new Session();
+    const older = session.load();
+    await session.load();
+    expect(session.status).toBe('ready');
+    fail();
+    await older;
+    expect([session.status, session.failure, session.setupRequired]).toEqual(['ready', null, true]);
+    expect(calls).toHaveLength(2);
+  });
+
   it('does not query the account without an administrator', async () => {
     const { calls } = mockApi({ 'GET public/config': [{ body: { ...CONFIG, setup_required: true } }] });
     const session = new Session();

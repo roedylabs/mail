@@ -176,6 +176,8 @@ export class Session {
 
   /** State last read from the server, see `refreshConfig`. */
   #served: LiveConfig | null = null;
+  /** Counts `load()`: only the most recent one writes its result (an older one may finish later). */
+  #loadSeq = 0;
   #refreshing: Promise<void> | null = null;
 
   /**
@@ -194,11 +196,14 @@ export class Session {
     // `signal` ends the requests early (the setup's "No connection" attempts); without an answer it counts as offline.
     const both = signal && start ? AbortSignal.any([signal, start]) : (signal ?? start);
     const options: ApiOptions = both ? { signal: both } : {};
+    const load = ++this.#loadSeq;
     try {
       const config = await api<PublicConfig>('GET', 'public/config', undefined, options);
+      if (load !== this.#loadSeq) return;
       // As in `refreshUser`: only the most recent query takes over the account.
       const seq = ++this.#meSeq;
       const user = config.setup_required ? null : await this.fetchMe(options);
+      if (load !== this.#loadSeq) return;
       // Both at once, otherwise the layout would redirect in between after half the state on reload.
       this.config = config;
       // Own object: writing via `config` would otherwise change this state too.
@@ -209,6 +214,8 @@ export class Session {
       this.fromCopy = false;
       void applyCacheVersion(config.client_cache_version);
     } catch (error) {
+      // A newer load has started in the meantime: its result applies.
+      if (load !== this.#loadSeq) return;
       // If the app already runs from the copy, it stays until the server answers properly.
       if (this.fromCopy) return;
       if (copy && !(error instanceof ApiError)) {
