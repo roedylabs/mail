@@ -1,4 +1,6 @@
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { ACCENTS, DEFAULT_ACCENT, DEFAULT_MODE, MODES, renderTokensCss } from './index.ts';
 
@@ -45,6 +47,32 @@ describe('animations off', () => {
     expect(css).toContain(
       '  :root *::after {\n    animation: none !important;\n    transition: none !important;\n  }\n}',
     );
+  });
+});
+
+describe('shadow tokens', () => {
+  it('defines the --sh-edge inset edge in both modes and in the generated CSS', () => {
+    const edge = 'inset 0 -3px 0 rgba(0,0,0,0.08)';
+    expect(MODES.light['--sh-edge']).toBe(edge);
+    expect(MODES.dark['--sh-edge']).toBe(edge);
+    // default mode, explicit other mode and the system-mode media query
+    expect(renderTokensCss().split(`--sh-edge: ${edge};`)).toHaveLength(4);
+  });
+
+  it('defines every --sh* token that the web app uses (an undefined one invalidates the whole box-shadow)', () => {
+    const root = fileURLToPath(new URL('../../../apps/web/src', import.meta.url));
+    const used = new Set<string>();
+    for (const file of readdirSync(root, { recursive: true, encoding: 'utf8' })) {
+      if (!/\.(svelte|ts|css)$/.test(file)) continue;
+      for (const [, name] of readFileSync(join(root, file), 'utf8').matchAll(/var\((--sh(?:\d|-[\w-]+))\s*[,)]/g)) {
+        used.add(name!);
+      }
+    }
+    expect(used.size).toBeGreaterThan(0);
+    for (const name of used) {
+      expect(MODES.light, name).toHaveProperty([name]);
+      expect(MODES.dark, name).toHaveProperty([name]);
+    }
   });
 });
 

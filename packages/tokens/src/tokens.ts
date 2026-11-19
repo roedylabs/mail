@@ -29,6 +29,7 @@ export const MODES = {
     '--sh1': '0 1px 2px rgba(60,35,10,0.06), 0 4px 12px -2px rgba(60,35,10,0.07)',
     '--sh2': '0 2px 4px rgba(60,35,10,0.04), 0 24px 56px -16px rgba(60,35,10,0.2)',
     '--sh3': '0 2px 6px rgba(60,35,10,0.06), 0 40px 90px -24px rgba(60,35,10,0.38)',
+    '--sh-edge': 'inset 0 -3px 0 rgba(0,0,0,0.08)',
   },
   dark: {
     '--cnv': '#181411',
@@ -50,6 +51,7 @@ export const MODES = {
     '--sh1': '0 1px 2px rgba(0,0,0,0.3), 0 4px 12px -2px rgba(0,0,0,0.25)',
     '--sh2': '0 2px 4px rgba(0,0,0,0.25), 0 24px 56px -16px rgba(0,0,0,0.55)',
     '--sh3': '0 2px 6px rgba(0,0,0,0.3), 0 40px 90px -24px rgba(0,0,0,0.7)',
+    '--sh-edge': 'inset 0 -3px 0 rgba(0,0,0,0.08)',
   },
 } as const satisfies Record<ModeName, CssVars>;
 
