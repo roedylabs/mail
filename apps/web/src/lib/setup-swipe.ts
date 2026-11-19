@@ -28,6 +28,19 @@ export const swipeGoes = (x: number, vx: number, width: number): boolean => x > 
 /** Progress 0–1 towards going back (the chip's opacity and scale). */
 export const swipeProgress = (x: number, width: number): number => Math.min(1, Math.max(0, x) / (width * 0.3));
 
+/**
+ * Horizontal velocity in px/ms over the last 100 ms before the release at
+ * time `at` (x and time stamp per point; the release point included): a
+ * pointer that stood still before letting go has none.
+ */
+export function releaseVelocity(points: readonly (readonly [number, number])[], at: number): number {
+  const window = points.filter((p) => at - p[1] <= 100);
+  const first = window[0];
+  const last = window[window.length - 1];
+  if (!first || !last) return 0;
+  return (last[0] - first[0]) / Math.max(1, last[1] - first[1]);
+}
+
 /** Offset of the page for the movement `dx`: along to the right, a rubber band to the left. */
 export const swipeOffset = (dx: number): number => (dx > 0 ? dx : -rubber(-dx, 20));
 
@@ -39,6 +52,10 @@ export const swipeOffset = (dx: number): number => (dx > 0 ? dx : -rubber(-dx, 2
 export function setupSwipe(get: () => SetupSwipe | null): Attachment<HTMLElement> {
   return (el) => {
     let active = false;
+    /** Ends a running gesture (listeners, styles); set while one runs. */
+    let abort: (() => void) | null = null;
+    /** Slide-out before "Back" runs. */
+    let backTimer: ReturnType<typeof setTimeout> | undefined;
     const onDown = (down: PointerEvent) => {
       if (active || (down.pointerType === 'mouse' && down.button !== 0) || !down.isPrimary) return;
       const t = down.target instanceof Element ? down.target : null;
@@ -76,6 +93,7 @@ export function setupSwipe(get: () => SetupSwipe | null): Attachment<HTMLElement
       };
       const stop = () => {
         active = false;
+        abort = null;
         win.removeEventListener('pointermove', onMove);
         win.removeEventListener('pointerup', onUp);
         win.removeEventListener('pointercancel', onUp);
@@ -136,9 +154,7 @@ export function setupSwipe(get: () => SetupSwipe | null): Attachment<HTMLElement
         win.addEventListener('click', swallow, true);
         setTimeout(() => win.removeEventListener('click', swallow, true), 0);
         const cancelled = e.type === 'pointercancel';
-        const last = pts[pts.length - 1]!;
-        const first = pts.find((p) => last[1] - p[1] <= 100) ?? last;
-        const vx = (last[0] - first[0]) / Math.max(1, last[1] - first[1]);
+        const vx = releaseVelocity([...pts, [e.clientX, e.timeStamp]], e.timeStamp);
         if (!cancelled && swipeGoes(x, vx, width)) {
           const d = ms(Math.round(Math.max(160, Math.min(300, (width - x) / Math.max(vx, 0.8)))));
           el.style.transition = `translate ${d}ms ${OUT}`;
@@ -147,7 +163,8 @@ export function setupSwipe(get: () => SetupSwipe | null): Attachment<HTMLElement
             chip.style.transition = `opacity ${d}ms ease`;
             chip.style.opacity = '0';
           }
-          setTimeout(() => {
+          backTimer = setTimeout(() => {
+            backTimer = undefined;
             get()?.back();
             setTimeout(() => {
               if (el.isConnected) reset();
@@ -167,11 +184,20 @@ export function setupSwipe(get: () => SetupSwipe | null): Attachment<HTMLElement
           }, d + 30);
         }
       };
+      abort = () => {
+        stop();
+        reset();
+      };
       win.addEventListener('pointermove', onMove, { passive: false });
       win.addEventListener('pointerup', onUp);
       win.addEventListener('pointercancel', onUp);
     };
     el.addEventListener('pointerdown', onDown);
-    return () => el.removeEventListener('pointerdown', onDown);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      // The step is gone (another Back came first): no second Back, no listeners left behind.
+      clearTimeout(backTimer);
+      abort?.();
+    };
   };
 }

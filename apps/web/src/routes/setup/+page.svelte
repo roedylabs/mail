@@ -71,29 +71,41 @@
   }
 
   /** An attempt of "No connection": the setup status; any answer counts, a server error too. */
-  async function probe(): Promise<boolean> {
-    // The status could not be loaded before the first step: load the session again (a server error then shows the error page).
-    if (session.status === 'error') {
+  async function probe(signal: AbortSignal): Promise<boolean> {
+    const loaded = async () => {
       await session.load();
       return session.status !== 'error' || session.failure !== 'offline';
-    }
+    };
+    // The status could not be loaded before the first step: load the session again (a server error then shows the error page).
+    if (session.status === 'error') return loaded();
     try {
-      const config = await api<PublicConfig>('GET', 'public/config');
+      const config = await api<PublicConfig>('GET', 'public/config', undefined, { signal });
       // Set up elsewhere in the meantime: the layout redirects to the sign-in.
-      if (!config.setup_required) void session.load();
-      return true;
+      return config.setup_required ? true : await loaded();
     } catch (error) {
       return !(error instanceof NetworkError);
     }
   }
 
-  const net = new Reconnect({ probe, stayed: () => shake(netBox, undefined) });
+  /** The wizard opened with "No connection" (no step entered yet): enter it once the server answers. */
+  let enterOnAnswer = false;
+  const net = new Reconnect({
+    probe,
+    stayed: () => shake(netBox, undefined),
+    answered: () => {
+      if (!enterOnAnswer) return;
+      enterOnAnswer = false;
+      flow.enter();
+    },
+  });
 
   onMount(() => {
     // The stored choices of the first step apply to every step (this tab's session).
     prefs.set(choicesOf());
-    if (session.status === 'error') net.show();
-    else flow.enter();
+    if (session.status === 'error') {
+      enterOnAnswer = true;
+      net.show();
+    } else flow.enter();
   });
   onDestroy(() => {
     flow.dispose();

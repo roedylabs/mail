@@ -189,6 +189,20 @@ describe('Step 2: setup token', () => {
     expect(h.entered).toHaveBeenCalledWith(3, 'name');
   });
 
+  it('keeps the token while it is being checked', async () => {
+    let answer: (a: { status: number; body: unknown }) => void = () => {};
+    const { calls } = mockApi({ 'POST setup/token': [() => new Promise((resolve) => (answer = resolve))] });
+    const flow = new SetupFlow(hooks());
+    flow.editToken(TOKEN);
+    const pending = flow.submitToken();
+    flow.editToken('ZZZZ-ZZZZ-ZZZZ');
+    expect(flow.token).toBe(TOKEN);
+    answer({ status: 200, body: {} });
+    await pending;
+    expect(flow.step).toBe(3);
+    expect(calls[0]?.body).toEqual({ token: TOKEN });
+  });
+
   it('reloads if the setup is already complete', async () => {
     const h = hooks();
     mockApi({ 'POST setup/token': [{ status: 409, body: { error: 'setup_done' } }] });

@@ -261,7 +261,9 @@ export class SetupFlow {
     this.err = err;
   }
 
+  /** Token input; not while it is being checked (completion sends the token the server accepted). */
   editToken(value: string): void {
+    if (this.loading) return;
     this.token = formatToken(value);
     if (this.tokErr !== 'locked') this.tokErr = null;
   }

@@ -47,7 +47,16 @@ export class SetupFit {
 
   /** Size of the page changed (observer); more than 4 px per axis counts. */
   resize(w: number, h: number): void {
-    if (this.ready && Math.abs(w - this.w) <= 4 && Math.abs(h - this.h) <= 4) return;
+    const same =
+      isMobileWidth(w) === this.mobile &&
+      w >= WIDE === this.w >= WIDE &&
+      (isMobileWidth(w) || !this.t.columns || twoCol(w, h, this.two) === this.two);
+    if (this.ready && same && Math.abs(w - this.w) <= 4 && Math.abs(h - this.h) <= 4) {
+      // Too small to refit, but the size stays current.
+      this.w = w;
+      this.h = h;
+      return;
+    }
     if (!this.ready || this.fitting) {
       this.relayout(w, h);
       return;

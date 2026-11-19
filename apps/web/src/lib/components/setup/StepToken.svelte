@@ -154,6 +154,7 @@
           aria-invalid={flow.tokErr ? 'true' : 'false'}
           aria-describedby={flow.tokErr === 'short' ? 'su-token-err' : flow.tokErr ? 'su-token-alert' : undefined}
           disabled={flow.locked}
+          readonly={flow.loading}
         />
       </div>
       {#if flow.tokErr === 'short'}

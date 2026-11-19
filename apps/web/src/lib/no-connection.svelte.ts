@@ -13,16 +13,21 @@ export const NET_WAIT = [5, 10, 20, 30] as const;
 /** Shortest "Checking …" of an attempt without an answer (the ring spins). */
 export const NET_CHECK_MS = 1200;
 
+/** Longest attempt: a request that hangs counts as no answer, so the retries go on. */
+export const NET_PROBE_MS = 10_000;
+
 /** Wait before attempt `n` (0 = the first). */
 export function netWait(n: number): number {
   return NET_WAIT[Math.min(Math.max(0, n), NET_WAIT.length - 1)]!;
 }
 
 export interface ReconnectHooks {
-  /** `true` once the server answers (any status), `false` without an answer. */
-  probe: () => Promise<boolean>;
+  /** `true` once the server answers (any status), `false` without an answer; `signal` ends at `NET_PROBE_MS`. */
+  probe: (signal: AbortSignal) => Promise<boolean>;
   /** An attempt via "Try now" got no answer: shake the message. */
   stayed?: () => void;
+  /** The server answered and the message closed. */
+  answered?: () => void;
 }
 
 export class Reconnect {
@@ -61,14 +66,27 @@ export class Reconnect {
     clearInterval(this.timer);
     const started = Date.now();
     let answered: boolean;
+    const ctrl = new AbortController();
+    let limit: ReturnType<typeof setTimeout> | undefined;
     try {
-      answered = await this.hooks.probe();
+      answered = await Promise.race([
+        this.hooks.probe(ctrl.signal),
+        new Promise<boolean>((resolve) => {
+          limit = setTimeout(() => {
+            ctrl.abort();
+            resolve(false);
+          }, NET_PROBE_MS);
+        }),
+      ]);
     } catch {
       answered = false;
+    } finally {
+      clearTimeout(limit);
     }
     if (!this.open) return;
     if (answered) {
       this.close();
+      this.hooks.answered?.();
       return;
     }
     const rest = NET_CHECK_MS - (Date.now() - started);

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { NET_CHECK_MS, NET_WAIT, Reconnect, netWait } from './no-connection.svelte.ts';
+import { NET_CHECK_MS, NET_PROBE_MS, NET_WAIT, Reconnect, netWait } from './no-connection.svelte.ts';
 
 afterEach(() => {
   vi.useRealTimers();
@@ -80,5 +80,26 @@ describe('Reconnect', () => {
     net.close();
     await vi.advanceTimersByTimeAsync(60_000);
     expect(probe).toHaveBeenCalledOnce();
+  });
+
+  it('ends a hanging attempt as no answer and goes on retrying', async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const probe = vi.fn((s: AbortSignal) => {
+      signal = s;
+      return new Promise<boolean>(() => {});
+    });
+    const answered = vi.fn();
+    const net = new Reconnect({ probe, answered });
+    net.show();
+    const pending = net.attempt();
+    await vi.advanceTimersByTimeAsync(NET_PROBE_MS);
+    await pending;
+    expect(signal?.aborted).toBe(true);
+    expect([net.open, net.busy, net.tries]).toEqual([true, false, 1]);
+    probe.mockImplementation(() => Promise.resolve(true));
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(net.open).toBe(false);
+    expect(answered).toHaveBeenCalledOnce();
   });
 });

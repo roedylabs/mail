@@ -218,6 +218,7 @@
     class:mobile
     data-input={input}
     aria-hidden={hidden ? 'true' : undefined}
+    inert={hidden}
     tabindex="-1"
     onpointerdown={onPointer}
     onpointerover={onPointer}
