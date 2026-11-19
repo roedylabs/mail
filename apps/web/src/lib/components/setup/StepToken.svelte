@@ -42,7 +42,11 @@
   const desk: (DeskLevel & Extra)[] = DESK_LEVELS.map((l, i) => ({ ...l, ...DESK_X[i]! }));
   const mob: (MobLevel & Extra)[] = MOB_LEVELS.map((l, i) => ({ ...l, ...MOB_X[i]! }));
 
-  /** The command in parts with light syntax colours: programs in the accent, the search word in sage, redirects dimmed. */
+  /**
+   * The command in parts with light syntax colours: programs in the accent,
+   * the search word in sage, redirects dimmed. Inline with real spaces
+   * between them, so a selected command copies as one line.
+   */
   const CMD_PARTS = LOG_CMD.split(' ').map((t) => ({
     t,
     tone:
@@ -131,9 +135,8 @@
         <div class="term-body">
           <div class="cmd">
             <span class="prompt" aria-hidden="true">$</span>
-            <span class="sr-only">{LOG_CMD}</span>
-            <div class="cmd-parts" aria-hidden="true">
-              {#each CMD_PARTS as p, i (i)}<span class={p.tone}>{p.t}</span>{/each}
+            <div class="cmd-parts">
+              {#each CMD_PARTS as p, i (i)}{#if i > 0}{' '}{/if}<span class={p.tone}>{p.t}</span>{/each}
             </div>
           </div>
           <div class="log">
@@ -364,16 +367,15 @@
 
   .prompt {
     flex-shrink: 0;
+    user-select: none;
     color: var(--acc);
     font-weight: 800;
   }
 
-  /* Wraps only between words */
+  /* Wraps only between words (0.62em apart: the space plus the word spacing) */
   .cmd-parts {
     min-width: 0;
-    display: flex;
-    flex-wrap: wrap;
-    column-gap: 0.62em;
+    word-spacing: calc(0.62em - 1ch);
     font-weight: 700;
   }
 
