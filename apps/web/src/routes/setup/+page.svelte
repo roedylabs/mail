@@ -72,14 +72,22 @@
   }
 
   /** An attempt of "No connection": the setup status; any answer counts, a server error too. */
+  /** Signal that aborts after `ms` (on the page's timers, unlike `AbortSignal.timeout`). */
+  function deadline(ms: number): AbortSignal {
+    const ctrl = new AbortController();
+    setTimeout(() => ctrl.abort(new DOMException('No answer', 'TimeoutError')), ms);
+    return ctrl.signal;
+  }
+
   /** Session load of an attempt; a later attempt waits for it instead of starting a second one that could finish first. */
   let loading: Promise<boolean> | null = null;
   async function probe(signal: AbortSignal): Promise<boolean> {
     // Shared by the attempts, so its own deadline: a request that hangs counts as no answer.
+    // A start from the local copy (`fromCopy`) is no answer of the server either.
     const loaded = () =>
       (loading ??= session
-        .load(undefined, AbortSignal.timeout(NET_PROBE_MS))
-        .then(() => session.status !== 'error' || session.failure !== 'offline')
+        .load(undefined, deadline(NET_PROBE_MS))
+        .then(() => (session.status !== 'error' || session.failure !== 'offline') && !session.fromCopy)
         .finally(() => (loading = null)));
     // The status could not be loaded before the first step: load the session again (a server error then shows the error page).
     if (session.status === 'error') return loaded();

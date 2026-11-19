@@ -115,6 +115,63 @@ describe('Setup page', () => {
     expect(view.container.querySelector('[aria-hidden="true"] form')).toBeNull();
   });
 
+  it('retries after the setup status hung at start, then enters the step', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    session.status = 'error';
+    session.failure = 'offline';
+    const config = {
+      name: 'Roedy Mail',
+      branding: BRAND0,
+      org: {},
+      maintenance: { on: false, message: null },
+      version: '0.2.0',
+      update: null,
+      setup_required: true,
+    };
+    let call = 0;
+    const fetch = vi.fn((_input: string, init: RequestInit = {}) => {
+      call += 1;
+      // The first attempt hangs until its deadline, the second gets the status.
+      if (call === 1)
+        return new Promise<Response>((_resolve, reject) => {
+          init.signal?.addEventListener('abort', () => reject(new DOMException('No answer', 'TimeoutError')));
+        });
+      return Promise.resolve(new Response(JSON.stringify(config), { status: 200 }));
+    });
+    vi.stubGlobal('fetch', fetch);
+    const view = render(Page);
+    expect(await view.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
+    // First attempt after 5 s; it hangs and ends after 10 s without an answer.
+    await vi.advanceTimersByTimeAsync(5_000 + 10_000);
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(view.getByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
+    expect(view.getByText('Trying again in 10 seconds')).toBeInTheDocument();
+    // The next attempt starts a new load and gets the answer.
+    await vi.advanceTimersByTimeAsync(10_000);
+    await vi.waitFor(() => expect(view.queryByRole('alertdialog')).toBeNull());
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(session.status).toBe('ready');
+    await vi.waitFor(() => expect(view.getByLabelText('Setup token')).toHaveFocus());
+  });
+
+  it('does not count a start from the local copy as an answer', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    session.status = 'error';
+    session.failure = 'offline';
+    const load = vi.spyOn(session, 'load').mockImplementation(() => {
+      session.status = 'ready';
+      session.fromCopy = true;
+      return Promise.resolve();
+    });
+    const view = render(Page);
+    expect(await view.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(5_000 + 1_200);
+    expect(load).toHaveBeenCalledOnce();
+    expect(view.getByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
+    load.mockRestore();
+    session.fromCopy = false;
+  });
+
   it('shows "No connection" on the offline event', async () => {
     mockApi({});
     const view = render(Page);
