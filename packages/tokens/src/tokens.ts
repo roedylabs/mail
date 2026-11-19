@@ -131,9 +131,10 @@ export const DEFAULT_DENSITY: DensityName = 'normal';
 export const MOBILE_BP = 640;
 export const NARROW = 1000;
 
-/** Fonts: Nunito Sans (variable, axes opsz and wght) and Young Serif. */
+/** Fonts: Nunito Sans (variable, axes opsz and wght) and Young Serif; code and tokens in the system's monospace font. */
 export const FONT_SANS = "'Nunito Sans Variable', 'Nunito Sans', system-ui, -apple-system, 'Segoe UI', sans-serif";
 export const FONT_SERIF = "'Young Serif', Georgia, serif";
+export const FONT_MONO = 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
 
 /** Motion with and without animations (`--dur`, `--shim`, `--spin`). */
 export const MOTION = {

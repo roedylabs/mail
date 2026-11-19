@@ -6,6 +6,7 @@ import {
   DENSITY,
   FONT_PX,
   FONT_SANS,
+  FONT_MONO,
   FONT_SERIF,
   KEYFRAMES,
   MODES,
@@ -53,6 +54,7 @@ export function renderTokensCss(): string {
       declarations({
         '--font-sans': FONT_SANS,
         '--font-serif': FONT_SERIF,
+        '--font-mono': FONT_MONO,
         '--rowh': `${DENSITY[DEFAULT_DENSITY]}px`,
         ...MOTION.on,
       }),

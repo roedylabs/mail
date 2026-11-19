@@ -244,7 +244,6 @@
 <style>
   .tok {
     display: contents;
-    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace;
   }
 
   /* Terminal: always a dark window, in the light and the dark theme (fixed values, not the theme's tokens). */
@@ -301,7 +300,7 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    font-family: var(--mono);
+    font-family: var(--font-mono);
     font-size: 12px;
     color: rgba(239, 230, 218, 0.62);
   }
@@ -355,7 +354,7 @@
     display: flex;
     flex-direction: column;
     gap: 12px;
-    font-family: var(--mono);
+    font-family: var(--font-mono);
     font-size: 12.5px;
     line-height: 1.55;
   }
@@ -500,7 +499,7 @@
     box-shadow: var(--sh1);
     display: grid;
     place-items: center;
-    font-family: var(--mono);
+    font-family: var(--font-mono);
     font-size: var(--tk-fs);
     font-weight: 700;
     transition:

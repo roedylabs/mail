@@ -13,6 +13,7 @@
 :root {
   --font-sans: 'Nunito Sans Variable', 'Nunito Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
   --font-serif: 'Young Serif', Georgia, serif;
+  --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   --rowh: 46px;
   --dur: 220ms;
   --shim: snShim 1.5s ease-in-out infinite;
