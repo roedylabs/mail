@@ -12,10 +12,13 @@
 
 /*
  * Edge to edge (viewport-fit=cover): the page draws behind the phone's navigation bar, so its canvas colours
- * that bar too. Full-height layouts end above it (--sab, 0 elsewhere); the body's canvas fills the strip below.
+ * that bar too. Full-height layouts end above it (--sab) and keep clear of side cutouts in landscape (--sal,
+ * --sar); all are 0 without insets. The body's canvas fills the strips around.
  */
 :root {
   --sab: env(safe-area-inset-bottom, 0px);
+  --sal: env(safe-area-inset-left, 0px);
+  --sar: env(safe-area-inset-right, 0px);
 }
 
 html,
