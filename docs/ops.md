@@ -52,13 +52,28 @@ The basis is [`deploy/compose.yml`](../deploy/compose.yml): a container `roedy-m
 
 The commands here run in the directory of `compose.yml`; from another directory use `-f <path>/compose.yml`. The container is always called `roedy-mail`, the volume `roedy-mail_roedy-data`.
 
-**Bind mount instead of a volume:** A host directory must belong to the image's user, otherwise the server does not start (`Permission denied`):
+**Bind mount instead of a volume:** A host directory must belong to the container's user (default 65532:65532, see below), otherwise the server does not start (`Permission denied`):
 
 ```sh
 sudo install -d -o 65532 -g 65532 -m 700 /srv/roedy-mail
 ```
 
 and in `compose.yml` `- /srv/roedy-mail:/data` instead of `- roedy-data:/data`. The data directory must be on a local file system, not on NFS or SMB: SQLite in WAL mode needs shared memory and reliable locks.
+
+**Container user:** The server runs as user and group 65532 (the image's `USER`). To run it under other IDs, for example a service account that owns the data directory on the host, set `ROEDY_UID` and `ROEDY_GID` in `.env`; `compose.yml` passes them as `user:`. Never use 0 (root). The data directory must belong to these IDs:
+
+- **New instance:** use a [bind mount](#with-docker-compose) created with these IDs, e.g. `sudo install -d -o 1500 -g 1500 -m 700 /srv/roedy-mail`. Not a new named volume: while it is empty, Docker fills it from the image's `/data` when the container is created, including owner 65532, so a `chown` beforehand does not last.
+- **Existing instance** (the volume already holds the database): stop the container, change the owner once, set the IDs in `.env` and recreate the container with `docker compose up -d` (`docker compose start` would keep the old user):
+
+  ```sh
+  docker compose stop
+  docker run --rm -v roedy-mail_roedy-data:/data alpine:3.24 chown -R 1500:1500 /data
+  docker compose up -d
+  ```
+
+  The volume name assumes the project name `roedy-mail` from `compose.yml`; with `-p` or `COMPOSE_PROJECT_NAME` it is `<project>_roedy-data`.
+
+  With a bind mount `sudo chown -R 1500:1500 <directory>` instead. The same applies to a separately mounted `/data/backups` ([Backup and restore](#backup-and-restore)).
 
 **Verifying the image:** Every release carries an SBOM and provenance as attestations and is signed keylessly with [cosign](https://github.com/sigstore/cosign) by the release workflow (the signature is recorded in the public transparency log Rekor):
 
@@ -146,6 +161,7 @@ All settings come from environment variables, with Compose from the `.env` file 
 | `ROEDY_SECRET_KEY_FILE` | – | File with this key, e.g. a Docker secret (`/run/secrets/roedy_secret_key`). Not together with `ROEDY_SECRET_KEY`. |
 | `ROEDY_GEOIP_DB` | – | GeoIP database in MaxMind DB format (e.g. GeoLite2-City or DB-IP Lite, as a volume, not in the image) for the location in "Signed-in devices", security emails and the audit log ("Hamburg, Germany"); without it, the shortened IP address appears there. The file is held in memory (GeoLite2-City ≈ 60 MB, -Country ≈ 9 MB) and reloaded daily if it has changed. |
 | `ROEDY_IMAGE_TAG` | `latest` | Only in `deploy/compose.yml`: version of the image ([Updates](#updates)). |
+| `ROEDY_UID`, `ROEDY_GID` | `65532` | Only in `deploy/compose.yml`: user and group the container runs as. The data directory must belong to them ([Container user](#with-docker-compose)). |
 | `MIMALLOC_PURGE_DELAY`, `MIMALLOC_ALLOW_THP` | `0` in the image | Allocator: return free memory immediately, no Transparent Huge Pages. Without them the idle server keeps up to 58 instead of 14 MB. |
 
 **HTTPS:** The session cookie (`__Host-roedy_session`) is `Secure`; signing in therefore only works via HTTPS or `http://localhost`. Service worker, installation as an app and push need it as well.
@@ -183,7 +199,7 @@ Next:
 
 ## Data directory
 
-Everything the server stores permanently lives in `/data` (`ROEDY_DATA_DIR`), owner 65532, directory `0700`, files `0600`:
+Everything the server stores permanently lives in `/data` (`ROEDY_DATA_DIR`), owner 65532 (or `ROEDY_UID`/`ROEDY_GID`), directory `0700`, files `0600`:
 
 | Path | Content |
 |---|---|
@@ -220,7 +236,7 @@ Administration › Maintenance creates backups by hand ("Back up now") or on a s
 
   `.tmp-…` directories in it come from a backup currently running and do not belong to it.
 
-- mount a separate directory or share at `/data/backups` (owner 65532; unlike for the database, it may be a network drive for the backups), in `compose.yml` additionally `- /mnt/backup/roedy-mail:/data/backups`;
+- mount a separate directory or share at `/data/backups` (owner 65532 or `ROEDY_UID`/`ROEDY_GID`; unlike for the database, it may be a network drive for the backups), in `compose.yml` additionally `- /mnt/backup/roedy-mail:/data/backups`;
 - download individual backups on the page.
 
 **Restoring in the app:** Only in maintenance mode, so that nobody changes data during the restore: turn it on under Administration › Maintenance (the notice above the list of backups has a button for it). Until then "Restore" is locked, and the server rejects a restore outside maintenance mode with 409 `maintenance_required` without changing anything; it checks again right before it copies the backup over the live database, so turning maintenance mode off while the backup is being unpacked and checked cancels the restore, even if it is turned on again before the copy. Administrators can still work during that time: whatever they change before the copy is lost with it. Restoring resets all data to the state of the backup, without a restart, including the maintenance mode: afterwards it is set as in the backup, so usually off again. Afterwards all other people are signed out, password reset links from emails expire, and mail accounts with OAuth may require a new sign-in (Stalwart v1 has replaced their refresh tokens in the meantime). The server rejects a backup from a newer version, with a different key, or one that was changed after it was created before it changes anything: `manifest.json` carries an HMAC with the instance key over its fields and the SHA-256 of `roedy.sqlite3`, so whoever can write to the backups directory but does not have the key cannot plant a database of their own. A backup whose HMAC does not fit, or which has none, is rejected with 422 `backup_unverified`. Backups made before this check existed (manifest format 1) can no longer be restored in the app: the list marks them as older (`legacy` in `GET /api/v1/admin/backups`) and "Restore" stays locked. The audit log is not reset: its entries since the backup stay, plus the entry about the restore. Restoring needs free space of about twice the size of the database.
@@ -229,12 +245,13 @@ Administration › Maintenance creates backups by hand ("Back up now") or on a s
 
 ```sh
 file=roedy-mail-20261104T003000Z-auto-….tar.zst
+uid=65532 gid=65532   # or ROEDY_UID / ROEDY_GID from .env
 docker run --rm -v roedy-mail_roedy-data:/data -v "$PWD":/backup:ro alpine:3.24 sh -c \
-  "install -d -o 65532 -g 65532 -m 700 /data/backups &&
-   install -o 65532 -g 65532 -m 600 /backup/$file /data/backups/"
+  "install -d -o $uid -g $gid -m 700 /data/backups &&
+   install -o $uid -g $gid -m 600 /backup/$file /data/backups/"
 ```
 
-If `/data/backups` is mounted separately as above, the helper container only sees the volume underneath, and the app would not find the file. Then put the backup on the host as root directly into that directory, such as `sudo install -o 65532 -g 65532 -m 600 "$file" /mnt/backup/roedy-mail/`.
+The helper container only fits a named volume. If `/data/backups` is mounted separately as above, or `/data` itself is a bind mount, skip it (it would write into the volume underneath, where the app neither finds nor removes the file) and put the backup on the host as root directly into the directory behind `/data/backups` instead, e.g. `sudo install -o "$uid" -g "$gid" -m 600 "$file" /mnt/backup/roedy-mail/` for the separate mount, or for a `/data` bind mount `sudo install -d -o "$uid" -g "$gid" -m 700 /srv/roedy-mail/backups` and `sudo install -o "$uid" -g "$gid" -m 600 "$file" /srv/roedy-mail/backups/`.
 
 **By hand, with the server stopped** – for example for an older version after a failed update, or when the server no longer starts. The host needs `zstd` for this (the `tar` in the `alpine` helper container cannot do it):
 
@@ -243,13 +260,14 @@ docker compose stop
 mkdir restore && cd restore
 docker cp roedy-mail:/data/backups/roedy-mail-20261104T003000Z-auto-….tar.zst .   # also works when stopped
 zstd -dc roedy-mail-20261104T003000Z-auto-….tar.zst | tar -x   # extracts manifest.json and roedy.sqlite3
+uid=65532 gid=65532   # or ROEDY_UID / ROEDY_GID from .env
 docker run --rm -v roedy-mail_roedy-data:/data -v "$PWD":/backup:ro alpine:3.24 sh -c \
-  'cp /backup/roedy.sqlite3 /data/ && rm -f /data/roedy.sqlite3-wal /data/roedy.sqlite3-shm &&
-   chown 65532:65532 /data/roedy.sqlite3 && chmod 600 /data/roedy.sqlite3'
+  "cp /backup/roedy.sqlite3 /data/ && rm -f /data/roedy.sqlite3-wal /data/roedy.sqlite3-shm &&
+   chown $uid:$gid /data/roedy.sqlite3 && chmod 600 /data/roedy.sqlite3"
 cd .. && docker compose up -d
 ```
 
-With a bind mount instead of the volume, the same works without a helper container: copy `roedy.sqlite3` into the directory, delete `roedy.sqlite3-wal` and `roedy.sqlite3-shm`, set owner 65532 and mode `0600`. The key must be the same as for the backup. If the backup is older than the program version, the start applies the missing migrations. Unlike in the app, nothing checks the MAC (only restore a file by hand that you know comes from this instance), the audit log is at the state of the backup, and sessions and links from emails from the state of the backup stay valid, including those ended since. If you do not want the sessions and links, afterward create a backup in the app ("Back up now") and restore that one right away: a restore in the app ends all other sessions and the reset and email change links. This also works when the backup restored by hand is in the old format 1, which the app no longer restores itself.
+With a bind mount instead of the volume, the same works without a helper container: copy `roedy.sqlite3` into the directory, delete `roedy.sqlite3-wal` and `roedy.sqlite3-shm`, set owner 65532 (or `ROEDY_UID`/`ROEDY_GID`) and mode `0600`. The key must be the same as for the backup. If the backup is older than the program version, the start applies the missing migrations. Unlike in the app, nothing checks the MAC (only restore a file by hand that you know comes from this instance), the audit log is at the state of the backup, and sessions and links from emails from the state of the backup stay valid, including those ended since. If you do not want the sessions and links, afterward create a backup in the app ("Back up now") and restore that one right away: a restore in the app ends all other sessions and the reset and email change links. This also works when the backup restored by hand is in the old format 1, which the app no longer restores itself.
 
 ## Updates
 
@@ -355,7 +373,7 @@ Errors of individual areas of the app are covered in the guides: [mail servers a
 | Observation | Cause | Remedy |
 |---|---|---|
 | Container does not start, log `error: …` with the name of a variable | invalid value of a variable | Correct the value according to [Configuration](#configuration) |
-| Container does not start, `Permission denied` under `/data` | Bind mount does not belong to 65532 | `sudo chown -R 65532:65532 <directory>` |
+| Container does not start, `Permission denied` under `/data` | Data directory does not belong to the container's user (65532 or `ROEDY_UID`/`ROEDY_GID`) | Bind mount: `sudo chown -R <uid>:<gid> <directory>`; volume: see [Container user](#with-docker-compose) |
 | Container does not start, `The database schema (version …) is newer than this program version` | older version on a newer database | Start the newer version or go [back to an older version](#updates) |
 | `/readyz` responds 503 (the container stays `healthy`) | Database not readable: disk full, permissions, network drive | Check the log (`database not ready`, `database not responding`), space and permissions; keep the data directory local |
 | Container `unhealthy` | Process no longer responds on `/healthz` | Look at the log, restart the container (`docker compose restart`) |
