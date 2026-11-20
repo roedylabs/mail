@@ -251,7 +251,7 @@ docker run --rm -v roedy-mail_roedy-data:/data -v "$PWD":/backup:ro alpine:3.24 
    install -o $uid -g $gid -m 600 /backup/$file /data/backups/"
 ```
 
-If `/data/backups` is mounted separately as above, the helper container only sees the volume underneath, and the app would not find the file. Then put the backup on the host as root directly into that directory, such as `sudo install -o "$uid" -g "$gid" -m 600 "$file" /mnt/backup/roedy-mail/`. The same applies when `/data` itself is a bind mount: put the file into its `backups` directory on the host, e.g. `sudo install -d -o "$uid" -g "$gid" -m 700 /srv/roedy-mail/backups` and `sudo install -o "$uid" -g "$gid" -m 600 "$file" /srv/roedy-mail/backups/`.
+The helper container only fits a named volume. If `/data/backups` is mounted separately as above, or `/data` itself is a bind mount, skip it (it would write into the volume underneath, where the app neither finds nor removes the file) and put the backup on the host as root directly into the directory behind `/data/backups` instead, e.g. `sudo install -o "$uid" -g "$gid" -m 600 "$file" /mnt/backup/roedy-mail/` for the separate mount, or for a `/data` bind mount `sudo install -d -o "$uid" -g "$gid" -m 700 /srv/roedy-mail/backups` and `sudo install -o "$uid" -g "$gid" -m 600 "$file" /srv/roedy-mail/backups/`.
 
 **By hand, with the server stopped** – for example for an older version after a failed update, or when the server no longer starts. The host needs `zstd` for this (the `tar` in the `alpine` helper container cannot do it):
 
