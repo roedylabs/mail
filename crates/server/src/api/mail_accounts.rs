@@ -533,11 +533,7 @@ async fn exchange(
     code: &str,
     verifier: &str,
 ) -> Result<Result<oauth::Tokens, oauth::Error>, ApiError> {
-    let public_url = state
-        .public_url()
-        .await?
-        .ok_or_else(|| ApiError::rejected(StatusCode::CONFLICT, "public_url_missing"))?;
-    let redirect_uri = redirect_uri(&public_url);
+    let redirect_uri = redirect_uri(&state.public_url);
     let secret = token::client_secret(state, server, client_id).await?;
     Ok(oauth::request(
         &state.http,

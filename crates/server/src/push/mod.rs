@@ -142,7 +142,7 @@ pub struct Sender {
     http: reqwest::Client,
     vapid: Arc<Vapid>,
     /// Public address of the instance as contact (`sub`).
-    subject: Option<Arc<str>>,
+    subject: Arc<str>,
     /// `/branding/push-icon.png?v=…`, if the logo has been rendered.
     pub icon: Option<String>,
 }
@@ -153,10 +153,7 @@ impl Sender {
         Ok(Self {
             http: state.user_http.clone(),
             vapid: state.vapid().await?,
-            subject: state
-                .public_url()
-                .await?
-                .map(|url| url.origin().ascii_serialization().into()),
+            subject: state.public_url.origin().ascii_serialization().into(),
             // With a version like the mail logo, so that the push service or
             // the device does not show the old one after a change.
             icon: state
@@ -223,9 +220,9 @@ impl Sender {
         };
         let host = url.host_str().unwrap_or_default().to_owned();
         let prepared = ece::encrypt(p256dh, auth, plain).and_then(|body| {
-            let token =
-                self.vapid
-                    .authorization(&url, self.subject.as_deref(), Timestamp::now())?;
+            let token = self
+                .vapid
+                .authorization(&url, &self.subject, Timestamp::now())?;
             Ok((body, token))
         });
         let (body, token) = match prepared {
@@ -354,7 +351,7 @@ mod tests {
         let sender = Sender {
             http: crate::broker::http_client().unwrap(),
             vapid: Arc::new(Vapid::generate().unwrap().0),
-            subject: None,
+            subject: "https://app.example.com".into(),
             icon: None,
         };
         let buffer = Buffer::default();

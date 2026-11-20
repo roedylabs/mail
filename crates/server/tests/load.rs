@@ -228,10 +228,8 @@ async fn many_sessions_and_token_requests() {
     let state = AppState::new(
         Db::from(db::open(tmp.path()).unwrap()),
         Arc::new(WebAssets::None),
-        &Config {
-            public_url: Some(Url::parse("https://app.example.com").unwrap()),
-            ..Config::default()
-        },
+        &Config::default(),
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();

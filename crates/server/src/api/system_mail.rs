@@ -547,15 +547,7 @@ async fn test(
 async fn send_test(state: &AppState, draft: Draft, to: String) -> Result<(), ApiError> {
     let worker = state.clone();
     let task = tokio::spawn(async move {
-        let Some(delivery) = Delivery::for_account(&worker, draft.account, draft.saved).await?
-        else {
-            tracing::warn!("test email: no public URL");
-            return Ok(Err(ApiError::rejected(
-                StatusCode::BAD_GATEWAY,
-                "mail_failed",
-            )
-            .with("reason", "no_public_url")));
-        };
+        let delivery = Delivery::for_account(&worker, draft.account, draft.saved);
         let sent = delivery
             .send(&worker, &draft.format, |ctx| {
                 SystemTest { to: &to }.render(ctx)
@@ -614,10 +606,6 @@ async fn preview(
     let Query(query) = query.map_err(|rejection| ApiError::BadRequest(rejection.body_text()))?;
     let choice = Choice::parse(&query.template, query.variant.as_deref())
         .ok_or_else(|| ApiError::BadRequest("unknown template or variant".into()))?;
-    let public_url = state
-        .public_url()
-        .await?
-        .ok_or_else(|| anyhow::anyhow!("no public URL"))?;
     let user_id = user.id.clone();
     let (format, from) = db::call(&state.db, move |conn| {
         Ok((settings::format_of(conn, &user_id)?, sender(conn)?))
@@ -633,7 +621,7 @@ async fn preview(
         brand: &brand,
         theme: query.theme,
         format: &format,
-        public_url: &public_url,
+        public_url: &state.public_url,
         now: Timestamp::now(),
         inline_logo: true,
     };

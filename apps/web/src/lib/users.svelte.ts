@@ -870,10 +870,7 @@ export class UsersPage {
    * Safari refuses the clipboard.
    */
   async copyLink(u: Pick<ListedUser, 'id'>): Promise<void> {
-    const link = api<{ url: string }>('GET', `invites/${u.id}/link`).then(({ url }) =>
-      // Without a public address the backend only names the path.
-      url.startsWith('/') ? `${location.origin}${url}` : url,
-    );
+    const link = api<{ url: string }>('GET', `invites/${u.id}/link`).then(({ url }) => url);
     try {
       if (await copyPending(link)) ui.toasts.show(m.users_link_copied());
       else ui.toasts.error(m.error_copy());

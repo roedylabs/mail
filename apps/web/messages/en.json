@@ -872,7 +872,6 @@
   "diag_cors_content_type": "The server doesn’t allow the Content-Type header. Check the CORS settings in Stalwart and in the reverse proxy.",
   "diag_cors_preflight": "The browser’s preflight request (OPTIONS) is rejected. Check the reverse proxy in front of Stalwart.",
   "diag_cors_no_api_url": "Not checked because the session requires sign-in.",
-  "diag_cors_no_public_url": "Not checked because the public URL of {app} isn’t set.",
   "diag_oauth_metadata": "The OAuth metadata at /.well-known/oauth-authorization-server is missing. Check whether OAuth is enabled in Stalwart.",
   "diag_oauth_token_endpoint": "The token endpoint isn’t under the server’s URL. Enter the URL that Stalwart itself uses.",
   "diag_oauth_browser": "The server doesn’t support sign-in for browser apps (refresh tokens, PKCE with S256, or clients without a secret). Check the OAuth settings in Stalwart.",

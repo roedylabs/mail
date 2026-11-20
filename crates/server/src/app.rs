@@ -56,9 +56,10 @@ pub struct AppState {
     /// Intermediate steps of a multi-factor sign-in.
     pub challenges: Arc<Challenges>,
     pub trust_proxy: TrustProxy,
-    /// `ROEDY_PUBLIC_URL`; otherwise the address an older initial setup stored
-    /// applies ([`Self::public_url`]).
-    pub configured_url: Option<Url>,
+    /// Public address of the app, resolved once at startup
+    /// ([`resolve_public_url`]): links in mails, the redirect URI and the
+    /// CORS check depend on it.
+    pub public_url: Arc<Url>,
     /// Key for secrets in the database.
     pub secrets: Arc<SecretKey>,
     /// Client for requests to mail servers of the registry.
@@ -123,11 +124,13 @@ impl Background {
 
 impl AppState {
     /// The CSP initially contains only `'self'`; [`Self::load_csp`] reads the
-    /// registry. Mailer and diagnostics share one HTTP client.
+    /// registry. Mailer and diagnostics share one HTTP client. `public_url`
+    /// comes from [`resolve_public_url`].
     pub fn new(
         db: Db,
         web: Arc<WebAssets>,
         config: &Config,
+        public_url: Url,
         secrets: SecretKey,
     ) -> anyhow::Result<Self> {
         let http = broker::http_client()?;
@@ -138,7 +141,7 @@ impl AppState {
             limiter: Arc::new(RateLimiter::default()),
             challenges: Arc::new(Challenges::default()),
             trust_proxy: config.trust_proxy,
-            configured_url: config.public_url.clone(),
+            public_url: Arc::new(public_url),
             secrets: Arc::new(secrets),
             mailer: Arc::new(Mailer::new(http.clone())),
             http,
@@ -198,18 +201,6 @@ impl AppState {
             imprint: org.imprint,
             privacy: org.privacy,
         }
-    }
-
-    /// Public address of the app: `ROEDY_PUBLIC_URL` or the one an older
-    /// initial setup stored; the redirect URI and the CORS check depend on it.
-    pub async fn public_url(&self) -> anyhow::Result<Option<Url>> {
-        if let Some(url) = &self.configured_url {
-            return Ok(Some(url.clone()));
-        }
-        db::call(&self.db, |conn| {
-            app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)
-        })
-        .await
     }
 
     /// VAPID key of the instance; the first call reads it from the database or
@@ -291,15 +282,15 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     let web = Arc::new(WebAssets::new(config.web_dir.as_deref())?);
 
     let blocking_config = config.clone();
-    let (conn, token, (secrets, key_source)) = db::blocking(move || {
+    let (conn, public_url, token, (secrets, key_source)) = db::blocking(move || {
         let conn = db::open(&blocking_config.data_dir)?;
         // Before the setup token: without an address the setup would create
         // an instance that cannot send links.
-        require_public_url(&conn, &blocking_config)?;
+        let public_url = resolve_public_url(&conn, &blocking_config)?;
         let token = setup_token::ensure(&conn)?;
         // After `open`: the data directory exists by then.
         let key = SecretKey::load(&blocking_config)?;
-        Ok((conn, token, key))
+        Ok((conn, public_url, token, key))
     })
     .await?;
     if let Some(token) = token {
@@ -313,7 +304,7 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     let db = Db::from(conn);
 
     let result = async {
-        let mut state = AppState::new(db.clone(), web, &config, secrets)?;
+        let mut state = AppState::new(db.clone(), web, &config, public_url, secrets)?;
         state.load().await?;
         if let Some(path) = config.geoip_db.clone() {
             let geoip = db::blocking(move || GeoIp::open(&path)).await?;
@@ -355,13 +346,15 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `ROEDY_PUBLIC_URL` is required; instances whose address an older setup
-/// stored (`app_settings.public_url`) keep starting with that one.
-fn require_public_url(conn: &Connection, config: &Config) -> anyhow::Result<()> {
-    if config.public_url.is_some()
-        || app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)?.is_some()
-    {
-        return Ok(());
+/// Public address of the app: `ROEDY_PUBLIC_URL` is required; instances whose
+/// address an older setup stored (`app_settings.public_url`) keep starting
+/// with that one.
+pub fn resolve_public_url(conn: &Connection, config: &Config) -> anyhow::Result<Url> {
+    if let Some(url) = &config.public_url {
+        return Ok(url.clone());
+    }
+    if let Some(url) = app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)? {
+        return Ok(url);
     }
     anyhow::bail!(
         "ROEDY_PUBLIC_URL is not set – set it to the public address of the app, \
@@ -381,7 +374,7 @@ async fn run_http(
         version = env!("CARGO_PKG_VERSION"),
         listen = %listener.local_addr()?,
         data_dir = %config.data_dir.display(),
-        public_url = config.public_url.as_ref().map(|u| u.as_str()),
+        public_url = state.public_url.as_str(),
         web = state.web.describe(),
         trust_proxy = config.trust_proxy.0,
         "Roedy Mail started"

@@ -83,7 +83,6 @@ describe('diagText: CORS headers', () => {
     const text = (reasons: DiagReasons | undefined, reach: 'ok' | 'err' = 'ok') =>
       diagText('cors', 'unk', reach, reasons, CTX);
     expect(text({ cors: 'no_api_url' })).toBe('Not checked because the session requires sign-in.');
-    expect(text({ cors: 'no_public_url' })).toBe('Not checked because the public URL of Roedy Mail isn’t set.');
     expect(text({ cors: 'not_reachable' })).toBe(UNCHECKED);
   });
 

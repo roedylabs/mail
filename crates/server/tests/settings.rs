@@ -60,14 +60,12 @@ struct Env {
 async fn env() -> Env {
     let tmp = tempfile::tempdir().unwrap();
     let conn = db::open(tmp.path()).unwrap();
-    let config = Config {
-        public_url: Some(Url::parse("https://app.example.com").unwrap()),
-        ..Config::default()
-    };
+    let config = Config::default();
     let mut state = AppState::new(
         Db::from(conn),
         Arc::new(WebAssets::None),
         &config,
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();
@@ -834,6 +832,7 @@ async fn org_is_checked_saved_logged_and_public() {
         env.state.db.clone(),
         Arc::new(WebAssets::None),
         &Config::default(),
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();
@@ -1158,6 +1157,7 @@ async fn branding_is_checked_saved_drawn_and_public() {
         env.state.db.clone(),
         Arc::new(WebAssets::None),
         &Config::default(),
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();

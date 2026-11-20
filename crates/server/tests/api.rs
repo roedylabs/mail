@@ -3,6 +3,7 @@
 //! under `/probe` only exist here; they stand for the real endpoints.
 
 use std::{net::SocketAddr, sync::Arc, time::Duration};
+use url::Url;
 
 use axum::{
     Json, Router,
@@ -45,6 +46,7 @@ fn state(trust_proxy: TrustProxy) -> (tempfile::TempDir, AppState) {
                 trust_proxy,
                 ..Config::default()
             },
+            Url::parse("https://app.example.com").unwrap(),
             SecretKey::random().unwrap(),
         )
         .unwrap(),

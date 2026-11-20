@@ -115,7 +115,6 @@ docker logs roedy-mail 2>&1 | grep -E 'Push|push|VAPID|Notifications|System mail
 | `Job failed` (`job` = `push_sender`) | for example VAPID key not decrypted ([above](#vapid-keys)) |
 | `System mail not sent` (`template` = `digest` or `digest_instant`, `reason`) | sender account, reasons as in [Stalwart › Sender account](stalwart.md#sender-account-for-system-emails) |
 | `notifications by email dropped after 3 attempts` | three sending errors; the cause is in the log as well |
-| `no public address, notifications by email are dropped` | public address missing |
 | `storage not checked` (`account`, `reason`) | `quota_check` could not read the storage |
 
 Missing system emails are only reported at level `debug` (`no system mail configured, notifications by email are dropped`): `ROEDY_LOG=info,roedy_mail_server=debug`.
@@ -129,5 +128,5 @@ Typical causes:
 5. **Push service not reachable:** Log `push service not reached`. The image has no shell; so check the hosts above from the container's host and look at the firewall, a mandatory outgoing proxy and DNS filters.
 6. **iPhone or iPad:** Push only as an app on the home screen (see [Browsers](#push-in-detail)).
 7. **Quiet hours:** Email and push only arrive at their end, in the person's time zone; only Security arrives immediately.
-8. **Emails missing:** System emails set up, public address set? Digests only go out at 07:00 or on Mondays; `system mail sent` with `template` = `digest` in the log shows the sending.
+8. **Emails missing:** System emails set up? Digests only go out at 07:00 or on Mondays; `system mail sent` with `template` = `digest` in the log shows the sending.
 9. **"Send test" fails:** `502 push_failed` means no push service accepted (log); after ten tests in ten minutes the server throttles.

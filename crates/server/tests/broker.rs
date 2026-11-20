@@ -20,7 +20,7 @@ use url::Url;
 
 const ORIGIN: &str = "https://app.example.com";
 
-async fn probe(url: &str, client_id: Option<&str>, origin: Option<&str>) -> Report {
+async fn probe(url: &str, client_id: Option<&str>, origin: &str) -> Report {
     let base_url = Url::parse(url).unwrap();
     probe::probe(
         &http_client().unwrap(),
@@ -48,7 +48,7 @@ fn report(reach: Status, cors: Status, oauth: Status, reasons: Reasons) -> Repor
 async fn probe_succeeds_against_stalwart() {
     let server = Server::start(Options::default()).await;
     assert_eq!(
-        probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await,
+        probe(&server.url, Some(CLIENT_ID), ORIGIN).await,
         report(Status::Ok, Status::Ok, Status::Ok, Reasons::default())
     );
 }
@@ -60,17 +60,12 @@ async fn probe_reports_missing_cors() {
         ..Options::default()
     })
     .await;
-    let result = probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await;
+    let result = probe(&server.url, Some(CLIENT_ID), ORIGIN).await;
     assert_eq!(
         (result.reach, result.cors, result.oauth),
         (Status::Ok, Status::Err, Status::Ok)
     );
     assert_eq!(result.reasons.cors, Some("origin_not_allowed"));
-
-    // Without the app's URL CORS cannot be checked.
-    let result = probe(&server.url, Some(CLIENT_ID), None).await;
-    assert_eq!(result.cors, Status::Unk);
-    assert_eq!(result.reasons.cors, Some("no_public_url"));
 }
 
 #[tokio::test]
@@ -87,7 +82,7 @@ async fn probe_needs_authorization_and_content_type() {
             ..Options::default()
         })
         .await;
-        let result = probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await;
+        let result = probe(&server.url, Some(CLIENT_ID), ORIGIN).await;
         assert_eq!(result.reasons.cors, expected, "{allow}");
         let status = if expected.is_some() {
             Status::Err
@@ -106,7 +101,7 @@ async fn probe_applies_metadata_defaults() {
         ..Options::default()
     })
     .await;
-    let result = probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await;
+    let result = probe(&server.url, Some(CLIENT_ID), ORIGIN).await;
     assert_eq!(
         (result.oauth, result.reasons.oauth),
         (Status::Err, Some("grant_types"))
@@ -121,7 +116,7 @@ async fn probe_checks_issuer_and_client_kind() {
         ..Options::default()
     })
     .await;
-    let result = probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await;
+    let result = probe(&server.url, Some(CLIENT_ID), ORIGIN).await;
     assert_eq!(
         (result.oauth, result.reasons.oauth),
         (Status::Err, Some("issuer_mismatch"))
@@ -136,7 +131,7 @@ async fn probe_checks_issuer_and_client_kind() {
             base_url: &base_url,
             client_id: Some(CLIENT_ID),
             has_secret: true,
-            origin: Some(ORIGIN),
+            origin: ORIGIN,
         },
     )
     .await;
@@ -146,7 +141,7 @@ async fn probe_checks_issuer_and_client_kind() {
 #[tokio::test]
 async fn probe_reports_missing_oauth() {
     let server = Server::start(Options::default()).await;
-    let result = probe(&server.url, None, Some(ORIGIN)).await;
+    let result = probe(&server.url, None, ORIGIN).await;
     assert_eq!(
         (result.reach, result.cors, result.oauth),
         (Status::Ok, Status::Ok, Status::Err)
@@ -158,7 +153,7 @@ async fn probe_reports_missing_oauth() {
         ..Options::default()
     })
     .await;
-    let result = probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await;
+    let result = probe(&server.url, Some(CLIENT_ID), ORIGIN).await;
     assert_eq!(result.oauth, Status::Err);
     assert_eq!(result.reasons.oauth, Some("no_metadata"));
 }
@@ -172,7 +167,7 @@ async fn probe_reports_stalwart_v016_as_unsupported() {
     })
     .await;
     for client_id in [Some(CLIENT_ID), None] {
-        let result = probe(&server.url, client_id, Some(ORIGIN)).await;
+        let result = probe(&server.url, client_id, ORIGIN).await;
         assert_eq!(
             (result.reach, result.cors, result.oauth),
             (Status::Ok, Status::Ok, Status::Err)
@@ -190,7 +185,7 @@ async fn probe_stops_when_throttled() {
             ..Options::default()
         })
         .await;
-        probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await
+        probe(&server.url, Some(CLIENT_ID), ORIGIN).await
     };
     let wait = Some(Duration::from_secs(RETRY_AFTER));
     let mut expected = report(
@@ -220,7 +215,7 @@ async fn probe_stops_when_throttled() {
 async fn probe_reports_unreachable_server() {
     let url = unreachable_url();
     assert_eq!(
-        probe(&url, Some(CLIENT_ID), Some(ORIGIN)).await,
+        probe(&url, Some(CLIENT_ID), ORIGIN).await,
         report(
             Status::Err,
             Status::Unk,
@@ -242,7 +237,7 @@ async fn probe_checks_session_details() {
         ..Options::default()
     })
     .await;
-    let result = probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await;
+    let result = probe(&server.url, Some(CLIENT_ID), ORIGIN).await;
     assert_eq!(
         (result.reach, result.reasons.reach),
         (Status::Ok, Some("auth_required"))
@@ -259,7 +254,7 @@ async fn probe_checks_session_details() {
         ..Options::default()
     })
     .await;
-    let result = probe(&server.url, Some(CLIENT_ID), Some(ORIGIN)).await;
+    let result = probe(&server.url, Some(CLIENT_ID), ORIGIN).await;
     assert_eq!(
         (result.reach, result.reasons.reach),
         (Status::Err, Some("api_url_mismatch"))

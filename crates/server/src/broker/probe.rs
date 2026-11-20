@@ -117,9 +117,8 @@ pub struct Target<'a> {
     pub client_id: Option<&'a str>,
     /// A client secret is configured (confidential client).
     pub has_secret: bool,
-    /// Origin of the app, e.g. `https://app.example.com`; without it CORS stays
-    /// `unk` (`ROEDY_PUBLIC_URL` or the address from the setup is missing).
-    pub origin: Option<&'a str>,
+    /// Origin of the app, e.g. `https://app.example.com`.
+    pub origin: &'a str,
 }
 
 /// Checks a server of the registry like "Test connection" and stores the
@@ -135,17 +134,14 @@ pub async fn test_registered(
 ) -> anyhow::Result<(Report, bool)> {
     let base_url = Url::parse(&server.base_url)
         .map_err(|e| anyhow::anyhow!("servers.base_url of {} invalid: {e}", server.id))?;
-    let origin = state
-        .public_url()
-        .await?
-        .map(|url| url.origin().ascii_serialization());
+    let origin = state.public_url.origin().ascii_serialization();
     let report = probe(
         &state.http,
         &Target {
             base_url: &base_url,
             client_id: server.client_id.as_deref(),
             has_secret: server.has_secret,
-            origin: origin.as_deref(),
+            origin: &origin,
         },
     )
     .await;
@@ -214,21 +210,18 @@ pub async fn probe(http: &Client, target: &Target<'_>) -> Report {
         }
     };
 
-    (report.cors, report.reasons.cors) = match (target.origin, preflight_url) {
-        (Some(origin), Some((url, session_cors))) => {
-            match cors(http, &url, origin, session_cors).await {
-                Ok(()) => (Status::Ok, None),
-                Err(Failure::Err(reason)) => (Status::Err, Some(reason)),
-                Err(Failure::Throttled(retry_after)) => {
-                    report.reasons.cors = Some(THROTTLED);
-                    report.reasons.oauth = Some(THROTTLED);
-                    report.retry_after = Some(retry_after);
-                    return report;
-                }
+    (report.cors, report.reasons.cors) = match preflight_url {
+        Some((url, session_cors)) => match cors(http, &url, target.origin, session_cors).await {
+            Ok(()) => (Status::Ok, None),
+            Err(Failure::Err(reason)) => (Status::Err, Some(reason)),
+            Err(Failure::Throttled(retry_after)) => {
+                report.reasons.cors = Some(THROTTLED);
+                report.reasons.oauth = Some(THROTTLED);
+                report.retry_after = Some(retry_after);
+                return report;
             }
-        }
-        (None, _) => (Status::Unk, Some("no_public_url")),
-        (_, None) => (Status::Unk, Some("no_api_url")),
+        },
+        None => (Status::Unk, Some("no_api_url")),
     };
 
     (report.oauth, report.reasons.oauth) = match oauth(http, target).await {
@@ -273,10 +266,10 @@ pub(super) fn retry_after(headers: &HeaderMap) -> Duration {
 
 enum Session {
     /// Session with Core and Mail; `cors`: whether the response allowed the app
-    /// origin (`None` without an origin).
+    /// origin.
     Found {
         api_url: Url,
-        cors: Option<bool>,
+        cors: bool,
     },
     /// 401: the server requires sign-in for the session.
     AuthRequired,
@@ -296,12 +289,10 @@ async fn session(http: &Client, target: &Target<'_>) -> Session {
         return Session::Failed("invalid_url");
     };
     for _ in 0..=MAX_REDIRECTS {
-        let mut request = http
+        let request = http
             .get(url.clone())
-            .header(header::ACCEPT, "application/json");
-        if let Some(origin) = target.origin {
-            request = request.header(header::ORIGIN, origin);
-        }
+            .header(header::ACCEPT, "application/json")
+            .header(header::ORIGIN, target.origin);
         let Ok(response) = request.send().await else {
             return Session::Failed("unreachable");
         };
@@ -329,9 +320,7 @@ async fn session(http: &Client, target: &Target<'_>) -> Session {
         if !status.is_success() {
             return Session::Failed("no_session");
         }
-        let cors = target
-            .origin
-            .map(|origin| allows_origin(response.headers(), origin));
+        let cors = allows_origin(response.headers(), target.origin);
         let Some(session) = read_json::<SessionResource>(response).await else {
             return Session::Failed("no_session");
         };
@@ -348,12 +337,7 @@ async fn session(http: &Client, target: &Target<'_>) -> Session {
     Session::Failed("too_many_redirects")
 }
 
-async fn cors(
-    http: &Client,
-    url: &Url,
-    origin: &str,
-    session_cors: Option<bool>,
-) -> Result<(), Failure> {
+async fn cors(http: &Client, url: &Url, origin: &str, session_cors: bool) -> Result<(), Failure> {
     let response = http
         .request(Method::OPTIONS, url.clone())
         .header(header::ORIGIN, origin)
@@ -372,7 +356,7 @@ async fn cors(
         return Err("preflight_status".into());
     }
     let headers = response.headers();
-    if !allows_origin(headers, origin) || session_cors == Some(false) {
+    if !allows_origin(headers, origin) || !session_cors {
         return Err("origin_not_allowed".into());
     }
     let allowed: Vec<String> = headers

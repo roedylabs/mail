@@ -569,7 +569,7 @@ describe('Inviting', () => {
           },
         },
       ],
-      'GET invites/n2/link': [{ body: { url: '/invite/abc' } }],
+      'GET invites/n2/link': [{ body: { url: 'https://mail.example.com/invite/abc' } }],
       'POST invites/n2/resend': [{ body: { invite: { ...added[7], mail_sent_at: before(0) } } }],
     });
     p.openInvite();
@@ -585,7 +585,7 @@ describe('Inviting', () => {
     expect(v().invRes.rows.map((r) => r.email)).toEqual(['nina@example.com']);
     expect(ui.toast).toBeNull();
     v().invRes.rows[0]?.copy();
-    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith(`${location.origin}/invite/abc`));
+    await vi.waitFor(() => expect(writeText).toHaveBeenCalledWith('https://mail.example.com/invite/abc'));
     await vi.waitFor(() => expect(ui.toast?.text).toBe('Invitation link copied'));
     // After a successful resend the row disappears and with it the result.
     await p.resend(listed(p, 'n2') as ListedUser);
@@ -1260,7 +1260,7 @@ describe('Actions per row', () => {
     });
     const execCommand = vi.fn(() => false);
     Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
-    const { p } = await loaded({ 'GET invites/i2/link': [{ body: { url: '/invite/abc' } }] });
+    const { p } = await loaded({ 'GET invites/i2/link': [{ body: { url: 'https://mail.example.com/invite/abc' } }] });
     await p.copyLink({ id: 'i2' });
     expect(execCommand).toHaveBeenCalledWith('copy');
     expect(ui.toast).toMatchObject({ text: 'Couldn’t copy.', error: true });

@@ -71,14 +71,12 @@ impl Reply {
 async fn env(mail: bool) -> Env {
     let tmp = tempfile::tempdir().unwrap();
     let conn = db::open(tmp.path()).unwrap();
-    let config = Config {
-        public_url: Some(Url::parse("https://app.example.com").unwrap()),
-        ..Config::default()
-    };
+    let config = Config::default();
     let mut state = AppState::new(
         Db::from(conn),
         Arc::new(WebAssets::None),
         &config,
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();

@@ -56,14 +56,12 @@ struct Setup {
 async fn setup() -> Setup {
     let tmp = tempfile::tempdir().unwrap();
     let db = Db::from(db::open(tmp.path()).unwrap());
-    let config = Config {
-        public_url: Some(Url::parse("https://app.example.com").unwrap()),
-        ..Config::default()
-    };
+    let config = Config::default();
     let state = AppState::new(
         db,
         Arc::new(WebAssets::None),
         &config,
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();
