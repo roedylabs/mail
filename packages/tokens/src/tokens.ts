@@ -142,25 +142,35 @@ export const MOTION = {
   off: { '--dur': '0ms', '--shim': 'none', '--spin': 'none' },
 } as const satisfies Record<'on' | 'off', CssVars>;
 
+/** Text colour from the accent: the accent itself (`null`) or `share` % of it mixed in oklab with `toward`. */
+export type AccentMix = { readonly share: number; readonly toward: `#${string}` } | null;
+
+/**
+ * Text colours derived from the accent per mode: `--deep` (accent text on
+ * `--surface`) and `--toastacc` ("Undo" in the toast on the `--ink` pill).
+ * Custom accents compute them in JS from the same mixes (`accentText()` in
+ * the web app), named ones use the CSS of `derivedAccentVars()`.
+ */
+export const ACCENT_TEXT = {
+  dark: { '--deep': { share: 80, toward: '#ffffff' }, '--toastacc': { share: 45, toward: '#2b1405' } },
+  light: { '--deep': { share: 55, toward: '#2b1405' }, '--toastacc': null },
+} as const satisfies Record<ModeName, Record<'--deep' | '--toastacc', AccentMix>>;
+
+const mixCss = (mix: AccentMix) =>
+  mix ? `color-mix(in oklab, var(--acc) ${mix.share}%, ${mix.toward})` : 'var(--acc)';
+
 /**
  * Colours derived from accent and mode. They refer to
  * `var(--acc)` so that in CSS they follow the active accent: `--accsoft` mixes
- * with `--surface`, `--deep` with white or `#2b1405`, `--toastacc` is the accent
- * itself in light mode and mixed with `#2b1405` in dark mode.
+ * with `--surface`, `--deep` and `--toastacc` follow `ACCENT_TEXT`.
  */
 export function derivedAccentVars(mode: ModeName): CssVars {
-  return mode === 'dark'
-    ? {
-        '--accsoft': 'color-mix(in oklab, var(--acc) 22%, var(--surface))',
-        '--deep': 'color-mix(in oklab, var(--acc) 80%, white)',
-        // "Undo" in the toast on the light `--ink` pill
-        '--toastacc': 'color-mix(in oklab, var(--acc) 45%, #2b1405)',
-      }
-    : {
-        '--accsoft': 'color-mix(in oklab, var(--acc) 26%, var(--surface))',
-        '--deep': 'color-mix(in oklab, var(--acc) 55%, #2b1405)',
-        '--toastacc': 'var(--acc)',
-      };
+  const text = ACCENT_TEXT[mode];
+  return {
+    '--accsoft': `color-mix(in oklab, var(--acc) ${mode === 'dark' ? 22 : 26}%, var(--surface))`,
+    '--deep': mixCss(text['--deep']),
+    '--toastacc': mixCss(text['--toastacc']),
+  };
 }
 
 /** Keyframes of the app shell. */

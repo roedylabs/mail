@@ -126,7 +126,8 @@ export class Ui {
   /** Window height; without a window 0. */
   height = $derived(innerHeight.current ?? 0);
   isMobile = $derived(this.width < MOBILE_BP);
-  private systemDark = new MediaQuery('(prefers-color-scheme: dark)');
+  /** Dark mode of the operating system (`prefers-color-scheme`), for "System". */
+  readonly systemDark = new MediaQuery('(prefers-color-scheme: dark)');
   /** Dark theme from `mode` and the operating system (shell, account menu, theme button of the guest pages). */
   dark = $derived(isDarkMode(prefs.values.mode, this.systemDark.current));
   private coarse = new MediaQuery('(pointer: coarse)');

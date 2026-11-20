@@ -1,5 +1,6 @@
-import { MA_COLORS, MODES } from '@roedy/tokens';
+import { derivedAccentVars, MA_COLORS, MODES } from '@roedy/tokens';
 import { describe, expect, it, vi } from 'vitest';
+import { accentText } from '#lib/color.ts';
 import { readTime, type TimeContext } from '#lib/mail-list.ts';
 import { renderMail } from '#lib/mail/render.ts';
 import type { FolderNode } from '#lib/state/mailboxes.svelte.ts';
@@ -75,6 +76,7 @@ function input(patch: Partial<ReadInput> = {}): ReadInput {
     folds: {},
     dark: true,
     inverted: false,
+    accent: 'apricot',
     isMobile: false,
     ext: { extMode: 'ask', extAllow: [] },
     once: new Set(),
@@ -543,11 +545,27 @@ describe('readValues', () => {
 
 describe('readTheme', () => {
   it('sets the colours of the message mode, inverted as a card', () => {
-    expect(readTheme(true, false)).toMatchObject({ m: '0', r: '0', scheme: 'dark', surface: MODES.dark['--surface'] });
-    const light = readTheme(true, true);
+    expect(readTheme(true, false, 'sky')).toMatchObject({
+      m: '0',
+      r: '0',
+      scheme: 'dark',
+      surface: MODES.dark['--surface'],
+    });
+    const light = readTheme(true, true, 'sky');
     expect(light).toMatchObject({ m: '0 10px 10px', r: '24px', scheme: 'light', fg: MODES.light['--fg'] });
     expect(light.accsoft).toContain('26%');
-    expect(readTheme(false, true).scheme).toBe('dark');
+    expect(light.deep).toBe(derivedAccentVars('light')['--deep']);
+    expect(readTheme(false, true, 'sky').scheme).toBe('dark');
+  });
+
+  it('computes `--deep` of a custom accent for the message mode, also inverted', () => {
+    for (const [dark, inverted, mode] of [
+      [true, false, 'dark'],
+      [true, true, 'light'],
+      [false, true, 'dark'],
+    ] as const) {
+      expect(readTheme(dark, inverted, '#808080').deep).toBe(accentText('#808080', mode)['--deep']);
+    }
   });
 });
 
@@ -770,7 +788,7 @@ describe('truncated parts', () => {
   });
 
   it('takes the app colours for the notice, even with an inverted message theme', () => {
-    const app = readTheme(true, false);
+    const app = readTheme(true, false, 'apricot');
     const rd = readValues(input({ dark: true, inverted: true }));
     expect(rd.tv.surface).not.toBe(app.surface);
     expect(rd.ui).toEqual({

@@ -130,6 +130,7 @@ function values(patch: Partial<ReadInput> = {}): ReadValues {
     time: { now: NOW, tz: 'Europe/Berlin', timeFmt: '24h', weekStart: 'monday', dateFmt: 'de' },
     folds: {},
     dark: false,
+    accent: 'apricot',
     inverted: false,
     isMobile: false,
     ext: { extMode: 'ask', extAllow: [] },

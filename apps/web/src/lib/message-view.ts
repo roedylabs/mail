@@ -11,7 +11,7 @@
  * for offline use" card, attachments are dimmed.
  */
 import type { EmailAddress } from '@roedy/jmap';
-import { derivedAccentVars, MA_COLORS, MODES } from '@roedy/tokens';
+import { MA_COLORS, MODES } from '@roedy/tokens';
 import type { IconName } from '#lib/icons.ts';
 import {
   avatarOf,
@@ -38,6 +38,7 @@ import type { RenderedMail } from '#lib/mail/render.ts';
 import type { RenderMail } from '#lib/mail/renderer.svelte.ts';
 import { replyContext, type ReplyContext } from '#lib/reply.ts';
 import { overlayClose, type OverlayEvent } from '#lib/shell.ts';
+import { accentVars } from '#lib/theme.ts';
 import type { MailAccount } from '#lib/state/accounts.svelte.ts';
 import type { FolderNode } from '#lib/state/mailboxes.svelte.ts';
 import type { TagNode } from '#lib/state/tags.svelte.ts';
@@ -49,7 +50,7 @@ import {
   type MessageEmail,
   type MessagePart,
 } from '#lib/state/message.svelte.ts';
-import type { Settings } from '#lib/state/prefs.svelte.ts';
+import type { AccentChoice, Settings } from '#lib/state/prefs.svelte.ts';
 
 /** Mailboxes of an account by role (mailbox id or `null`). */
 export type RoleBoxes = Record<'sent' | 'drafts' | 'scheduled' | 'trash' | 'spam', string | null>;
@@ -87,6 +88,8 @@ export interface ReadInput {
   /** App appearance dark and message theme inverted. */
   dark: boolean;
   inverted: boolean;
+  /** Active accent (`accentOf()`): a custom one gets its text colours computed for the message mode. */
+  accent: AccentChoice;
   /** Mobile: padding of the HTML rendering like the mobile card. */
   isMobile: boolean;
   /** External content settings. */
@@ -427,10 +430,10 @@ function namesOf(list: readonly EmailAddress[], own: string): string {
 }
 
 /** Token set of the message: mode of the app, with `inverted` the other one. */
-export function readTheme(dark: boolean, inverted: boolean): ReadTheme {
+export function readTheme(dark: boolean, inverted: boolean, choice: AccentChoice): ReadTheme {
   const mode = dark !== inverted ? 'dark' : 'light';
   const pm = MODES[mode];
-  const accent = derivedAccentVars(mode);
+  const accent = accentVars(choice, mode);
   return {
     m: inverted ? '0 10px 10px' : '0',
     r: inverted ? '24px' : '0',
@@ -632,8 +635,8 @@ export function readValues(input: ReadInput): ReadValues {
   const isMine = (e: MessageEmail) =>
     e.mailboxIds.some((b) => outBoxes.has(b)) || (!!own && lower(e.from[0]?.email) === own);
   const last = seq.length - 1;
-  const tv = readTheme(input.dark, input.inverted);
-  const app = readTheme(input.dark, false);
+  const tv = readTheme(input.dark, input.inverted, input.accent);
+  const app = readTheme(input.dark, false, input.accent);
   const ui = Object.fromEntries(UI_VARS.map((k) => [k, app[k]])) as ReadUi;
   const attState = input.offline
     ? ({
