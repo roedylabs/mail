@@ -180,7 +180,7 @@
   /** Columns of the grid as laid out (6 until measured). */
   let cols = $state(6);
   /**
-   * The accent the step opened with leads the order if it is an own colour missing from the recently used ones (a
+   * The accent the step opened with follows the recently used ones if it is an own colour missing from them (a
    * session without them); kept for the whole step, so picking another tile in the row moves nothing.
    */
   const order = $derived(colorOrder(recent, initial.accent));

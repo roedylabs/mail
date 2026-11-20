@@ -98,13 +98,19 @@ describe('Accent colours', () => {
     expect(accentOfHex('#123456')).toBeUndefined();
   });
 
-  it('puts an own current colour first when it is not among the recently used ones', () => {
+  it('puts an own current colour right after the recently used ones when it is not among them', () => {
     expect(colorOrder([], '#123456')[0]).toEqual({ hex: '#123456' });
     expect(
       colorOrder(['#abcdef', '#123456'], '#123456')
         .map((t) => t.hex)
         .slice(0, 2),
     ).toEqual(['#abcdef', '#123456']);
+    // Picks in "More colors" still lead.
+    expect(
+      colorOrder(['#78c895'], '#123456')
+        .map((t) => t.hex)
+        .slice(0, 3),
+    ).toEqual(['#78c895', '#123456', ACCENTS.apricot.base]);
     expect(colorOrder([], '#78c895')).toEqual(colorOrder([]));
     expect(colorOrder([], 'sky')).toEqual(colorOrder([]));
   });

@@ -224,7 +224,8 @@ export function accentHex(accent: AccentChoice): HexColor {
  * All colours of the accent grid in one order: the recently used ones (most
  * recent first), then the five accents, then the presets, each once. A
  * `current` own colour that is in none of them (a session without its
- * recently used list) leads, so the current accent is always in the closed row.
+ * recently used list) follows the recently used ones, ahead of the accents,
+ * so it shows in the closed row while picks in "More colors" still lead.
  */
 export function colorOrder(recent: readonly HexColor[], current?: AccentChoice): ColorTile[] {
   const tile = (hex: HexColor): ColorTile => {
@@ -233,7 +234,7 @@ export function colorOrder(recent: readonly HexColor[], current?: AccentChoice):
   };
   const base = [...ACCENT_NAMES.map((a) => ACCENTS[a].base), ...PRESETS.map(([, hex]) => hex)];
   const own = current !== undefined && isHexColor(current) && ![...recent, ...base].includes(current) ? [current] : [];
-  const all = [...own, ...recent, ...base];
+  const all = [...recent, ...own, ...base];
   return all.filter((x, i) => all.indexOf(x) === i).map(tile);
 }
 

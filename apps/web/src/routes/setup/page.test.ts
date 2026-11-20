@@ -866,6 +866,14 @@ describe('Step 1: language and appearance', () => {
     expect(prefs.values.accent).toBe('sky');
     expect(names(accent.el)).toEqual(row);
     expect(accent.option('Sky')).toHaveAttribute('aria-checked', 'true');
+
+    // A pick in "More colors" leads, the own colour follows it.
+    await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
+    const editor = screen.getByRole('dialog', { name: 'More colors' });
+    await fireEvent.click(within(editor).getByRole('radio', { name: 'Mint' }));
+    await fireEvent.click(within(editor).getByRole('button', { name: 'Apply' }));
+    expect(names(accent.el)).toEqual(['Mint', 'Custom #123456', 'Apricot', 'Sage', 'Lavender', 'Sky']);
+    expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('picks a colour in "More colors", which then leads the row', async () => {
