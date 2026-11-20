@@ -1,5 +1,5 @@
 import { ACCENTS, ACCENT_TEXT, ACCSOFT_SHARE, MODES, type ModeName } from '@roedy/tokens';
-import { describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'vitest';
 import { PRESETS } from '#lib/color-editor.svelte.ts';
 import * as exact from '#lib/test/contrast.ts';
 import {
@@ -14,6 +14,7 @@ import {
   isHexColor,
   parseHex,
   terminalAccent,
+  type AccentText,
   type HexColor,
 } from './color.ts';
 
@@ -27,6 +28,105 @@ function* cube(step: number): Generator<HexColor> {
       }
     }
   }
+}
+
+/** Colours named in the decisions of #164, #185, #187 and #188. */
+const DECIDED = [
+  '#000000',
+  '#ffffff',
+  '#808080',
+  '#889000',
+  '#1e3a8a',
+  '#ff0000',
+  '#7c3aed',
+  '#0f766e',
+  // Pale cyan: `--accsoft` drops to 17 % in dark mode.
+  '#e0f0f0',
+] as const satisfies readonly HexColor[];
+
+/**
+ * The colours closest to each limit on the RGB cube in steps of 4 (274 625 colours, searched once
+ * when #195 made the sweep coarser), so that the sweep keeps the edges a coarse grid misses.
+ */
+const NEAR_LIMIT = [
+  // `accentInk`: 4.500 : 1.
+  '#0cac84',
+  '#a054cc',
+  // `terminalAccent`: 4.500 : 1.
+  '#68301c',
+  '#3c28d0',
+  // Light `--deep` on `--surface` (4.89 : 1) and on `--surface2` (4.500 : 1).
+  '#d8dce8',
+  '#ffdcb8',
+  // Light `--deep` on `--accsoft`: 4.500 : 1.
+  '#7ce448',
+  '#f0bc84',
+  // Light `--mfg` (4.500 : 1) and `--danger` (4.60 : 1) on `--accsoft`.
+  '#9408cc',
+  // Light `--toastacc`: 4.500 : 1.
+  '#0cb024',
+  '#5c544c',
+  // Light `--star` on `--accsoft`: 3.13 : 1.
+  '#1cacfc',
+  // Dark `--deep` on `--surface` (4.90 : 1) and on `--surface2` (4.500 : 1).
+  '#180060',
+  '#602c50',
+  // Dark `--deep` on `--accsoft`: 4.500 : 1.
+  '#70246c',
+  '#3c7000',
+  '#cc0430',
+  // Dark `--mfg` (4.500 : 1) and `--danger` (5.41 : 1) on `--accsoft`.
+  '#74d4b0',
+  // Dark `--toastacc`: 4.500 : 1.
+  '#f0dc44',
+  // Dark `--star` on `--accsoft`: 4.41 : 1.
+  '#b0c8a4',
+] as const satisfies readonly HexColor[];
+
+/**
+ * The colours every sweep checks: the RGB cube in steps of 16, the edge colours above, the 18 presets
+ * and the named accents.
+ */
+const SWEEP: readonly HexColor[] = [
+  ...new Set<HexColor>([
+    ...cube(16),
+    ...DECIDED,
+    ...NEAR_LIMIT,
+    ...PRESETS.map(([, hex]) => hex),
+    ...Object.values(ACCENTS).map(({ base }) => base),
+  ]),
+];
+
+/** The colours derived from each colour of `SWEEP`, computed once and shared by the sweeps. */
+interface Derived {
+  hex: HexColor;
+  ink: HexColor;
+  terminal: HexColor;
+  text: Record<ModeName, AccentText>;
+}
+
+let derived: Derived[] = [];
+
+beforeAll(() => {
+  derived = SWEEP.map((hex) => ({
+    hex,
+    ink: accentInk(hex),
+    terminal: terminalAccent(hex),
+    text: { light: accentText(hex, 'light'), dark: accentText(hex, 'dark') },
+  }));
+});
+
+/**
+ * Every value of `checks` below `min` across the sweep, as `#rrggbb name value`. One assertion per
+ * sweep instead of one per colour keeps it fast and lists all failing colours at once.
+ */
+function belowMin(min: number, checks: (colour: Derived) => Record<string, number>): string[] {
+  expect(derived).toHaveLength(SWEEP.length);
+  return derived.flatMap((colour) =>
+    Object.entries(checks(colour))
+      .filter(([, value]) => !(value >= min))
+      .map(([name, value]) => `${colour.hex} ${name} ${value.toFixed(3)}`),
+  );
 }
 
 /** The rule before #164: dark shade at 13 % or `LIGHT_INK`, whichever contrasts more. */
@@ -112,12 +212,11 @@ describe('accentInk', () => {
 
   it('keeps the light ink on black and falls back to white where even a black shade fails', () => {
     expect(accentInk('#000000')).toBe(LIGHT_INK);
-    // Light ink 4.49:1, black 4.47:1.
-    const between = [...cube(4)].find(
-      (hex) => contrast(hex, LIGHT_INK) < MIN_CONTRAST && contrast(hex, '#000000') < MIN_CONTRAST,
-    );
-    expect(between).toBeDefined();
-    expect(accentInk(between!)).toBe('#ffffff');
+    // The first such colour on the cube in steps of 4: light ink 4.49:1, black 4.47:1.
+    const between = '#0474d8';
+    expect(contrast(between, LIGHT_INK)).toBeLessThan(MIN_CONTRAST);
+    expect(contrast(between, '#000000')).toBeLessThan(MIN_CONTRAST);
+    expect(accentInk(between)).toBe('#ffffff');
   });
 
   it('gives the 18 presets and the named accents the same ink as before', () => {
@@ -125,10 +224,10 @@ describe('accentInk', () => {
     for (const [name, { base }] of Object.entries(ACCENTS)) expect(accentInk(base), name).toBe(previousInk(base));
   });
 
-  it('reaches 4.5:1 on every colour of the RGB cube', () => {
-    for (const hex of cube(8)) {
-      expect(exact.contrast(exact.hex(hex), exact.hex(accentInk(hex))), hex).toBeGreaterThanOrEqual(MIN_CONTRAST);
-    }
+  it('reaches 4.5:1 on every colour of the sweep', () => {
+    expect(belowMin(MIN_CONTRAST, ({ hex, ink }) => ({ ink: exact.contrast(exact.hex(hex), exact.hex(ink)) }))).toEqual(
+      [],
+    );
   });
 
   it('contrast follows WCAG', () => {
@@ -152,9 +251,8 @@ describe('accentText', () => {
    * `--deep` on `--surface` and on `--accsoft`, `--mfg` and `--danger` on
    * `--accsoft`, `--toastacc` on `--ink` and on its hover surface.
    */
-  function contrasts(hex: HexColor, mode: ModeName) {
+  function contrasts(hex: HexColor, mode: ModeName, text = accentText(hex, mode)) {
     const tokens = MODES[mode];
-    const text = accentText(hex, mode);
     const [deep, soft, toast, surface, ink, mfg, danger] = [
       text['--deep'],
       text['--accsoft'],
@@ -185,15 +283,8 @@ describe('accentText', () => {
     hexOfExact(exact.mixOklab(exact.hex(hex), exact.hex(MODES[mode]['--surface']), share / 100));
 
   for (const mode of ['light', 'dark'] as const) {
-    it(`reaches 4.5:1 on every colour of the RGB cube in ${mode} mode`, () => {
-      for (const hex of cube(8)) {
-        const { deep, deepSoft, mfgSoft, dangerSoft, toast } = contrasts(hex, mode);
-        expect(deep, `${hex} --deep`).toBeGreaterThanOrEqual(MIN_CONTRAST);
-        expect(deepSoft, `${hex} --deep on --accsoft`).toBeGreaterThanOrEqual(MIN_CONTRAST);
-        expect(mfgSoft, `${hex} --mfg on --accsoft`).toBeGreaterThanOrEqual(MIN_CONTRAST);
-        expect(dangerSoft, `${hex} --danger on --accsoft`).toBeGreaterThanOrEqual(MIN_CONTRAST);
-        expect(toast, `${hex} --toastacc`).toBeGreaterThanOrEqual(MIN_CONTRAST);
-      }
+    it(`reaches 4.5:1 on every colour of the sweep in ${mode} mode`, () => {
+      expect(belowMin(MIN_CONTRAST, ({ hex, text }) => contrasts(hex, mode, text[mode]))).toEqual([]);
     });
 
     it(`keeps the mixes where they already reach 4.5:1 in ${mode} mode`, () => {
@@ -314,21 +405,20 @@ describe('terminalAccent', () => {
     for (const hex of ['#ffffff', '#f5a06e', '#e8798f', '#78c895'] as const) expect(terminalAccent(hex), hex).toBe(hex);
   });
 
-  it('reaches 4.5:1 on the terminal for every colour of the RGB cube', () => {
-    for (const hex of cube(8)) {
-      expect(exact.contrast(exact.hex(terminalAccent(hex)), bg), hex).toBeGreaterThanOrEqual(MIN_CONTRAST);
-    }
+  it('reaches 4.5:1 on the terminal for every colour of the sweep', () => {
+    expect(belowMin(MIN_CONTRAST, ({ terminal }) => ({ terminal: exact.contrast(exact.hex(terminal), bg) }))).toEqual(
+      [],
+    );
   });
 });
 
 describe('--deep on the light terminal card (--surface2)', () => {
   for (const mode of ['light', 'dark'] as const) {
-    it(`reaches 4.5:1 on --surface2 for every colour of the RGB cube in ${mode} mode`, () => {
+    it(`reaches 4.5:1 on --surface2 for every colour of the sweep in ${mode} mode`, () => {
       const card = exact.hex(MODES[mode]['--surface2']);
-      for (const hex of cube(8)) {
-        const deep = exact.hex(accentText(hex, mode)['--deep']);
-        expect(exact.contrast(deep, card), hex).toBeGreaterThanOrEqual(MIN_CONTRAST);
-      }
+      expect(
+        belowMin(MIN_CONTRAST, ({ text }) => ({ '--deep': exact.contrast(exact.hex(text[mode]['--deep']), card) })),
+      ).toEqual([]);
     });
   }
 
@@ -389,10 +479,9 @@ describe('flag star (--star) at 3:1 on its surfaces', () => {
     });
 
     it(`reaches 3:1 on --accsoft of custom accents with and without --hov in ${mode} mode`, () => {
-      for (const hex of [...cube(16), ...PRESETS.map(([, preset]) => preset)]) {
-        const soft = exact.hex(accentText(hex, mode)['--accsoft']);
-        expect(onSurface(soft, mode), hex).toBeGreaterThanOrEqual(MIN_ICON);
-      }
+      expect(
+        belowMin(MIN_ICON, ({ text }) => ({ '--star': onSurface(exact.hex(text[mode]['--accsoft']), mode) })),
+      ).toEqual([]);
     });
   }
 
