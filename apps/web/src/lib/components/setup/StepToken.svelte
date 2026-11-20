@@ -46,7 +46,7 @@
   const mob: (MobLevel & Extra)[] = MOB_LEVELS.map((l, i) => ({ ...l, ...MOB_X[i]! }));
 
   /**
-   * The command in parts with light syntax colours: programs in the accent,
+   * The command in parts with light syntax colours: programs in the accent (`--t-prog`),
    * the search word in sage, redirects dimmed. Inline with real spaces
    * between them, so a selected command copies as one line.
    */
@@ -57,7 +57,7 @@
       t === 'docker' || t === 'grep' ? 'prog' : t === 'Setup-Token' ? 'word' : t === '|' || t === '2>&1' ? 'dim' : '',
   }));
 
-  /** Programs in the current accent (like `applyTheme()`), lightened to 4.5 : 1 on the terminal. */
+  /** Icon, prompt and programs in the current accent (like `applyTheme()`), lightened to 4.5 : 1 on the terminal. */
   const progColor = $derived.by(() => {
     const accent = accentOf(prefs.values, session.branding);
     return terminalAccent(isHexColor(accent) ? accent : ACCENTS[accent].base);
@@ -257,7 +257,7 @@
 
   /*
    * Terminal: always a dark window, in the light and the dark theme (fixed values, not the theme's tokens).
-   * --t-bg (TERMINAL_BG) and --t-prog (terminalAccent()) come from #lib/color.ts.
+   * --t-bg (TERMINAL_BG) and --t-prog (terminalAccent(): icon, prompt and programs) come from #lib/color.ts.
    */
   .term {
     --t-head: #241e19;
@@ -286,7 +286,7 @@
     flex-shrink: 0;
     border-radius: 8px;
     background: rgba(255, 240, 220, 0.08);
-    color: var(--acc);
+    color: var(--t-prog);
     display: grid;
     place-items: center;
     font-size: 15px;
@@ -379,7 +379,7 @@
   .prompt {
     flex-shrink: 0;
     user-select: none;
-    color: var(--acc);
+    color: var(--t-prog);
     font-weight: 800;
   }
 
