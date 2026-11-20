@@ -7,6 +7,8 @@ describe('app.html', () => {
     const viewport = doc.querySelector('meta[name="viewport"]')?.getAttribute('content') ?? '';
     const parts = viewport.split(',').map((part) => part.trim());
     expect(parts).toContain('interactive-widget=resizes-content');
+    // Edge to edge: the page colours the navigation bar behind it (layouts keep clear of it via --sab).
+    expect(parts).toContain('viewport-fit=cover');
     expect(parts).toContain('width=device-width');
   });
 });
