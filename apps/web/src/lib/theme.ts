@@ -71,7 +71,7 @@ export function applyTheme(root: HTMLElement, theme: Theme): void {
     }
   } else {
     root.dataset.accent = theme.accent;
-    for (const name of ['--acc', '--accink', '--deep', '--toastacc']) root.style.removeProperty(name);
+    for (const name of ['--acc', '--accink', '--accsoft', '--deep', '--toastacc']) root.style.removeProperty(name);
   }
   root.dataset.density = theme.density;
   root.dataset.fontSize = theme.fontSize;
@@ -89,7 +89,7 @@ export function applyTheme(root: HTMLElement, theme: Theme): void {
 
 /**
  * Colours derived from the accent in `mode` (`derivedAccentVars()`): for a
- * custom accent with `--deep` and `--toastacc` computed to the minimum contrast
+ * custom accent with `--accsoft`, `--deep` and `--toastacc` computed to the minimum contrast
  * like on `<html>` (`applyTheme()`), for the message theme of the other mode.
  */
 export function accentVars(accent: AccentChoice, mode: 'light' | 'dark'): CssVars {

@@ -2,7 +2,15 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { ACCENTS, DEFAULT_ACCENT, DEFAULT_MODE, FONT_MONO, MODES, renderTokensCss } from './index.ts';
+import {
+  ACCENTS,
+  DEFAULT_ACCENT,
+  DEFAULT_MODE,
+  derivedAccentVars,
+  FONT_MONO,
+  MODES,
+  renderTokensCss,
+} from './index.ts';
 
 describe('tokens.css', () => {
   it('matches the TypeScript constants (otherwise: pnpm --filter @roedy/tokens build)', () => {
@@ -37,6 +45,18 @@ describe('tokens.css', () => {
     expect(renderTokensCss()).toMatch(
       /@media \(prefers-color-scheme: light\) \{\n {2}:root\[data-mode='system'\] \{\n {4}--cnv: #f3eee7;/,
     );
+  });
+});
+
+describe('derived accent colours', () => {
+  it('mixes 52 % accent into the light --deep and keeps the dark one', () => {
+    expect(derivedAccentVars('light')['--deep']).toBe('color-mix(in oklab, var(--acc) 52%, #2b1405)');
+    expect(derivedAccentVars('dark')['--deep']).toBe('color-mix(in oklab, var(--acc) 80%, #ffffff)');
+  });
+
+  it('tints --accsoft with 26 % accent in light and 22 % in dark', () => {
+    expect(derivedAccentVars('light')['--accsoft']).toBe('color-mix(in oklab, var(--acc) 26%, var(--surface))');
+    expect(derivedAccentVars('dark')['--accsoft']).toBe('color-mix(in oklab, var(--acc) 22%, var(--surface))');
   });
 });
 

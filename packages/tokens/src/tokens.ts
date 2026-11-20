@@ -153,8 +153,15 @@ export type AccentMix = { readonly share: number; readonly toward: `#${string}` 
  */
 export const ACCENT_TEXT = {
   dark: { '--deep': { share: 80, toward: '#ffffff' }, '--toastacc': { share: 45, toward: '#2b1405' } },
-  light: { '--deep': { share: 55, toward: '#2b1405' }, '--toastacc': null },
+  light: { '--deep': { share: 52, toward: '#2b1405' }, '--toastacc': null },
 } as const satisfies Record<ModeName, Record<'--deep' | '--toastacc', AccentMix>>;
+
+/**
+ * Share of the accent in percent in `--accsoft` (the accent-tinted surface,
+ * mixed in oklab with `--surface`). Custom accents start from it and lower it
+ * in JS until text on it reaches 4.5:1 (`accentText()` in the web app).
+ */
+export const ACCSOFT_SHARE = { dark: 22, light: 26 } as const satisfies Record<ModeName, number>;
 
 const mixCss = (mix: AccentMix) =>
   mix ? `color-mix(in oklab, var(--acc) ${mix.share}%, ${mix.toward})` : 'var(--acc)';
@@ -167,7 +174,7 @@ const mixCss = (mix: AccentMix) =>
 export function derivedAccentVars(mode: ModeName): CssVars {
   const text = ACCENT_TEXT[mode];
   return {
-    '--accsoft': `color-mix(in oklab, var(--acc) ${mode === 'dark' ? 22 : 26}%, var(--surface))`,
+    '--accsoft': `color-mix(in oklab, var(--acc) ${ACCSOFT_SHARE[mode]}%, var(--surface))`,
     '--deep': mixCss(text['--deep']),
     '--toastacc': mixCss(text['--toastacc']),
   };

@@ -45,12 +45,12 @@ describe('Theme', () => {
 
     applyTheme(root, themeOf(values({ accent: 'sky' }), BRAND0, false));
     expect(root.dataset.accent).toBe('sky');
-    for (const name of ['--acc', '--accink', '--deep', '--toastacc']) {
+    for (const name of ['--acc', '--accink', '--accsoft', '--deep', '--toastacc']) {
       expect(root.style.getPropertyValue(name), name).toBe('');
     }
   });
 
-  it('computes `--deep` and `--toastacc` of a custom accent for the active mode, also for "System"', () => {
+  it('computes `--accsoft`, `--deep` and `--toastacc` of a custom accent for the active mode, also for "System"', () => {
     const root = document.createElement('html');
     for (const [mode, systemDark, active] of [
       ['light', true, 'light'],
@@ -70,10 +70,8 @@ describe('Theme', () => {
   it('accentVars keeps the CSS mixes of named accents and computes custom ones', () => {
     for (const mode of ['light', 'dark'] as const) {
       expect(accentVars('sage', mode)).toEqual(derivedAccentVars(mode));
-      expect(accentVars('#808080', mode)).toEqual({
-        '--accsoft': derivedAccentVars(mode)['--accsoft'],
-        ...accentText('#808080', mode),
-      });
+      expect(accentVars('#808080', mode)).toEqual(accentText('#808080', mode));
+      expect(accentVars('#808080', mode)['--accsoft']).toMatch(/^#[0-9a-f]{6}$/);
     }
   });
 

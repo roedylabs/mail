@@ -646,7 +646,7 @@
   }
 
   .chip:hover {
-    background: color-mix(in oklab, var(--accsoft) 78%, var(--acc));
+    background: color-mix(in oklab, var(--accsoft) 50%, var(--surface));
   }
 
   .chip-label {
