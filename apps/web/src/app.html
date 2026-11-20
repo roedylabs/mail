@@ -2,7 +2,11 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <!--
+      resizes-content: the on-screen keyboard shrinks the layout (and 100dvh) instead of only
+      covering it, so full-height pages keep their bottom bar above the keyboard.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/manifest.webmanifest" />
