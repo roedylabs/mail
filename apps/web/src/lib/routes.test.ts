@@ -65,6 +65,13 @@ describe('redirectFor', () => {
     expect(redirectFor('/setup', setup)).toBeNull();
   });
 
+  it('keeps the setup that has just signed in until it opens Administration itself', () => {
+    expect(redirectFor('/setup', user)).toBe('/start');
+    expect(redirectFor('/setup', { ...user, leavingSetup: true })).toBeNull();
+    expect(redirectFor('/login', { ...user, leavingSetup: true })).toBe('/start');
+    expect(redirectFor('/setup', { ...guest, leavingSetup: true })).toBe('/login');
+  });
+
   it('keeps guests on guest pages only', () => {
     expect(redirectFor('/', guest)).toBe('/login');
     expect(redirectFor('/setup', guest)).toBe('/login');

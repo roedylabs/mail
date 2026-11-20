@@ -1,5 +1,6 @@
 // First flow: setup in five steps (a wrong token up to the lock, then the
-// right one), then mail server (OAuth client via DCR) and
+// right one; a second tab that finishes too late gets the sign-in), the done
+// screen opens Administration › Mail servers; then mail server (OAuth client via DCR) and
 // system mails via the administration API → invitations to two addresses,
 // links from the system mails →
 // accept both (with mandatory MFA) → connect an account via the mail server's
@@ -191,16 +192,83 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(admin.password);
   await next(page).click();
 
-  // 5 Review and completion
+  // 5 Review: a summary row per step, the password never shown; focus on the heading
   await step(page, 'All set?');
-  await page.getByRole('button', { name: 'Finish setup' }).click();
+  await expect(page).toHaveTitle('Review · Setup');
+  await expect(page.getByRole('heading', { name: 'All set?' })).toBeFocused();
+  const summary = page.getByRole('list', { name: 'Your details' });
+  await expect(summary.getByRole('listitem')).toHaveText([
+    /Language and appearance\s*System · Dark · Custom #5B8DEF/,
+    new RegExp(`Administrator\\s*${admin.name}\\s*${stalwart.admin.email.replace(/[.+]/g, '\\$&')}`),
+    /Password\s*••••••••••\s*Set/,
+  ]);
+  await expect(summary).not.toContainText(admin.password);
+  await expect(page.getByText('Next, connect the mail server.')).toBeVisible();
+  // Focus order: Change × 3 → Back → Finish setup.
+  const change = (label: string) => page.getByRole('button', { name: `Change ${label}` });
+  await change('Language and appearance').focus();
+  for (const to of [change('Administrator'), change('Password'), page.getByRole('button', { name: 'Back' })]) {
+    await page.keyboard.press('Tab');
+    await expect(to).toBeFocused();
+  }
+  await page.keyboard.press('Tab');
+  await expect(page.getByRole('button', { name: 'Finish setup' })).toBeFocused();
+  // "Change" walks forward again through the following steps: the token stays accepted, the passwords filled.
+  await change('Language and appearance').click();
+  await step(page, 'Welcome');
+  await page.getByRole('button', { name: 'Get started' }).click();
+  await step(page, 'Set up Roedy Mail');
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'false');
+  await next(page).click();
+  await step(page, 'Create administrator', 'Your name');
+  await next(page).click();
+  await step(page, 'Set password', 'Password');
+  await expect(pw2).toHaveValue(admin.password);
+  await next(page).click();
+  await step(page, 'All set?');
+
+  // A second tab gets to the review as well, but finishes too late (below).
+  const late = await newPage(await browser.newContext());
+  await late.goto(`${instance.url}/setup`);
+  await settled(late);
+  await late.getByRole('button', { name: 'Get started' }).click();
+  await late.getByLabel('Setup token').fill(await instance.setupToken());
+  await next(late).click();
+  await late.getByLabel('Your name').fill('Sam Late');
+  await late.getByLabel('Email address').fill('late@example.com');
+  await next(late).click();
+  await late.getByLabel('Password', { exact: true }).fill(admin.password);
+  await late.getByLabel('Confirm password', { exact: true }).fill(admin.password);
+  await next(late).click();
+  await expect(late.getByRole('heading', { name: 'All set?' })).toBeVisible();
+
+  // Done: welcome with the first name, the chips, the sign-in, then Administration › Mail servers.
+  // Enter anywhere on the step finishes (here on the heading).
+  await expect(page.getByRole('heading', { name: 'All set?' })).toBeFocused();
+  await page.keyboard.press('Enter');
   await expect(page.getByRole('heading', { name: 'Welcome, Alex' })).toBeVisible();
-  await expect(page).toHaveURL(/\/no-account$/);
+  await expect(page.getByRole('heading', { name: 'Welcome, Alex' })).toBeFocused();
+  await expect(page).toHaveTitle('Done · Setup');
+  await expect(page.getByRole('list', { name: 'Done' }).getByRole('listitem')).toHaveText([
+    'Administrator created',
+    'Setup token revoked',
+  ]);
+  await expect(page.getByText('Signing you in …')).toBeVisible();
+  expect(await page.evaluate(() => Object.keys(sessionStorage).filter((k) => k.startsWith('roedy-setup-')))).toEqual(
+    [],
+  );
+  await expect(page).toHaveURL(/\/admin\/mail-servers$/);
+  await settled(page);
+  await expect(page.getByRole('heading', { name: 'Mail servers', level: 1 })).toBeVisible();
+  await expect(page.getByText('No mail server yet')).toBeVisible();
   // The choices of step 1 are the administrator's settings.
   await expect(page.locator('html')).toHaveAttribute('data-mode', 'dark');
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom');
-  await expect(page.getByRole('heading', { name: 'Connect your first email account' })).toBeVisible();
-  expect(await axeViolations(page), 'axe: no account').toEqual([]);
+  expect(await axeViolations(page), 'axe: mail servers').toEqual([]);
+
+  // The late tab: 409 `setup_done` → the sign-in.
+  await late.getByRole('button', { name: 'Finish setup' }).click();
+  await expect(late).toHaveURL(/\/login$/);
 
   await connectServer(context, instance, stalwart);
   admin.state = await context.storageState();

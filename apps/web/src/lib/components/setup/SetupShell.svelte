@@ -64,6 +64,7 @@
     contentKey?: string;
     /** "No connection" covers the page: hidden from screen readers. */
     hidden?: boolean;
+    /** The step has "Back" (locked while the primary button is busy). */
     canBack?: boolean;
     onback?: () => void;
     primary?: Primary;
@@ -196,9 +197,9 @@
   }
 
   const back = () => {
-    if (canBack) onback?.();
+    if (canBack && !busy) onback?.();
   };
-  const swipe = $derived(mobile && canBack && !!onback ? { motion: prefs.motion, back } : null);
+  const swipe = $derived(mobile && canBack && !busy && !!onback ? { motion: prefs.motion, back } : null);
 </script>
 
 {#snippet brand(top: boolean)}
@@ -316,7 +317,12 @@
                   style:margin-left={look.two && !look.btnLeft && actionsW ? 'auto' : undefined}
                 >
                   {#if canBack}
-                    <button type="button" class="back lift press" onclick={back}>
+                    <button
+                      type="button"
+                      class="back lift press"
+                      aria-disabled={busy ? 'true' : undefined}
+                      onclick={back}
+                    >
                       <span class="bi"><Icon name="ti-arrow-left" /></span><span class="ell">{m.setup_back()}</span>
                     </button>
                   {/if}
@@ -339,7 +345,13 @@
       {#if mobile && primary}
         <div class="bottom">
           {#if canBack}
-            <button type="button" class="back press" data-g-back onclick={back}>
+            <button
+              type="button"
+              class="back press"
+              data-g-back
+              aria-disabled={busy ? 'true' : undefined}
+              onclick={back}
+            >
               <span class="bi"><Icon name="ti-arrow-left" /></span><span class="ell">{m.setup_back()}</span>
             </button>
           {/if}
@@ -767,7 +779,8 @@
     cursor: default;
   }
 
-  .primary[aria-busy='true'] {
+  .primary[aria-busy='true'],
+  .back[aria-disabled='true'] {
     cursor: default;
   }
 

@@ -1,12 +1,14 @@
 <!--
   Setup wizard: one route, the step comes from the wizard's state
   (`#lib/setup.svelte.ts`). Each step is its own component inside the shared
-  frame (`SetupShell`); the done screen signs in via `session.load()` (the
-  layout redirects to the start page). "No connection" covers every step
+  frame (`SetupShell`); the done screen signs in via `session.load()` and
+  opens Administration › Mail servers. "No connection" covers every step
   and the loading of the setup status before the first one.
 -->
 <script lang="ts">
   import { onDestroy, onMount, tick } from 'svelte';
+  import { goto } from '$app/navigation';
+  import { resolve } from '$app/paths';
   import NoConnection from '#lib/components/setup/NoConnection.svelte';
   import SetupDone from '#lib/components/setup/SetupDone.svelte';
   import StepAdmin from '#lib/components/setup/StepAdmin.svelte';
@@ -25,6 +27,9 @@
   import { ui } from '#lib/state/ui.svelte.ts';
 
   const targets = new SetupTargets();
+  /** Pending focus timers of entered steps (see `entered`); cleared when the page goes. */
+  // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping only, no state
+  const enterTimers = new Set<ReturnType<typeof setTimeout>>();
   let netBox: HTMLDivElement | undefined = $state();
 
   const flow = new SetupFlow({
@@ -41,22 +46,17 @@
       // card themselves in the meantime (fast typing, autofill), the focus stays
       // there instead of jumping in the middle of the input.
       const before = document.activeElement;
-      setTimeout(() => {
+      const timer = setTimeout(() => {
+        enterTimers.delete(timer);
         const now = document.activeElement;
         if (now === before || !targets.get('card')?.contains(now)) focus(target);
       }, 40);
+      enterTimers.add(timer);
     },
     error: (text) => ui.toasts.error(text),
     offline: () => net.show(),
-    reload: async () => {
-      await session.load();
-      if (!session.authed) return;
-      try {
-        await prefs.load();
-      } catch {
-        // Without settings the defaults apply.
-      }
-    },
+    reload: () => session.load(),
+    signedIn: () => signIn(),
   });
 
   /**
@@ -83,16 +83,19 @@
     return ctrl.signal;
   }
 
-  /** Session load of an attempt; a later attempt waits for it instead of starting a second one that could finish first. */
+  /**
+   * Session load of an attempt or of the sign-in, `true` if the server answered. One at a time: a later caller waits
+   * for the running one instead of starting a second one that could finish first. Its own deadline: a request that
+   * hangs counts as no answer. A start from the local copy (`fromCopy`) is no answer of the server either.
+   */
   let loading: Promise<boolean> | null = null;
+  const loaded = () =>
+    (loading ??= session
+      .load(undefined, deadline(NET_PROBE_MS))
+      .then(() => (session.status !== 'error' || session.failure !== 'offline') && !session.fromCopy)
+      .finally(() => (loading = null)));
+
   async function probe(signal: AbortSignal): Promise<boolean> {
-    // Shared by the attempts, so its own deadline: a request that hangs counts as no answer.
-    // A start from the local copy (`fromCopy`) is no answer of the server either.
-    const loaded = () =>
-      (loading ??= session
-        .load(undefined, deadline(NET_PROBE_MS))
-        .then(() => (session.status !== 'error' || session.failure !== 'offline') && !session.fromCopy)
-        .finally(() => (loading = null)));
     // The status could not be loaded before the first step: load the session again (a server error then shows the error page).
     if (session.status === 'error') return loaded();
     try {
@@ -104,12 +107,59 @@
     }
   }
 
+  /**
+   * After the done screen: load the signed-in session and open Administration › Mail servers. The done screen stays
+   * until that page is there (no detour via the start page). Without an answer (the session or the page's code)
+   * "No connection" shows, and the sign-in goes on once the server answers. A run ends when the page goes or a newer
+   * run starts.
+   */
+  let signInRun = 0;
+  let gone = false;
+  async function signIn(): Promise<void> {
+    const run = ++signInRun;
+    const owns = () => !gone && run === signInRun;
+    const retryOnAnswer = () => {
+      signInOnAnswer = true;
+      net.show();
+    };
+    ui.setupLeaving = true;
+    const answered = await loaded();
+    if (!owns()) return;
+    if (!answered) {
+      retryOnAnswer();
+      return;
+    }
+    if (!session.authed) {
+      // No session (cookie rejected) or a server error: the layout shows the sign-in or the error page.
+      ui.setupLeaving = false;
+      return;
+    }
+    try {
+      await prefs.load();
+    } catch {
+      // The look chosen in the wizard stays applied.
+    }
+    if (!owns()) return;
+    try {
+      await goto(resolve('/admin/mail-servers'), { replace: true });
+    } catch {
+      // The page did not load (no answer): stay on the done screen and try again with the next answer.
+      if (owns()) retryOnAnswer();
+    }
+  }
+
   /** The wizard opened with "No connection" (no step entered yet): enter it once the server answers. */
   let enterOnAnswer = false;
+  /** The sign-in after the done screen got no answer: go on once the server answers. */
+  let signInOnAnswer = false;
   const net = new Reconnect({
     probe,
     stayed: () => shake(netBox, undefined),
     answered: () => {
+      if (signInOnAnswer) {
+        signInOnAnswer = false;
+        void signIn();
+      }
       if (!enterOnAnswer) return;
       enterOnAnswer = false;
       flow.enter();
@@ -125,8 +175,11 @@
     } else flow.enter();
   });
   onDestroy(() => {
+    gone = true;
+    for (const timer of enterTimers) clearTimeout(timer);
     flow.dispose();
     net.close();
+    ui.setupLeaving = false;
   });
 </script>
 
