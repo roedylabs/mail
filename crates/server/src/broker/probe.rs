@@ -123,10 +123,10 @@ pub struct Target<'a> {
 
 /// Checks a server of the registry like "Test connection" and stores the
 /// result (administration and job `server_probe`); `true` if it was
-/// stored – if the server was changed meanwhile, it does
-/// not count. With `keep_if_throttled` (job) a throttled test does not replace the
-/// last result: the next run then checks again an hour later
-/// instead of showing "Not checked yet" for a day.
+/// stored – if the server or the public address (restore) was changed
+/// meanwhile, it does not count. With `keep_if_throttled` (job) a throttled
+/// test does not replace the last result: the next run then checks again an
+/// hour later instead of showing "Not checked yet" for a day.
 pub async fn test_registered(
     state: &AppState,
     server: &Server,
@@ -134,7 +134,7 @@ pub async fn test_registered(
 ) -> anyhow::Result<(Report, bool)> {
     let base_url = Url::parse(&server.base_url)
         .map_err(|e| anyhow::anyhow!("servers.base_url of {} invalid: {e}", server.id))?;
-    let origin = state.public_url.origin().ascii_serialization();
+    let origin = state.public_url().origin().ascii_serialization();
     let report = probe(
         &state.http,
         &Target {
@@ -163,7 +163,11 @@ pub async fn test_registered(
         server.client_id.clone(),
         report.clone(),
     );
+    let public_url = state.public_url.clone();
     let recorded = db::call(&state.db, move |conn| {
+        if public_url.get().origin().ascii_serialization() != origin {
+            return Ok(false);
+        }
         Ok(servers::record_test(
             conn,
             &id,

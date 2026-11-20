@@ -56,10 +56,8 @@ pub struct AppState {
     /// Intermediate steps of a multi-factor sign-in.
     pub challenges: Arc<Challenges>,
     pub trust_proxy: TrustProxy,
-    /// Public address of the app, resolved once at startup
-    /// ([`resolve_public_url`]): links in mails, the redirect URI and the
-    /// CORS check depend on it.
-    pub public_url: Arc<Url>,
+    /// Public address of the app ([`Self::public_url`]).
+    pub public_url: Arc<PublicUrl>,
     /// Key for secrets in the database.
     pub secrets: Arc<SecretKey>,
     /// Client for requests to mail servers of the registry.
@@ -96,6 +94,64 @@ pub struct AppState {
     pub backups: Arc<Backups>,
 }
 
+/// Public address of the app, resolved at startup ([`resolve_public_url`]):
+/// links in mails, the redirect URI and the CORS check depend on it. One that
+/// an older setup stored follows a restored backup ([`AppState::reload`]);
+/// `ROEDY_PUBLIC_URL` stays as it is.
+pub struct PublicUrl {
+    url: RwLock<Arc<Url>>,
+    stored: bool,
+}
+
+impl PublicUrl {
+    /// From `app_settings.public_url`.
+    pub fn stored(url: Url) -> Self {
+        Self {
+            url: RwLock::new(Arc::new(url)),
+            stored: true,
+        }
+    }
+
+    pub fn get(&self) -> Arc<Url> {
+        self.url
+            .read()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone()
+    }
+
+    /// Reads a stored address again; without one in the database the current
+    /// one stays (the next start then needs `ROEDY_PUBLIC_URL`).
+    fn reload(&self, conn: &Connection) -> anyhow::Result<()> {
+        if !self.stored {
+            return Ok(());
+        }
+        let current = self.get();
+        match app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)? {
+            Some(url) if url != *current => {
+                tracing::info!(public_url = url.as_str(), "public URL changed");
+                *self.url.write().unwrap_or_else(PoisonError::into_inner) = Arc::new(url);
+            }
+            Some(_) => {}
+            None => tracing::warn!(
+                public_url = current.as_str(),
+                "no public URL stored, the current one stays until the next start; \
+                 set ROEDY_PUBLIC_URL"
+            ),
+        }
+        Ok(())
+    }
+}
+
+/// `ROEDY_PUBLIC_URL`: never replaced.
+impl From<Url> for PublicUrl {
+    fn from(url: Url) -> Self {
+        Self {
+            url: RwLock::new(Arc::new(url)),
+            stored: false,
+        }
+    }
+}
+
 /// Tasks that keep running after the response. On shutdown `serve` waits
 /// briefly for them ([`Self::finish`]) before the database closes – otherwise
 /// a "password changed" mail shortly before SIGTERM would never go out.
@@ -125,12 +181,12 @@ impl Background {
 impl AppState {
     /// The CSP initially contains only `'self'`; [`Self::load_csp`] reads the
     /// registry. Mailer and diagnostics share one HTTP client. `public_url`
-    /// comes from [`resolve_public_url`].
+    /// comes from [`resolve_public_url`]; a plain [`Url`] is fixed.
     pub fn new(
         db: Db,
         web: Arc<WebAssets>,
         config: &Config,
-        public_url: Url,
+        public_url: impl Into<PublicUrl>,
         secrets: SecretKey,
     ) -> anyhow::Result<Self> {
         let http = broker::http_client()?;
@@ -141,7 +197,7 @@ impl AppState {
             limiter: Arc::new(RateLimiter::default()),
             challenges: Arc::new(Challenges::default()),
             trust_proxy: config.trust_proxy,
-            public_url: Arc::new(public_url),
+            public_url: Arc::new(public_url.into()),
             secrets: Arc::new(secrets),
             mailer: Arc::new(Mailer::new(http.clone())),
             http,
@@ -203,6 +259,11 @@ impl AppState {
         }
     }
 
+    /// Public address of the app ([`PublicUrl`]).
+    pub fn public_url(&self) -> Arc<Url> {
+        self.public_url.get()
+    }
+
     /// VAPID key of the instance; the first call reads it from the database or
     /// creates it. An error (such as a different instance key) is not cached;
     /// the next call tries again. It is remembered on the database thread so
@@ -227,13 +288,15 @@ impl AppState {
     }
 
     /// See [`Self::load`]: CSP from the registry, maintenance mode, organization,
-    /// banner, branding and whatever else comes from `app_settings`; the VAPID
+    /// banner, branding, a stored public URL and whatever else comes from
+    /// `app_settings`; the VAPID
     /// key is read by [`Self::vapid`] when next needed.
     /// `setup_done` stays: every backup comes from an instance that was set up.
     pub fn reload(&self, conn: &Connection) -> anyhow::Result<()> {
         self.csp.reload(conn)?;
         self.maintenance.set(maintenance::Mode::load(conn)?);
         self.instance.load(conn)?;
+        self.public_url.reload(conn)?;
         *self
             .vapid_key
             .write()
@@ -349,12 +412,12 @@ pub async fn serve(config: Config) -> anyhow::Result<()> {
 /// Public address of the app: `ROEDY_PUBLIC_URL` is required; instances whose
 /// address an older setup stored (`app_settings.public_url`) keep starting
 /// with that one.
-pub fn resolve_public_url(conn: &Connection, config: &Config) -> anyhow::Result<Url> {
+pub fn resolve_public_url(conn: &Connection, config: &Config) -> anyhow::Result<PublicUrl> {
     if let Some(url) = &config.public_url {
-        return Ok(url.clone());
+        return Ok(url.clone().into());
     }
     if let Some(url) = app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)? {
-        return Ok(url);
+        return Ok(PublicUrl::stored(url));
     }
     anyhow::bail!(
         "ROEDY_PUBLIC_URL is not set – set it to the public address of the app, \
@@ -374,7 +437,7 @@ async fn run_http(
         version = env!("CARGO_PKG_VERSION"),
         listen = %listener.local_addr()?,
         data_dir = %config.data_dir.display(),
-        public_url = state.public_url.as_str(),
+        public_url = state.public_url().as_str(),
         web = state.web.describe(),
         trust_proxy = config.trust_proxy.0,
         "Roedy Mail started"

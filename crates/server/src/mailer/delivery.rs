@@ -59,7 +59,7 @@ impl Delivery {
         Self {
             account,
             credentials,
-            public_url: state.public_url.clone(),
+            public_url: state.public_url(),
             brand: state.brand(),
         }
     }

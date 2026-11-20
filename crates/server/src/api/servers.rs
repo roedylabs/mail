@@ -212,7 +212,7 @@ async fn admin_list(State(state): State<AppState>, _: AdminUser) -> Result<Json<
     })
     .await?;
     // For copying into the manually created client.
-    let redirect_uri = redirect_uri(&state.public_url);
+    let redirect_uri = redirect_uri(&state.public_url());
     Ok(Json(json!({
         "servers": list,
         "redirect_uri": redirect_uri,
@@ -461,8 +461,10 @@ async fn create(
     };
     let csp = state.csp.clone();
     let keys = state.secrets.clone();
-    let expected_redirect = redirect_uri(&state.public_url);
+    let public_url = state.public_url.clone();
     let server = db::call(&state.db, move |conn| {
+        // On the database thread: after a restore this is already its address.
+        let expected_redirect = redirect_uri(&public_url.get());
         let tx = conn.transaction()?;
         let others = servers::list(&tx)?;
         let input = match validate(
@@ -595,8 +597,10 @@ async fn update(
     };
     let csp = state.csp.clone();
     let keys = state.secrets.clone();
-    let expected_redirect = redirect_uri(&state.public_url);
+    let public_url = state.public_url.clone();
     let result = db::call(&state.db, move |conn| {
+        // On the database thread: after a restore this is already its address.
+        let expected_redirect = redirect_uri(&public_url.get());
         let tx = conn.transaction()?;
         let all = servers::list(&tx)?;
         let Some(current) = all.iter().find(|s| s.id == id).cloned() else {
@@ -949,7 +953,7 @@ async fn register_client(
         &base_url,
         &body.username,
         &body.password,
-        &state.public_url,
+        &state.public_url(),
     )
     .await?;
     let entry = audit_entry(Category::System, "servers.register_client", &user, ip)

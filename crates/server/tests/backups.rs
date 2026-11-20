@@ -14,7 +14,7 @@ use axum::{
 use http_body_util::BodyExt as _;
 use roedy_mail_server::{
     api,
-    app::{AppState, router},
+    app::{AppState, PublicUrl, router},
     auth::{
         AuthUser,
         password::{Hasher, Params},
@@ -67,6 +67,10 @@ impl Reply {
 }
 
 async fn env() -> Env {
+    env_with(Url::parse("https://app.example.com").unwrap()).await
+}
+
+async fn env_with(public_url: impl Into<PublicUrl>) -> Env {
     let tmp = tempfile::tempdir().unwrap();
     let conn = db::open(tmp.path()).unwrap();
     let config = Config {
@@ -77,7 +81,7 @@ async fn env() -> Env {
         Db::from(conn),
         Arc::new(WebAssets::None),
         &config,
-        Url::parse("https://app.example.com").unwrap(),
+        public_url,
         SecretKey::random().unwrap(),
     )
     .unwrap();
@@ -838,6 +842,50 @@ async fn restoring_renews_banner_and_csp() {
         .await
         .json();
     assert_eq!(config["banner"]["title"], "Old");
+}
+
+/// Stores `url` as the public URL of an older setup (`None`: removes it).
+async fn store_public_url(env: &Env, url: Option<&'static str>) {
+    db::call(&env.state.db, move |conn| {
+        conn.execute("DELETE FROM app_settings WHERE key = 'public_url'", [])?;
+        if let Some(url) = url {
+            conn.execute(
+                "INSERT INTO app_settings (key, json) VALUES ('public_url', ?1)",
+                [format!("\"{url}\"")],
+            )?;
+        }
+        Ok(())
+    })
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn restoring_brings_back_a_stored_public_url() {
+    let old = Url::parse("https://old.example.com/").unwrap();
+    let env = env_with(PublicUrl::stored(old.clone())).await;
+    store_public_url(&env, Some("https://old.example.com/")).await;
+    let with_old = env.create().await["id"].as_str().unwrap().to_owned();
+    store_public_url(&env, None).await;
+    let without = env.create().await["id"].as_str().unwrap().to_owned();
+    store_public_url(&env, Some("https://new.example.com/")).await;
+    env.state.load().await.unwrap();
+    assert_eq!(env.state.public_url().as_str(), "https://new.example.com/");
+
+    assert_eq!(env.restore(&with_old).await.status, StatusCode::OK);
+    assert_eq!(*env.state.public_url(), old);
+    // Without a stored one the current address stays.
+    assert_eq!(env.restore(&without).await.status, StatusCode::OK);
+    assert_eq!(*env.state.public_url(), old);
+}
+
+#[tokio::test]
+async fn restoring_keeps_the_public_url_of_the_variable() {
+    let env = env().await;
+    store_public_url(&env, Some("https://old.example.com/")).await;
+    let id = env.create().await["id"].as_str().unwrap().to_owned();
+    assert_eq!(env.restore(&id).await.status, StatusCode::OK);
+    assert_eq!(env.state.public_url().as_str(), "https://app.example.com/");
 }
 
 #[tokio::test]
