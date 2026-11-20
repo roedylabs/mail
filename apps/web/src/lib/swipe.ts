@@ -681,13 +681,15 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
 
     // The panel has `touch-action: pan-y` so that its content scrolls natively; the browser would then also
     // take a drag of the panel itself and cancel it (`pointercancel`). Its touch moves are kept from the
-    // browser as soon as the movement belongs to the panel, so it follows the finger wherever it is held.
+    // browser once the movement is the panel's drag (from `SLOP`, below the browsers' own pan thresholds of
+    // about 10 to 15 px), so it follows the finger wherever it is held. Below `SLOP` nothing is cancelled:
+    // a tap that drifts a few pixels keeps its click on the controls in the panel.
     const onTouchMove = (e: TouchEvent) => {
       const t = e.touches[0];
       if (!touch || !t || e.touches.length !== 1 || !e.cancelable) return;
       const dx = t.clientX - touch.x;
       const dy = t.clientY - touch.y;
-      if (touch.taken || (Math.hypot(dx, dy) >= 3 && owns(touch.target, dx, dy))) e.preventDefault();
+      if (touch.taken || (Math.hypot(dx, dy) >= SLOP && owns(touch.target, dx, dy))) e.preventDefault();
     };
     const onTouchEnd = (e: TouchEvent) => {
       if (e.touches.length === 0) touch = null;

@@ -100,14 +100,16 @@
 
   // Phone: the on-screen keyboard covers the bottom of the layout; the sheet moves above it.
   // The browser also scrolls the whole page up to bring the hex field into view; the page goes back
-  // at once, so only the sheet moves (not while zoomed in, where the user moved the view).
+  // at once, so only the sheet moves. Not while zoomed in: the user moved the view, and a zoomed visual
+  // viewport is smaller without any keyboard, so the sheet stays where it is.
   $effect(() => {
     const vv = sheet ? window.visualViewport : null;
     if (!vv) return;
     const update = () => {
+      const zoomed = vv.scale >= 1.01;
       const panned = vv.offsetTop > 0 || window.scrollY > 0;
-      if (panned && vv.scale < 1.01 && pop?.contains(document.activeElement)) window.scrollTo(0, 0);
-      kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      if (panned && !zoomed && pop?.contains(document.activeElement)) window.scrollTo(0, 0);
+      kb = zoomed ? 0 : Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
     };
     update();
     vv.addEventListener('resize', update);

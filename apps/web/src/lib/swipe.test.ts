@@ -596,8 +596,10 @@ describe('dragSheet', () => {
     vi.useFakeTimers();
     const { el, row } = sheet({ animations: false });
     pointer('pointerdown', 100, 100, row);
-    // Already before the decision (8 px), so the browser does not start scrolling and cancel the gesture.
-    expect(touch('touchmove', 100, 104, row)).toBe(true);
+    // Below the slop (8 px) a tap may drift: nothing is cancelled, so its click survives.
+    expect(touch('touchmove', 100, 104, row)).toBe(false);
+    // From the slop on, the movement is the panel's, before the browser would start its own pan.
+    expect(touch('touchmove', 100, 109, row)).toBe(true);
     pointer('pointermove', 100, 110);
     expect(touch('touchmove', 100, 110, row)).toBe(true);
     pointer('pointermove', 100, 160);
@@ -627,8 +629,9 @@ describe('dragSheet', () => {
 
     const { row } = sheet({ animations: false }, 50);
     pointer('pointerdown', 100, 100, row);
-    expect(touch('touchmove', 100, 106, row)).toBe(false);
-    expect(touch('touchmove', 100, 94, row)).toBe(false);
+    // Beyond the slop too: the content scrolls (down while not at its top, and up).
+    expect(touch('touchmove', 100, 110, row)).toBe(false);
+    expect(touch('touchmove', 100, 90, row)).toBe(false);
     pointer('pointercancel', 100, 94);
     touch('touchcancel', 100, 94, row);
   });
