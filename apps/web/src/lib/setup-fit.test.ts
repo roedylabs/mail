@@ -42,6 +42,33 @@ describe('SetupFit', () => {
     expect(fit.level).toBe(6);
   });
 
+  it('finds the same level for a size however the window got there', async () => {
+    const { root, fit } = page();
+    // Loaded in a low window: the content does not fit, the densest level.
+    root.height = 480;
+    fit.relayout(1280, 480);
+    await settle();
+    expect(fit.level).toBe(6);
+    // The window grows until the content fits again: level 0, as on a fresh load at that size.
+    root.height = 520;
+    fit.resize(1280, 520);
+    await settle();
+    expect(fit.level).toBe(0);
+  });
+
+  it('takes the current page size on a relayout without one', async () => {
+    const { root, fit } = page();
+    root.height = 480;
+    fit.relayout(1280, 480);
+    await settle();
+    expect(fit.level).toBe(6);
+    // The page grew, but no resize was observed yet (hidden page): a change of language refits on the real size.
+    root.height = 800;
+    fit.relayout();
+    await settle();
+    expect([fit.h, fit.level]).toEqual([800, 0]);
+  });
+
   it('ignores a small resize that crosses no threshold, but keeps the size', async () => {
     const { fit } = page();
     fit.relayout(1280, 800);

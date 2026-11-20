@@ -5,10 +5,11 @@
  * after the DOM update and before the browser paints, so only the final
  * level is ever shown; there is no animation between levels.
  *
- * A size change only refits when the layout really changes: another tier,
- * the current level no longer fits, or the roomier level would fit again
- * (the room it needed, measured on the last pass). Otherwise the new size
- * simply applies.
+ * The level only depends on the current size and content, never on the way
+ * there: every size change of more than 4 px fits from level 0, and a
+ * relayout reads the page's current size. Otherwise a level found on an
+ * earlier size (a window that grew, a page loaded hidden) stayed until the
+ * next relayout, and changing the language suddenly resized the card.
  */
 import { tick } from 'svelte';
 import { isMobileWidth, twoCol, WIDE } from '#lib/setup-layout.ts';
@@ -24,9 +25,6 @@ export interface FitTargets {
   columns: boolean;
 }
 
-/** Room the next roomier level needs when nothing was measured yet. */
-const ROOM0 = 90;
-
 export class SetupFit {
   w = $state(1280);
   h = $state(860);
@@ -37,10 +35,6 @@ export class SetupFit {
   private ready = false;
   /** Size of the last refit decision: small changes are measured against it, not against the previous one. */
   private checked = { w: 0, h: 0 };
-  /** Overflow on the last level that did not fit. */
-  private over = 0;
-  /** Room the next roomier level needs (measured). */
-  private gap: number | null = null;
   /** Held (a step's inline editor is open): the level stays; a new size or content refits on release. */
   private held = false;
   private pending: { w: number; h: number } | null = null;
@@ -66,34 +60,23 @@ export class SetupFit {
       this.h = h;
       return;
     }
-    this.checked = { w, h };
-    if (!this.ready || this.fitting) {
-      this.relayout(w, h);
-      return;
-    }
-    const mobNow = this.mobile;
-    const mobNext = isMobileWidth(w);
-    const twoNext = !mobNext && this.t.columns && twoCol(w, h, this.two);
-    const structural = mobNow !== mobNext || (!mobNext && (this.two !== twoNext || this.w >= WIDE !== w >= WIDE));
-    const roomier = this.level > 0 && this.freeSpace() >= (this.gap !== null ? this.gap + 6 : ROOM0);
-    if (structural || this.overflows() || roomier) this.relayout(w, h);
-    else {
-      this.w = w;
-      this.h = h;
-    }
+    this.relayout(w, h);
   }
 
-  /** Content changed its height (language, messages, web fonts): from level 0 again. */
-  relayout(w = this.w, h = this.h): void {
+  /**
+   * New size, or content changed its height (language, messages, web fonts): from level 0 again. Without a size
+   * it takes the page's current one, which may be newer than the last observed size.
+   */
+  relayout(w?: number, h?: number): void {
+    const root = this.t.root();
+    w ??= root?.clientWidth || this.w;
+    h ??= root?.clientHeight || this.h;
     if (this.held) {
-      // A newer size from `resize` stays (a relayout without one uses the old size).
-      if (!this.pending || w !== this.w || h !== this.h) this.pending = { w, h };
+      this.pending = { w, h };
       return;
     }
     this.ready = true;
     this.checked = { w, h };
-    this.over = 0;
-    this.gap = null;
     this.w = w;
     this.h = h;
     this.two = !isMobileWidth(w) && this.t.columns && twoCol(w, h, this.two);
@@ -143,11 +126,7 @@ export class SetupFit {
     try {
       for (;;) {
         await tick();
-        if (!this.overflows()) {
-          if (this.over) this.gap = this.over + this.freeSpace();
-          break;
-        }
-        this.over = this.overAmount();
+        if (!this.overflows()) break;
         if (this.level >= this.t.levels(this.mobile) - 1) break;
         this.level += 1;
       }
@@ -167,23 +146,5 @@ export class SetupFit {
 
   private overflows(): boolean {
     return this.overAmount() > 1;
-  }
-
-  /** Free height right now: desktop around the card, mobile below the panel's content. */
-  private freeSpace(): number {
-    const card = this.t.card();
-    if (!card) return 0;
-    if (this.mobile) {
-      const r = card.getBoundingClientRect();
-      let bottom = r.top;
-      for (const c of card.children) bottom = Math.max(bottom, c.getBoundingClientRect().bottom);
-      return card.clientHeight - (bottom - r.top) - (parseFloat(getComputedStyle(card).paddingBottom) || 0);
-    }
-    const main = card.parentElement;
-    if (!main) return 0;
-    const cs = getComputedStyle(main);
-    return (
-      main.clientHeight - (parseFloat(cs.paddingTop) || 0) - (parseFloat(cs.paddingBottom) || 0) - card.offsetHeight
-    );
   }
 }
