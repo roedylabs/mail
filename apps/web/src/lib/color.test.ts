@@ -194,8 +194,7 @@ describe('accentText', () => {
         expect(dangerSoft, `${hex} --danger on --accsoft`).toBeGreaterThanOrEqual(MIN_CONTRAST);
         expect(toast, `${hex} --toastacc`).toBeGreaterThanOrEqual(MIN_CONTRAST);
       }
-      // 512 colours take a few seconds, more under the full parallel test run.
-    }, 20_000);
+    });
 
     it(`keeps the mixes where they already reach 4.5:1 in ${mode} mode`, () => {
       for (const [name, { base }] of Object.entries(ACCENTS)) {
