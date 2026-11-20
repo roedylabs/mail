@@ -68,16 +68,17 @@ services:
     # and exits 0 on 200. It runs with this container's user, environment and
     # restrictions and writes nothing. It shows that the process responds, not
     # that the database is readable (/readyz, docs/ops.md › Health). Exec form:
-    # the image has no shell and no curl. start_interval needs Docker Engine 25
-    # or later; delete that line on older engines. To turn the check off,
-    # replace the keys below with `disable: true` alone; deleting the block
-    # brings back the image's check.
+    # the image has no shell and no curl. Docker fills keys missing here from
+    # the image's HEALTHCHECK: start_interval is left out so that older
+    # Compose versions also run on Docker Engine before 25; Engine 25 and later
+    # take the image's 1s (checks every second during start_period). To turn
+    # the check off, replace the keys below with `disable: true` alone;
+    # deleting the block brings back the image's check.
     healthcheck:
       test: ["CMD", "roedy-mail", "healthcheck"]
       interval: 30s
       timeout: 5s
       start_period: 10s
-      start_interval: 1s
       retries: 3
 
   # A reverse proxy in this file can wait until the server is healthy and
