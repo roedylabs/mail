@@ -283,8 +283,7 @@ Details about GitHub only appear at level `debug`: `ROEDY_LOG=info,roedy_mail_se
 | "Can’t reach the server. Check the address." | `unreachable`: address, DNS, firewall | Check the mail server, see [Stalwart › Server address](stalwart.md#server-address) |
 | "Sign-in failed." | `auth_failed` or `forbidden`: app password changed, token expired or revoked | Enter the credentials again |
 | "Too many failed attempts. Try again in …." | `auth_locked`: five rejected sign-ins in 15 minutes | Wait, correct the credentials first |
-| "That didn’t work. Please try again." on "Send", log `test email: no public URL` | No public address | Set `ROEDY_PUBLIC_URL` |
-| The same, log `System mail not sent` with `reason` | Error of only this email, such as `not_created` | Reasons under [Stalwart › Sender account](stalwart.md#sender-account-for-system-emails) |
+| "That didn’t work. Please try again." on "Send", log `System mail not sent` with `reason` | Error of only this email, such as `not_created` | Reasons under [Stalwart › Sender account](stalwart.md#sender-account-for-system-emails) |
 | "Too many attempts." on "Send" | Limit of the test emails | Wait a minute |
 | "Send" not possible | Hint "Available after a successful connection test." | "Test connection" |
 | Logo missing in emails, the header shows the tile | Log `Branding logo not drawn`: the route responds 404 | Replace the image |

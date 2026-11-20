@@ -3,6 +3,7 @@
 //! variant (feature `embed-web`).
 
 use std::{fs, path::Path, sync::Arc};
+use url::Url;
 
 use axum::{
     body::Body,
@@ -44,7 +45,14 @@ fn state_with(web_app: bool) -> (tempfile::TempDir, AppState) {
     write("licenses.json", "[]");
     let db = Db::from(db::open(&tmp.path().join("data")).unwrap());
     let web = Arc::new(WebAssets::new(web_app.then_some(build.as_path())).unwrap());
-    let state = AppState::new(db, web, &Config::default(), SecretKey::random().unwrap()).unwrap();
+    let state = AppState::new(
+        db,
+        web,
+        &Config::default(),
+        Url::parse("https://app.example.com").unwrap(),
+        SecretKey::random().unwrap(),
+    )
+    .unwrap();
     (tmp, state)
 }
 

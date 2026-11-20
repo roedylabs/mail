@@ -49,6 +49,7 @@ async fn setup_with(config: Config) -> Setup {
         Db::from(conn),
         Arc::new(WebAssets::None),
         &config,
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();
@@ -360,7 +361,7 @@ async fn complete_creates_the_administrator_with_their_appearance() {
     assert_eq!(stored["settings"]["accent"], "sage");
     assert_eq!(stored["settings"]["density"], "normal");
 
-    // No mail server, no system mail, no public URL: they come from the
+    // The setup stores neither mail server, system mail nor address: they come from the
     // administration and `ROEDY_PUBLIC_URL`.
     let reply = get(&s.state, "/api/v1/admin/servers", &cookie).await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
@@ -374,7 +375,7 @@ async fn complete_creates_the_administrator_with_their_appearance() {
     })
     .await
     .unwrap();
-    assert_eq!(public_url, None, "no public URL stored");
+    assert_eq!(public_url, None, "public URL not stored");
     assert!(!configured);
     assert_eq!(token, None, "setup token deleted");
     assert_eq!(
@@ -516,13 +517,14 @@ async fn a_public_url_from_an_older_setup_stays() {
     )
     .await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    // The next start still finds it (`resolve_public_url`).
+    let stored = db::call(&s.state.db, |conn| {
+        app_settings::get::<Url>(conn, app_settings::PUBLIC_URL)
+    })
+    .await
+    .unwrap();
     assert_eq!(
-        s.state
-            .public_url()
-            .await
-            .unwrap()
-            .map(String::from)
-            .as_deref(),
+        stored.map(String::from).as_deref(),
         Some("https://old.example.com/")
     );
 }

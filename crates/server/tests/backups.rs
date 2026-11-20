@@ -3,6 +3,7 @@
 //! restore with data, schedule, retention and events.
 
 use std::{net::SocketAddr, path::Path, sync::Arc};
+use url::Url;
 
 use axum::{
     Router,
@@ -76,6 +77,7 @@ async fn env() -> Env {
         Db::from(conn),
         Arc::new(WebAssets::None),
         &config,
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();

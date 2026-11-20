@@ -428,14 +428,28 @@ fn public_url_from_an_older_setup_still_starts() {
     let data_dir = tmp.path().join("data");
     let conn = roedy_mail_server::db::open(&data_dir).unwrap();
     conn.execute(
-        "INSERT INTO app_settings (key, json) VALUES ('public_url', '\"https://mail.example.com/\"')",
+        "INSERT INTO app_settings (key, json) VALUES ('public_url', '\"https://old.example.com/\"')",
         [],
     )
     .unwrap();
     drop(conn);
+    let started = |server: &Server| {
+        server.logged("Roedy Mail started").unwrap()["public_url"]
+            .as_str()
+            .unwrap()
+            .to_owned()
+    };
 
+    // Only the stored address.
     let server = Server::start_with(&data_dir, None);
     assert!(server.logged("Setup-Token: ").is_some());
+    assert_eq!(started(&server), "https://old.example.com/");
+    let (success, server) = server.terminate();
+    assert!(success, "{:#?}", server.log);
+
+    // `ROEDY_PUBLIC_URL` comes first.
+    let server = Server::start(&data_dir);
+    assert_eq!(started(&server), format!("{PUBLIC_URL}/"));
     let (success, server) = server.terminate();
     assert!(success, "{:#?}", server.log);
 }

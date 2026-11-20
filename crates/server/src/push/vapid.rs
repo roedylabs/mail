@@ -108,18 +108,19 @@ impl Vapid {
 
     /// Value of the `Authorization` header for a message to `endpoint`
     /// (RFC 8292 › 3): token for the origin of the push service, valid until
-    /// `now` + 12 hours, with `subject` as contact (`sub`), if known.
+    /// `now` + 12 hours, with `subject` as contact (`sub`).
     pub fn authorization(
         &self,
         endpoint: &Url,
-        subject: Option<&str>,
+        subject: &str,
         now: Timestamp,
     ) -> anyhow::Result<String> {
         let exp = now.checked_add(TOKEN_LIFETIME)?.as_second();
-        let mut claims = json!({ "aud": endpoint.origin().ascii_serialization(), "exp": exp });
-        if let Some(subject) = subject {
-            claims["sub"] = subject.into();
-        }
+        let claims = json!({
+            "aud": endpoint.origin().ascii_serialization(),
+            "exp": exp,
+            "sub": subject,
+        });
         let input = format!(
             "{JWT_HEADER}.{}",
             URL_SAFE_NO_PAD.encode(claims.to_string())
@@ -158,7 +159,7 @@ mod tests {
         let endpoint = Url::parse("https://push.example.com:8443/wpush/v2/abc?x=1").unwrap();
         let now: Timestamp = "2026-11-04T12:00:00Z".parse().unwrap();
         let header = vapid
-            .authorization(&endpoint, Some("https://app.example.com"), now)
+            .authorization(&endpoint, "https://app.example.com", now)
             .unwrap();
         let (token, key) = header
             .strip_prefix("vapid t=")
@@ -189,12 +190,6 @@ mod tests {
                 "sub": "https://app.example.com",
             })
         );
-        let without = vapid.authorization(&endpoint, None, now).unwrap();
-        let token = without.strip_prefix("vapid t=").unwrap();
-        let claims = token.split('.').nth(1).unwrap();
-        let claims: Value =
-            serde_json::from_slice(&URL_SAFE_NO_PAD.decode(claims).unwrap()).unwrap();
-        assert!(claims.get("sub").is_none());
     }
 
     #[test]

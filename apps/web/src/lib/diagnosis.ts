@@ -18,7 +18,7 @@ export interface DiagContext {
   origin: string;
   /** Redirect URI for the advice on the OAuth client. */
   redirect: string;
-  /** Name of the app (`no_public_url`, `unsupported_version`, `throttled`). */
+  /** Name of the app (`unsupported_version`, `throttled`). */
   app: string;
   /** Remaining wait in seconds after a throttled test (`retry_after`); without it or expired "in a few minutes". */
   wait?: number;
@@ -63,7 +63,6 @@ function texts(line: DiagLine, status: DiagStatus, ctx: DiagContext): Texts {
     return {
       not_reachable: skip,
       no_api_url: () => m.diag_cors_no_api_url(),
-      no_public_url: () => m.diag_cors_no_public_url({ app: ctx.app }),
       throttled,
     };
   }

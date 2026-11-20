@@ -88,10 +88,6 @@ pub async fn run_at(state: &AppState, now: Timestamp) -> anyhow::Result<()> {
             dropped = run.dropped,
             "no system mail configured, notifications by email are dropped"
         ),
-        Some(Err(Unavailable::NoPublicUrl)) if run.dropped > 0 => tracing::warn!(
-            dropped = run.dropped,
-            "no public address, notifications by email are dropped"
-        ),
         _ => {}
     }
     Ok(())
@@ -206,8 +202,7 @@ impl Run<'_> {
         Ok(())
     }
 
-    /// Loads the sending account and public address on first use; `true`
-    /// if either is missing.
+    /// Loads the sending account on first use; `true` if it is missing.
     async fn unavailable(&mut self) -> anyhow::Result<bool> {
         if self.delivery.is_none() {
             self.delivery = Some(Delivery::prepare(self.state).await?);

@@ -3,6 +3,7 @@
 //! other users' accounts and tags rejected.
 
 use std::{net::SocketAddr, sync::Arc};
+use url::Url;
 
 use axum::{
     body::Body,
@@ -43,6 +44,7 @@ async fn setup() -> Setup {
         db,
         Arc::new(WebAssets::None),
         &Config::default(),
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();

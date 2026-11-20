@@ -698,14 +698,7 @@ describe('Test email', () => {
   });
 
   it('if only the mail fails, the connection stays good', async () => {
-    const reasons = [
-      'not_created',
-      'method_error',
-      'request_rejected',
-      'invalid_response',
-      'http_status',
-      'no_public_url',
-    ];
+    const reasons = ['not_created', 'method_error', 'request_rejected', 'invalid_response', 'http_status'];
     const { p } = await opened(MAIL, {
       'POST admin/system-mail/test': reasons.map((reason) => ({ status: 502, body: { error: 'mail_failed', reason } })),
     });

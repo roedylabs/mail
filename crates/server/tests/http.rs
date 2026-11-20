@@ -1,6 +1,7 @@
 //! Operational endpoints via the router (without network).
 
 use std::sync::Arc;
+use url::Url;
 
 use axum::{
     body::Body,
@@ -20,7 +21,14 @@ fn state() -> (tempfile::TempDir, AppState) {
     let tmp = tempfile::tempdir().unwrap();
     let db = Db::from(db::open(tmp.path()).unwrap());
     let web = Arc::new(WebAssets::None);
-    let state = AppState::new(db, web, &Config::default(), SecretKey::random().unwrap()).unwrap();
+    let state = AppState::new(
+        db,
+        web,
+        &Config::default(),
+        Url::parse("https://app.example.com").unwrap(),
+        SecretKey::random().unwrap(),
+    )
+    .unwrap();
     (tmp, state)
 }
 

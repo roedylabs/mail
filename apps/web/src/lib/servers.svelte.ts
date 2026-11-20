@@ -77,8 +77,8 @@ export interface AdminServer {
 /** Response of `GET admin/servers`. */
 interface ServerList {
   servers: AdminServer[];
-  /** `<public address>/oauth/callback`; `null` without a public address. */
-  redirect_uri: string | null;
+  /** `<public address>/oauth/callback`. */
+  redirect_uri: string;
   /** Server the system mails go through. */
   system_mail_server: string | null;
 }
@@ -214,7 +214,7 @@ export class ServersPage {
   #testSec = $derived(Math.floor(this.testWait.now / 1000));
   dialog = $state<ServerForm | null>(null);
 
-  /** Redirect URI for Stalwart; without a public address that of this browser (after the setup there always is one). */
+  /** Redirect URI for Stalwart; until the list is loaded that of this browser. */
   redirect = $derived(this.redirectUri ?? `${location.origin}/oauth/callback`);
   /** Host of the app for which the diagnosis checks CORS. */
   appHost = $derived(hostOf(this.redirect));

@@ -193,9 +193,9 @@ describe('List', () => {
     expect(rowOf(values, 's1').plain).toBe(false);
   });
 
-  it('shows "No mail server yet" without servers and names the browser address without a public address', async () => {
+  it('shows "No mail server yet" without servers and names the redirect URI of the public address', async () => {
     const api = mockApi({
-      'GET admin/servers': [{ body: { servers: [], redirect_uri: null, system_mail_server: null } }],
+      'GET admin/servers': [{ body: { servers: [], redirect_uri: REDIRECT, system_mail_server: null } }],
       'GET admin/servers/policy': [{ body: { allow_custom_servers: true } }],
     });
     const p = new ServersPage();
@@ -203,7 +203,7 @@ describe('List', () => {
     const values = serversValues(p, ctx, NOW);
     expect(values.srvEmpty).toBe(true);
     expect(values.srvHas).toBe(false);
-    expect(values.srvRedirect).toBe(`${location.origin}/oauth/callback`);
+    expect(values.srvRedirect).toBe(REDIRECT);
     expect(values.tgSrvOwn.on).toBe(true);
     expect(values.srvOwnSum).toBe('When adding an account, users can choose “Other server …”.');
     expect(sent(api.calls)).toEqual(['GET admin/servers', 'GET admin/servers/policy']);

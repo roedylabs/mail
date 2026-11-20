@@ -2,6 +2,7 @@
 //! administrators, filters, pages, export and retention with cleanup job.
 
 use std::{net::SocketAddr, sync::Arc};
+use url::Url;
 
 use axum::{
     Router,
@@ -78,6 +79,7 @@ async fn env() -> Env {
         Db::from(conn),
         Arc::new(WebAssets::None),
         &Config::default(),
+        Url::parse("https://app.example.com").unwrap(),
         SecretKey::random().unwrap(),
     )
     .unwrap();

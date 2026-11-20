@@ -212,7 +212,7 @@ async fn admin_list(State(state): State<AppState>, _: AdminUser) -> Result<Json<
     })
     .await?;
     // For copying into the manually created client.
-    let redirect_uri = state.public_url().await?.map(|url| redirect_uri(&url));
+    let redirect_uri = redirect_uri(&state.public_url);
     Ok(Json(json!({
         "servers": list,
         "redirect_uri": redirect_uri,
@@ -461,7 +461,7 @@ async fn create(
     };
     let csp = state.csp.clone();
     let keys = state.secrets.clone();
-    let expected_redirect = state.public_url().await?.map(|url| redirect_uri(&url));
+    let expected_redirect = redirect_uri(&state.public_url);
     let server = db::call(&state.db, move |conn| {
         let tx = conn.transaction()?;
         let others = servers::list(&tx)?;
@@ -480,13 +480,7 @@ async fn create(
         if secret.is_some() && input.client_id.is_none() {
             errors.code("client_secret", "needs_client_id");
         }
-        check_redirect(
-            &tx,
-            &mut errors,
-            "client_id",
-            &input,
-            expected_redirect.as_deref(),
-        )?;
+        check_redirect(&tx, &mut errors, "client_id", &input, &expected_redirect)?;
         if !errors.is_empty() {
             return Ok(Err(errors));
         }
@@ -511,16 +505,15 @@ async fn create(
 
 /// A client registered via DCR only works for its redirect URI: if the public
 /// address changed after the registration, every sign-in would fail. Then
-/// `redirect_mismatch` with the client's redirect URI on `field` (no check
-/// without a known address).
+/// `redirect_mismatch` with the client's redirect URI on `field`.
 pub(super) fn check_redirect(
     conn: &rusqlite::Connection,
     errors: &mut FieldErrors,
     field: &str,
     input: &Input,
-    redirect_uri: Option<&str>,
+    redirect_uri: &str,
 ) -> anyhow::Result<()> {
-    let (Some(client_id), Some(redirect_uri)) = (&input.client_id, redirect_uri) else {
+    let Some(client_id) = &input.client_id else {
         return Ok(());
     };
     if let Some(registration) =
@@ -602,7 +595,7 @@ async fn update(
     };
     let csp = state.csp.clone();
     let keys = state.secrets.clone();
-    let expected_redirect = state.public_url().await?.map(|url| redirect_uri(&url));
+    let expected_redirect = redirect_uri(&state.public_url);
     let result = db::call(&state.db, move |conn| {
         let tx = conn.transaction()?;
         let all = servers::list(&tx)?;
@@ -626,13 +619,7 @@ async fn update(
         };
         let mut errors = FieldErrors::default();
         check_client_field(&mut errors, "client_secret", new_secret.as_deref());
-        check_redirect(
-            &tx,
-            &mut errors,
-            "client_id",
-            &input,
-            expected_redirect.as_deref(),
-        )?;
+        check_redirect(&tx, &mut errors, "client_id", &input, &expected_redirect)?;
         if !errors.is_empty() {
             return Ok(Some(Err(errors)));
         }
@@ -957,16 +944,12 @@ async fn register_client(
         Some(url) if errors.is_empty() => url,
         _ => return Err(errors.into_error()),
     };
-    let public_url = state
-        .public_url()
-        .await?
-        .ok_or_else(|| ApiError::rejected(StatusCode::CONFLICT, "public_url_missing"))?;
     let registered = register(
         &state,
         &base_url,
         &body.username,
         &body.password,
-        &public_url,
+        &state.public_url,
     )
     .await?;
     let entry = audit_entry(Category::System, "servers.register_client", &user, ip)

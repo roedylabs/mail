@@ -323,13 +323,6 @@ async fn deliver(state: &AppState, pending: &Pending) -> anyhow::Result<()> {
             );
             return Ok(());
         }
-        Err(Unavailable::NoPublicUrl) => {
-            tracing::warn!(
-                template = pending.template(),
-                "no public address, notice dropped"
-            );
-            return Ok(());
-        }
     };
     // The mailer writes the result to the log itself.
     let _ = delivery

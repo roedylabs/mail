@@ -872,7 +872,6 @@
   "diag_cors_content_type": "Der Server erlaubt den Header Content-Type nicht. Prüfen Sie die CORS-Einstellungen in Stalwart und im Reverse-Proxy.",
   "diag_cors_preflight": "Die Vorabanfrage des Browsers (OPTIONS) wird abgelehnt. Prüfen Sie den Reverse-Proxy vor Stalwart.",
   "diag_cors_no_api_url": "Nicht geprüft, weil die Sitzung eine Anmeldung verlangt.",
-  "diag_cors_no_public_url": "Nicht geprüft, weil die öffentliche Adresse von {app} fehlt.",
   "diag_oauth_metadata": "Unter /.well-known/oauth-authorization-server fehlen die OAuth-Angaben. Prüfen Sie, ob OAuth in Stalwart aktiv ist.",
   "diag_oauth_token_endpoint": "Der Token-Endpunkt liegt nicht unter der Adresse des Servers. Tragen Sie die Adresse ein, die Stalwart selbst verwendet.",
   "diag_oauth_browser": "Der Server unterstützt die Anmeldung für Browser-Apps nicht (Refresh-Tokens, PKCE mit S256 oder Clients ohne Secret). Prüfen Sie die OAuth-Einstellungen in Stalwart.",

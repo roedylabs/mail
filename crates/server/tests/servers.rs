@@ -48,7 +48,7 @@ struct Setup {
 async fn setup_with(config: Config, web: WebAssets) -> Setup {
     let tmp = tempfile::tempdir().unwrap();
     let db = Db::from(db::open(tmp.path()).unwrap());
-    let state = AppState::new(db, Arc::new(web), &config, SecretKey::random().unwrap()).unwrap();
+    let state = state(db, &config, web, APP);
     state.load().await.unwrap();
     let admin = login(&state, "admin", Role::Admin).await;
     let user = login(&state, "max", Role::User).await;
@@ -61,14 +61,19 @@ async fn setup_with(config: Config, web: WebAssets) -> Setup {
 }
 
 async fn setup() -> Setup {
-    setup_with(
-        Config {
-            public_url: Some(Url::parse(APP).unwrap()),
-            ..Config::default()
-        },
-        WebAssets::None,
+    setup_with(Config::default(), WebAssets::None).await
+}
+
+/// App state on `db` with `public_url` as the app's address.
+fn state(db: Db, config: &Config, web: WebAssets, public_url: &str) -> AppState {
+    AppState::new(
+        db,
+        Arc::new(web),
+        config,
+        Url::parse(public_url).unwrap(),
+        SecretKey::random().unwrap(),
     )
-    .await
+    .unwrap()
 }
 
 /// Creates a user with a session and returns the cookie's token.
@@ -948,18 +953,16 @@ async fn registered_secret_goes_to_the_saved_server() {
 
 #[tokio::test]
 async fn registered_client_only_fits_its_redirect_uri() {
-    // Public URL from the setup, changed after the registration.
-    let s = setup_with(Config::default(), WebAssets::None).await;
-    let set_public_url = |url: &'static str| {
-        db::call(&s.state.db, move |conn| {
-            Ok(conn.execute(
-                "INSERT INTO app_settings (key, json) VALUES ('public_url', ?1) \
-                 ON CONFLICT (key) DO UPDATE SET json = excluded.json",
-                [format!("\"{url}\"")],
-            )?)
-        })
-    };
-    set_public_url("https://old.example.com/").await.unwrap();
+    // Public URL changed after the registration (restart with a different
+    // `ROEDY_PUBLIC_URL`).
+    let s = setup().await;
+    let changed = state(
+        s.state.db.clone(),
+        &Config::default(),
+        WebAssets::None,
+        "https://new.example.com/",
+    );
+    changed.load().await.unwrap();
     let fake = Server::start(Options::default()).await;
     let reply = send(
         &s.state,
@@ -970,9 +973,8 @@ async fn registered_client_only_fits_its_redirect_uri() {
     )
     .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
-    set_public_url("https://new.example.com/").await.unwrap();
     let reply = send(
-        &s.state,
+        &changed,
         Method::POST,
         "/api/v1/admin/servers",
         Some(&s.admin),
@@ -989,11 +991,10 @@ async fn registered_client_only_fits_its_redirect_uri() {
         reply.json()["fields"],
         json!({ "client_id": {
             "code": "redirect_mismatch",
-            "redirect_uri": "https://old.example.com/oauth/callback",
+            "redirect_uri": "https://app.example.com/oauth/callback",
         } })
     );
     // With the old URL it matches again.
-    set_public_url("https://old.example.com/").await.unwrap();
     let id = create(&s, &fake.url, Some(CLIENT_ID)).await;
     assert_eq!(
         stored_secret(&s.state, &id).await.as_deref(),
@@ -1090,30 +1091,7 @@ async fn test_reports_throttling() {
 }
 
 #[tokio::test]
-async fn register_client_needs_public_url_and_reachable_server() {
-    let s = setup_with(Config::default(), WebAssets::None).await;
-    let body =
-        json!({ "url": "https://mail.s1.test", "username": ADMIN, "password": ADMIN_PASSWORD });
-    let reply = send(
-        &s.state,
-        Method::POST,
-        "/api/v1/admin/servers/register-client",
-        Some(&s.admin),
-        Some(body),
-    )
-    .await;
-    assert_eq!(reply.status, StatusCode::CONFLICT);
-    assert_eq!(reply.json(), json!({ "error": "public_url_missing" }));
-    let reply = send(
-        &s.state,
-        Method::GET,
-        "/api/v1/admin/servers",
-        Some(&s.admin),
-        None,
-    )
-    .await;
-    assert_eq!(reply.json()["redirect_uri"], Value::Null);
-
+async fn register_client_needs_reachable_server() {
     let s = setup().await;
     let body = json!({ "url": fake_stalwart::unreachable_url(), "username": ADMIN, "password": ADMIN_PASSWORD });
     let reply = send(
@@ -1128,31 +1106,6 @@ async fn register_client_needs_public_url_and_reachable_server() {
     assert_eq!(
         reply.json(),
         json!({ "error": "registration_failed", "reason": "unreachable" })
-    );
-}
-
-#[tokio::test]
-async fn public_url_from_setup_counts_too() {
-    let s = setup_with(Config::default(), WebAssets::None).await;
-    db::call(&s.state.db, |conn| {
-        Ok(conn.execute(
-            "INSERT INTO app_settings (key, json) VALUES ('public_url', '\"https://setup.example.com/\"')",
-            [],
-        )?)
-    })
-    .await
-    .unwrap();
-    let reply = send(
-        &s.state,
-        Method::GET,
-        "/api/v1/admin/servers",
-        Some(&s.admin),
-        None,
-    )
-    .await;
-    assert_eq!(
-        reply.json()["redirect_uri"],
-        "https://setup.example.com/oauth/callback"
     );
 }
 

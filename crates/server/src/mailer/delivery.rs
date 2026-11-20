@@ -4,6 +4,8 @@
 //! password"). The result of every send keeps the status of the
 //! sending account up to date.
 
+use std::sync::Arc;
+
 use jiff::Timestamp;
 use url::Url;
 
@@ -21,7 +23,7 @@ pub struct Delivery {
     /// Connection of the stored account for the status; `None` when
     /// testing a draft with a different connection ([`Self::for_account`]).
     credentials: Option<Credentials>,
-    public_url: Url,
+    public_url: Arc<Url>,
     brand: Brand,
 }
 
@@ -30,12 +32,10 @@ pub struct Delivery {
 pub enum Unavailable {
     /// No system mail configured (or its server is deleted).
     NoSystemMail,
-    /// No public address, hence no links.
-    NoPublicUrl,
 }
 
 impl Delivery {
-    /// Loads the sending account and public address.
+    /// Loads the sending account.
     pub async fn prepare(state: &AppState) -> anyhow::Result<Result<Self, Unavailable>> {
         let secrets = state.secrets.clone();
         let account = db::call(&state.db, move |conn| {
@@ -45,29 +45,23 @@ impl Delivery {
         let Some((account, credentials)) = account else {
             return Ok(Err(Unavailable::NoSystemMail));
         };
-        Ok(Self::for_account(state, account, Some(credentials))
-            .await?
-            .ok_or(Unavailable::NoPublicUrl))
+        Ok(Ok(Self::for_account(state, account, Some(credentials))))
     }
 
     /// For a specific account, also from a draft (the test email from
     /// Administration › Email). The send only writes the status with
-    /// `credentials`, i.e. for the stored connection. `None` without a
-    /// public address.
-    pub async fn for_account(
+    /// `credentials`, i.e. for the stored connection.
+    pub fn for_account(
         state: &AppState,
         account: Account,
         credentials: Option<Credentials>,
-    ) -> anyhow::Result<Option<Self>> {
-        let Some(public_url) = state.public_url().await? else {
-            return Ok(None);
-        };
-        Ok(Some(Self {
+    ) -> Self {
+        Self {
             account,
             credentials,
-            public_url,
+            public_url: state.public_url.clone(),
             brand: state.brand(),
-        }))
+        }
     }
 
     /// Renders the mail with `render` in the recipient's time zone and format
