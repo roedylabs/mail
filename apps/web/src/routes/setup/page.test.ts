@@ -743,6 +743,13 @@ describe('Step 1: language and appearance', () => {
     return { el, option: (option: string) => within(el).getByRole('radio', { name: option }) };
   }
 
+  /** Names of the accent tiles in their order. */
+  function names(el: HTMLElement) {
+    return within(el)
+      .getAllByRole('radio')
+      .map((r) => r.textContent?.trim());
+  }
+
   it('shows the choices with the defaults and focuses the selected language', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const view = render(Page);
@@ -768,10 +775,12 @@ describe('Step 1: language and appearance', () => {
     ]);
     expect(lang.option('System')).toHaveAttribute('aria-checked', 'true');
     expect(group('Theme').option('System')).toHaveAttribute('aria-checked', 'true');
+    // One closed row (six columns until laid out): the five accents and the first preset; "More colors" in the label row.
     const accent = group('Accent color');
-    expect(within(accent.el).getAllByRole('radio')).toHaveLength(6);
+    expect(names(accent.el)).toEqual(['Apricot', 'Sage', 'Lavender', 'Sky', 'Rose', 'Coral']);
     expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'true');
-    expect(accent.option('More')).toHaveAttribute('aria-checked', 'false');
+    expect(accent.option('Apricot')).toHaveAttribute('tabindex', '0');
+    expect(view.getByRole('button', { name: 'More colors' })).toBeInTheDocument();
     await vi.waitFor(() => expect(lang.option('System')).toHaveFocus());
   });
 
@@ -817,59 +826,93 @@ describe('Step 1: language and appearance', () => {
     sessionStorage.setItem('roedy-setup-lang', 'en');
     sessionStorage.setItem('roedy-setup-accent', 'custom');
     sessionStorage.setItem('roedy-setup-accentHex', '#4a7bd0');
+    sessionStorage.setItem('roedy-setup-accRecent', JSON.stringify(['#4a7bd0', '#78c895', ACCENTS.sky.base]));
     render(Page);
     expect(group('Language').option('English')).toHaveAttribute('aria-checked', 'true');
-    expect(group('Accent color').option('Custom #4A7BD0')).toHaveAttribute('aria-checked', 'true');
+    const accent = group('Accent color');
+    // The recently used colours first; the row keeps its six tiles.
+    expect(names(accent.el)).toEqual(['Custom #4A7BD0', 'Mint', 'Sky', 'Apricot', 'Sage', 'Lavender']);
+    expect(accent.option('Custom #4A7BD0')).toHaveAttribute('aria-checked', 'true');
     expect(prefs.values.accent).toBe('#4a7bd0');
   });
 
-  it('picks a custom colour in the editor', async () => {
+  it('applies a tile of the closed row at once without reordering it', async () => {
+    sessionStorage.setItem('roedy-setup-accRecent', JSON.stringify(['#123456']));
+    render(Page);
+    const accent = group('Accent color');
+    expect(names(accent.el)).toEqual(['Custom #123456', 'Apricot', 'Sage', 'Lavender', 'Sky', 'Rose']);
+    await fireEvent.click(accent.option('Sky'));
+    expect(prefs.values.accent).toBe('sky');
+    expect(sessionStorage.getItem('roedy-setup-accent')).toBe('sky');
+    await fireEvent.click(accent.option('Custom #123456'));
+    expect(prefs.values.accent).toBe('#123456');
+    expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#123456');
+    expect(names(accent.el)).toEqual(['Custom #123456', 'Apricot', 'Sage', 'Lavender', 'Sky', 'Rose']);
+    expect(JSON.parse(sessionStorage.getItem('roedy-setup-accRecent') ?? '')).toEqual(['#123456']);
+    // ↓ moves by a row: from the last row's end it stays there.
+    await fireEvent.keyDown(accent.option('Custom #123456'), { key: 'ArrowDown' });
+    expect(accent.option('Rose')).toHaveFocus();
+    expect(prefs.values.accent).toBe('rose');
+  });
+
+  it('picks a colour in "More colors", which then leads the row', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(Page);
     await vi.waitFor(() => expect(group('Language').option('System')).toHaveFocus());
     const accent = group('Accent color');
-    // The arrows only move the focus onto "Custom"; it opens on activation.
-    await fireEvent.keyDown(accent.option('Rose'), { key: 'ArrowRight' });
-    expect(accent.option('More')).toHaveFocus();
-    expect(screen.queryByRole('dialog')).toBeNull();
+    const more = screen.getByRole('button', { name: 'More colors' });
 
-    await fireEvent.click(accent.option('More'));
+    await fireEvent.click(more);
     const dialog = screen.getByRole('dialog', { name: 'More colors' });
     await vi.waitFor(() => expect(dialog).toHaveFocus());
-    // Escape closes without a change.
+    // Escape closes without a change; the focus returns to "More colors".
     await fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
     expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'true');
+    await vi.waitFor(() => expect(more).toHaveFocus());
+    expect(sessionStorage.getItem('roedy-setup-accRecent')).toBeNull();
 
-    await fireEvent.click(accent.option('More'));
+    await fireEvent.click(more);
     const again = screen.getByRole('dialog', { name: 'More colors' });
     await fireEvent.click(within(again).getByRole('radio', { name: 'Mint' }));
     await fireEvent.click(within(again).getByRole('button', { name: 'Apply' }));
     expect(screen.queryByRole('dialog')).toBeNull();
+    expect(names(accent.el)).toEqual(['Mint', 'Apricot', 'Sage', 'Lavender', 'Sky', 'Rose']);
     expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'true');
     expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'false');
-    await vi.waitFor(() => expect(accent.option('Mint')).toHaveFocus());
+    await vi.waitFor(() => expect(more).toHaveFocus());
     expect(prefs.values.accent).toBe('#78c895');
     expect(sessionStorage.getItem('roedy-setup-accent')).toBe('custom');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#78c895');
+    expect(JSON.parse(sessionStorage.getItem('roedy-setup-accRecent') ?? '')).toEqual(['#78c895']);
 
-    // A named accent again: the custom colour is dropped, the tile shows "More" again.
+    // A named accent again: the custom colour is dropped, Mint stays in its place.
     await fireEvent.click(accent.option('Sky'));
     expect(prefs.values.accent).toBe('sky');
-    expect(accent.option('More')).toHaveAttribute('aria-checked', 'false');
+    expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'false');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBeNull();
+    expect(names(accent.el)[0]).toBe('Mint');
 
     // The editor then starts with the active accent: no preset marked, its code in the field.
-    await fireEvent.click(accent.option('More'));
+    await fireEvent.click(more);
     const third = screen.getByRole('dialog', { name: 'More colors' });
     expect(within(third).queryByRole('radio', { checked: true })).toBeNull();
     expect(within(third).getByLabelText('Or your own hex code')).toHaveValue(ACCENTS.sky.base.toUpperCase());
+    // An own code equal to an accent's colour is that accent.
+    await fireEvent.input(within(third).getByLabelText('Or your own hex code'), {
+      target: { value: ACCENTS.rose.base },
+    });
+    await fireEvent.click(within(third).getByRole('button', { name: 'Apply' }));
+    expect(prefs.values.accent).toBe('rose');
+    expect(sessionStorage.getItem('roedy-setup-accent')).toBe('rose');
+    expect(names(accent.el)).toEqual(['Rose', 'Mint', 'Apricot', 'Sage', 'Lavender', 'Sky']);
+    expect(accent.option('Rose')).toHaveAttribute('aria-checked', 'true');
   });
 
   it('hides an open colour editor behind "No connection"', async () => {
     mockApi({});
     render(Page);
-    await fireEvent.click(group('Accent color').option('More'));
+    await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
     const editor = screen.getByRole('dialog', { name: 'More colors' });
     window.dispatchEvent(new Event('offline'));
     expect(await screen.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();

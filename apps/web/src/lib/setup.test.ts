@@ -1,17 +1,27 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
+import { ACCENTS } from '@roedy/tokens';
+import { PRESETS } from '#lib/color-editor.svelte.ts';
 import {
   DONE_MS,
   MASKED_PW,
+  RECENT_MAX,
   SetupFlow,
+  accentOfHex,
   choicesOf,
   choicesSummary,
   clearSession,
+  closedCount,
+  colorOrder,
   customHexOf,
   formatToken,
   readSession,
+  recentOf,
+  rememberColor,
   resumeStep,
   storeChoice,
+  trackCount,
+  withRecent,
   writeSession,
   type Field,
   type Focus,
@@ -61,6 +71,84 @@ describe('Helpers', () => {
   });
 });
 
+describe('Accent colours', () => {
+  const accents = Object.values(ACCENTS).map((a) => a.base);
+  const presets = PRESETS.map(([, hex]) => hex);
+
+  it('orders the colours: recently used, then the five accents, then the presets, each once', () => {
+    const plain = colorOrder([]);
+    expect(plain.map((t) => t.hex)).toEqual([...accents, ...presets]);
+    expect(plain.slice(0, 5).map((t) => t.accent)).toEqual(['apricot', 'sage', 'lavender', 'sky', 'rose']);
+    expect(plain.slice(5).every((t) => t.accent === undefined)).toBe(true);
+
+    const order = colorOrder(['#123456', '#78c895', ACCENTS.sky.base]);
+    expect(order.map((t) => t.hex)).toEqual([
+      '#123456',
+      '#78c895',
+      ACCENTS.sky.base,
+      ACCENTS.apricot.base,
+      ACCENTS.sage.base,
+      ACCENTS.lavender.base,
+      ACCENTS.rose.base,
+      ...presets.filter((x) => x !== '#78c895'),
+    ]);
+    expect(order[2]).toEqual({ hex: ACCENTS.sky.base, accent: 'sky' });
+    expect(new Set(order.map((t) => t.hex)).size).toBe(order.length);
+    expect(accentOfHex('#123456')).toBeUndefined();
+  });
+
+  it('puts an own current colour first when it is not among the recently used ones', () => {
+    expect(colorOrder([], '#123456')[0]).toEqual({ hex: '#123456' });
+    expect(
+      colorOrder(['#abcdef', '#123456'], '#123456')
+        .map((t) => t.hex)
+        .slice(0, 2),
+    ).toEqual(['#abcdef', '#123456']);
+    expect(colorOrder([], '#78c895')).toEqual(colorOrder([]));
+    expect(colorOrder([], 'sky')).toEqual(colorOrder([]));
+  });
+
+  it('shows one closed row, two or more only where fewer than five columns fit', () => {
+    expect([1, 2, 3, 4, 5, 6, 7, 9].map((c) => closedCount(c))).toEqual([5, 6, 6, 8, 5, 6, 7, 9]);
+    expect(closedCount(0)).toBe(5);
+    expect(closedCount(30, 23)).toBe(23);
+  });
+
+  it('counts the laid-out columns of a grid', () => {
+    expect(trackCount('66px 66px 66.5px')).toBe(3);
+    expect(trackCount('repeat(auto-fill, minmax(66px, 1fr))')).toBe(0);
+    expect(trackCount('')).toBe(0);
+  });
+
+  it('keeps the recently used colours: most recent first, no duplicates, at most twelve', () => {
+    expect(withRecent(['#111111', '#222222'], '#333333')).toEqual(['#333333', '#111111', '#222222']);
+    expect(withRecent(['#111111', '#222222', '#333333'], '#222222')).toEqual(['#222222', '#111111', '#333333']);
+    const full = Array.from({ length: RECENT_MAX }, (_, i): `#${string}` => `#0000${String(i).padStart(2, '0')}`);
+    const next = withRecent(full, '#ffffff');
+    expect(next).toHaveLength(RECENT_MAX);
+    expect(next[0]).toBe('#ffffff');
+    expect(next).not.toContain(full[RECENT_MAX - 1]);
+  });
+
+  it('stores the recently used colours in the session and clears them with it', () => {
+    expect(recentOf()).toEqual([]);
+    rememberColor('#78c895');
+    rememberColor('#123456');
+    expect(rememberColor('#78c895')).toEqual(['#78c895', '#123456']);
+    expect(JSON.parse(sessionStorage.getItem('roedy-setup-accRecent') ?? '')).toEqual(['#78c895', '#123456']);
+    expect(recentOf()).toEqual(['#78c895', '#123456']);
+    clearSession();
+    expect(recentOf()).toEqual([]);
+    // Normalised and without anything invalid.
+    writeSession('accRecent', JSON.stringify(['#ABC', 'nope', 7, '#aabbcc', '#123456']));
+    expect(recentOf()).toEqual(['#aabbcc', '#123456']);
+    writeSession('accRecent', '{broken');
+    expect(recentOf()).toEqual([]);
+    writeSession('accRecent', '{"a":1}');
+    expect(recentOf()).toEqual([]);
+  });
+});
+
 describe('Session of the tab', () => {
   it('starts a tab without setup data with System, System, Apricot at the first step', () => {
     expect(choicesOf()).toEqual({ lang: 'system', mode: 'system', accent: 'apricot' });
@@ -79,7 +167,7 @@ describe('Session of the tab', () => {
     expect(sessionStorage.getItem('roedy-setup-accent')).toBe('custom');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#4a7bd0');
     expect(choicesOf()).toEqual({ lang: 'de', mode: 'light', accent: '#4a7bd0' });
-    // A named accent again: the custom colour is dropped, the tile shows "More" again.
+    // A named accent again: the custom colour is dropped.
     storeChoice({ accent: 'rose' });
     expect(choicesOf().accent).toBe('rose');
     expect(customHexOf()).toBeNull();

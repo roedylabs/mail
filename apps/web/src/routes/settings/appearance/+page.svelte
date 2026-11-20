@@ -44,7 +44,7 @@
    * ("Custom #3A7BD5", which contains the visible text); without one "More".
    */
   const moreLabel = $derived(
-    more.hex ? (presetOf(more.hex) ? customName(more.hex) : m.appearance_accent_custom()) : m.setup_accent_more(),
+    more.hex ? (presetOf(more.hex) ? customName(more.hex) : m.appearance_accent_custom()) : m.appearance_accent_more(),
   );
   const moreName = $derived(more.hex && !presetOf(more.hex) ? customName(more.hex) : undefined);
   let moreBtn: HTMLButtonElement | undefined = $state();

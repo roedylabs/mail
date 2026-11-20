@@ -11,11 +11,17 @@
  * only takes the focus; activating it opens the dialog. With `select: false` the arrows only move focus, selection is
  * by Space or Enter – for groups whose choice triggers more than a
  * setting (switching account, language).
+ *
+ * With `cols` the options form a grid of that many columns (the accent
+ * grid of the setup): ←/→ move by one and ↑/↓ by a row, stopping at the
+ * ends instead of wrapping.
  */
 
 export interface RadioGroupOptions {
   /** Arrow keys also select the option (default); `false`: focus only. */
   select?: boolean;
+  /** Options laid out in a grid of this many columns: ↑/↓ move by a row, no wrapping. */
+  cols?: number;
 }
 
 function enabled(el: HTMLElement): boolean {
@@ -27,6 +33,7 @@ export function radiogroup(
   options: RadioGroupOptions = {},
 ): { update: (options?: RadioGroupOptions) => void; destroy: () => void } {
   let select = options.select ?? true;
+  let cols = options.cols;
 
   // Only the own options, none of a nested group.
   const radios = () =>
@@ -53,24 +60,30 @@ export function radiogroup(
     if (!count) return;
     const i = usable.indexOf(from);
     let next: HTMLElement | undefined;
-    switch (event.key) {
-      case 'ArrowRight':
-      case 'ArrowDown':
-        next = usable[(i + 1) % count];
-        break;
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        next = usable[i < 0 ? count - 1 : (i - 1 + count) % count];
-        break;
-      case 'Home':
-        next = usable[0];
-        break;
-      case 'End':
-        next = usable[count - 1];
-        break;
-      default:
-        return;
-    }
+    const gridStep: Record<string, number> = cols
+      ? { ArrowRight: 1, ArrowLeft: -1, ArrowDown: cols, ArrowUp: -cols }
+      : {};
+    const step = gridStep[event.key];
+    if (step !== undefined) next = usable[Math.max(0, Math.min(count - 1, Math.max(0, i) + step))];
+    else
+      switch (event.key) {
+        case 'ArrowRight':
+        case 'ArrowDown':
+          next = usable[(i + 1) % count];
+          break;
+        case 'ArrowLeft':
+        case 'ArrowUp':
+          next = usable[i < 0 ? count - 1 : (i - 1 + count) % count];
+          break;
+        case 'Home':
+          next = usable[0];
+          break;
+        case 'End':
+          next = usable[count - 1];
+          break;
+        default:
+          return;
+      }
     // Shortcuts of the page (↑/↓ in the list) should not see the key either.
     event.preventDefault();
     event.stopPropagation();
@@ -92,6 +105,7 @@ export function radiogroup(
   return {
     update(next: RadioGroupOptions = {}) {
       select = next.select ?? true;
+      cols = next.cols;
     },
     destroy() {
       observer.disconnect();
