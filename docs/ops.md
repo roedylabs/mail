@@ -52,13 +52,24 @@ The basis is [`deploy/compose.yml`](../deploy/compose.yml): a container `roedy-m
 
 The commands here run in the directory of `compose.yml`; from another directory use `-f <path>/compose.yml`. The container is always called `roedy-mail`, the volume `roedy-mail_roedy-data`.
 
-**Bind mount instead of a volume:** A host directory must belong to the image's user, otherwise the server does not start (`Permission denied`):
+**Bind mount instead of a volume:** A host directory must belong to the container's user (default 65532:65532, see below), otherwise the server does not start (`Permission denied`):
 
 ```sh
 sudo install -d -o 65532 -g 65532 -m 700 /srv/roedy-mail
 ```
 
 and in `compose.yml` `- /srv/roedy-mail:/data` instead of `- roedy-data:/data`. The data directory must be on a local file system, not on NFS or SMB: SQLite in WAL mode needs shared memory and reliable locks.
+
+**Container user:** The server runs as user and group 65532 (the image's `USER`). To run it under other IDs, for example a service account that owns the data directory on the host, set `ROEDY_UID` and `ROEDY_GID` in `.env`; `compose.yml` passes them as `user:`. Never use 0 (root). The data directory must belong to these IDs:
+
+- With a bind mount, create it with them, e.g. `sudo install -d -o 1500 -g 1500 -m 700 /srv/roedy-mail`.
+- A new named volume takes owner 65532 from the image and does not fit other IDs. Change its owner once before the first start, or after changing the IDs of an existing instance (stop the container first):
+
+  ```sh
+  docker run --rm -v roedy-mail_roedy-data:/data alpine:3.24 chown -R 1500:1500 /data
+  ```
+
+  The same applies to a separately mounted `/data/backups` ([Backup and restore](#backup-and-restore)).
 
 **Verifying the image:** Every release carries an SBOM and provenance as attestations and is signed keylessly with [cosign](https://github.com/sigstore/cosign) by the release workflow (the signature is recorded in the public transparency log Rekor):
 
@@ -146,6 +157,7 @@ All settings come from environment variables, with Compose from the `.env` file 
 | `ROEDY_SECRET_KEY_FILE` | – | File with this key, e.g. a Docker secret (`/run/secrets/roedy_secret_key`). Not together with `ROEDY_SECRET_KEY`. |
 | `ROEDY_GEOIP_DB` | – | GeoIP database in MaxMind DB format (e.g. GeoLite2-City or DB-IP Lite, as a volume, not in the image) for the location in "Signed-in devices", security emails and the audit log ("Hamburg, Germany"); without it, the shortened IP address appears there. The file is held in memory (GeoLite2-City ≈ 60 MB, -Country ≈ 9 MB) and reloaded daily if it has changed. |
 | `ROEDY_IMAGE_TAG` | `latest` | Only in `deploy/compose.yml`: version of the image ([Updates](#updates)). |
+| `ROEDY_UID`, `ROEDY_GID` | `65532` | Only in `deploy/compose.yml`: user and group the container runs as. The data directory must belong to them ([Container user](#with-docker-compose)). |
 | `MIMALLOC_PURGE_DELAY`, `MIMALLOC_ALLOW_THP` | `0` in the image | Allocator: return free memory immediately, no Transparent Huge Pages. Without them the idle server keeps up to 58 instead of 14 MB. |
 
 **HTTPS:** The session cookie (`__Host-roedy_session`) is `Secure`; signing in therefore only works via HTTPS or `http://localhost`. Service worker, installation as an app and push need it as well.
@@ -183,7 +195,7 @@ Next:
 
 ## Data directory
 
-Everything the server stores permanently lives in `/data` (`ROEDY_DATA_DIR`), owner 65532, directory `0700`, files `0600`:
+Everything the server stores permanently lives in `/data` (`ROEDY_DATA_DIR`), owner 65532 (or `ROEDY_UID`/`ROEDY_GID`), directory `0700`, files `0600`:
 
 | Path | Content |
 |---|---|
@@ -355,7 +367,7 @@ Errors of individual areas of the app are covered in the guides: [mail servers a
 | Observation | Cause | Remedy |
 |---|---|---|
 | Container does not start, log `error: …` with the name of a variable | invalid value of a variable | Correct the value according to [Configuration](#configuration) |
-| Container does not start, `Permission denied` under `/data` | Bind mount does not belong to 65532 | `sudo chown -R 65532:65532 <directory>` |
+| Container does not start, `Permission denied` under `/data` | Data directory does not belong to the container's user (65532 or `ROEDY_UID`/`ROEDY_GID`) | Bind mount: `sudo chown -R <uid>:<gid> <directory>`; volume: see [Container user](#with-docker-compose) |
 | Container does not start, `The database schema (version …) is newer than this program version` | older version on a newer database | Start the newer version or go [back to an older version](#updates) |
 | `/readyz` responds 503 (the container stays `healthy`) | Database not readable: disk full, permissions, network drive | Check the log (`database not ready`, `database not responding`), space and permissions; keep the data directory local |
 | Container `unhealthy` | Process no longer responds on `/healthz` | Look at the log, restart the container (`docker compose restart`) |

@@ -17,6 +17,10 @@ services:
     image: ghcr.io/roedylabs/mail:${ROEDY_IMAGE_TAG:-latest}
     container_name: roedy-mail
     restart: unless-stopped
+    # User and group of the process; the image's default is 65532:65532. With
+    # other IDs /data must belong to them: use a bind mount (see volumes) or
+    # chown the volume once (docs/ops.md › Container user). Never 0 (root).
+    user: "${ROEDY_UID:-65532}:${ROEDY_GID:-65532}"
     ports:
       - "127.0.0.1:8080:8080"
     environment:
@@ -42,8 +46,9 @@ services:
       # below. It is held in memory (docs/ops.md › Configuration).
       ROEDY_GEOIP_DB: ${ROEDY_GEOIP_DB:-}
     volumes:
-      # Named volume: Docker takes owner 65532 from the image. With a bind
-      # mount the directory must belong to 65532:65532.
+      # Named volume: Docker takes owner 65532 from the image, so it only fits
+      # the default ROEDY_UID/ROEDY_GID. With a bind mount the directory must
+      # belong to ROEDY_UID:ROEDY_GID (default 65532:65532).
       - roedy-data:/data
       # - ./geoip:/geoip:ro
     # The image needs no privileges: only /data and /tmp are writable.
