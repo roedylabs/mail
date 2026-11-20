@@ -76,12 +76,12 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   const editor = page.getByRole('dialog', { name: 'More colors' });
   await expect(editor).toBeFocused();
   expect(await axeViolations(page), 'axe: colour editor').toEqual([]);
-  // A colour whose ink reaches 4.5 : 1 (the ink rule for custom colours is #164).
-  await editor.getByLabel('Or your own hex code').fill('#5b8def');
+  // A dark colour: the colours derived from it reach 4.5 : 1 on every page axe checks from here on (#164, #185, #187).
+  await editor.getByLabel('Or your own hex code').fill('#1e3a8a');
   await editor.getByRole('button', { name: 'Apply' }).click();
   await expect(editor).toBeHidden();
-  await expect(page.getByRole('radio', { name: 'Custom #5B8DEF' })).toBeFocused();
-  await page.getByRole('radio', { name: 'Custom #5B8DEF' }).press('Enter');
+  await expect(page.getByRole('radio', { name: 'Custom #1E3A8A' })).toBeFocused();
+  await page.getByRole('radio', { name: 'Custom #1E3A8A' }).press('Enter');
 
   // 2 Token: a wrong one uses up attempts, the fifth locks the entry (30 s), also after a reload
   await step(page, 'Set up Roedy Mail');
@@ -198,7 +198,7 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await expect(page.getByRole('heading', { name: 'All set?' })).toBeFocused();
   const summary = page.getByRole('list', { name: 'Your details' });
   await expect(summary.getByRole('listitem')).toHaveText([
-    /Language and appearance\s*System · Dark · Custom #5B8DEF/,
+    /Language and appearance\s*System · Dark · Custom #1E3A8A/,
     new RegExp(`Administrator\\s*${admin.name}\\s*${stalwart.admin.email.replace(/[.+]/g, '\\$&')}`),
     /Password\s*••••••••••\s*Set/,
   ]);
