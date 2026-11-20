@@ -3,16 +3,18 @@
   the whole wizard and stays in this tab's session; `setup/complete` stores
   them as the administrator's settings at the end. Nothing is sent here.
 
-  Three radio groups of cards (arrows and Space pick, Enter does what
-  "Get started" does); the sixth accent ("Custom") opens the colour editor.
+  Three radio groups (arrows and Space pick, Enter does what "Get started"
+  does). The accent colours are one grid of square tiles in one order
+  (recently used, the five accents, the presets) of which one closed row
+  shows; "More colors" in the label row opens the colour editor.
 -->
 <script lang="ts">
-  import { ACCENTS, MODE_PREV, type AccentName } from '@roedy/tokens';
+  import { ACCENTS, MODE_PREV } from '@roedy/tokens';
+  import { untrack } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
-  import { isHexColor, type HexColor } from '#lib/color.ts';
+  import { accentInk, type HexColor } from '#lib/color.ts';
   import { customName, editorStart } from '#lib/color-editor.svelte.ts';
-  import AccentRing from '#lib/components/AccentRing.svelte';
   import ColorEditor from '#lib/components/ColorEditor.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import SetupShell from '#lib/components/setup/SetupShell.svelte';
@@ -23,9 +25,16 @@
   import { DESK_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
   import {
     ACCENT_LABELS,
+    accentHex,
+    accentOfHex,
     choicesOf,
-    customHexOf,
+    closedTiles,
+    colorOrder,
+    recentOf,
+    rememberColor,
     storeChoice,
+    trackCount,
+    type ColorTile,
     type SetupChoices,
     type SetupFlow,
   } from '#lib/setup.svelte.ts';
@@ -131,17 +140,14 @@
 
   // ---- Choices ----
 
-  let choices = $state<SetupChoices>(choicesOf());
-  /** Custom colour of the session; a named accent drops it (the tile shows "More" again). */
-  let custom = $state<HexColor | null>(customHexOf());
-  const isCustom = $derived(isHexColor(choices.accent));
+  const initial = choicesOf();
+  let choices = $state<SetupChoices>(initial);
 
   /** Applies a choice at once (the whole wizard) and keeps it for the next steps. */
   function choose(patch: Partial<SetupChoices>) {
     storeChoice(patch);
     prefs.set(patch);
     choices = { ...choices, ...patch };
-    if (patch.accent !== undefined && !isHexColor(patch.accent)) custom = null;
   }
 
   const sysLang = browserLang();
@@ -165,23 +171,76 @@
     { value: 'dark', label: m.appearance_mode_dark(), icon: 'ti-moon' },
   ]);
 
-  const accents = Object.keys(ACCENTS) as AccentName[];
+  // ---- Accent grid ----
+
+  /**
+   * Recently used colours (picks in "More colors" only). A pick in the closed
+   * row leaves them alone, so the tile stays where it was clicked.
+   */
+  let recent = $state(recentOf());
+  /** Columns of the grid as laid out (6 until measured). */
+  let cols = $state(6);
+  /**
+   * The accent the step opened with follows the recently used ones if it is an own colour missing from them (a
+   * session without them); kept for the whole step, so picking another tile in the row moves nothing.
+   */
+  const order = $derived(colorOrder(recent, initial.accent));
+  /** The closed grid: one row of the order (never more, whatever was used). */
+  const selHex = $derived(accentHex(choices.accent));
+  /**
+   * The closed row changes only with the columns or the order, keeping the colour selected at that moment (see
+   * `closedTiles`); a pick in the row leaves it as it is.
+   */
+  const closed = $derived(
+    closedTiles(
+      order,
+      cols,
+      untrack(() => selHex),
+    ),
+  );
+
+  function tileName(t: ColorTile): string {
+    return t.accent ? ACCENT_LABELS[t.accent]() : customName(t.hex);
+  }
+
+  /** A tile applies its colour at once: one of the five as that accent, any other as its hex code. */
+  function pick(hex: HexColor) {
+    choose({ accent: accentOfHex(hex) ?? hex });
+  }
+
+  /** Measures the grid's columns (`auto-fill`: as many as fit) whenever its width or tile size changes. */
+  function measureCols(mobile: boolean): Attachment<HTMLElement> {
+    // `mobile` switches the tile size (60 or 66 px columns) without changing the grid's width: a new attachment measures again.
+    void mobile;
+    return (el) => {
+      const measure = () => {
+        const n = trackCount(getComputedStyle(el).gridTemplateColumns);
+        if (n) cols = n;
+      };
+      measure();
+      if (typeof ResizeObserver !== 'function') return;
+      const ro = new ResizeObserver(measure);
+      ro.observe(el);
+      return () => ro.disconnect();
+    };
+  }
 
   // ---- Colour editor ----
 
   let editing = $state(false);
-  let customBtn: HTMLButtonElement | undefined = $state();
-  /** The editor starts with the current accent (the custom colour while it is chosen). */
-  const editStart = $derived(editorStart(choices.accent, custom));
+  let moreBtn: HTMLButtonElement | undefined = $state();
+  /** The editor starts with the current accent's colour. */
+  const editStart = $derived(editorStart(choices.accent));
 
   function closeEditor() {
     editing = false;
-    setTimeout(() => customBtn?.focus({ preventScroll: true }), 0);
+    setTimeout(() => moreBtn?.focus({ preventScroll: true }), 0);
   }
 
+  /** A colour from "More colors" counts as recently used and leads the order from now on. */
   function applyCustom(hex: HexColor) {
-    custom = hex;
-    choose({ accent: hex });
+    recent = rememberColor(hex);
+    pick(hex);
     closeEditor();
   }
 
@@ -206,7 +265,7 @@
 
 {#snippet overlay(look: Look)}
   {#if editing}
-    <ColorEditor start={editStart} anchor={customBtn} sheet={look.mobile} onapply={applyCustom} onclose={closeEditor} />
+    <ColorEditor start={editStart} anchor={moreBtn} sheet={look.mobile} onapply={applyCustom} onclose={closeEditor} />
   {/if}
 {/snippet}
 
@@ -347,47 +406,37 @@
       </div>
 
       <div class="sec">
-        <span class="sec-label">{m.setup_accent_label()}</span>
+        <div class="sec-head">
+          <span class="sec-label">{m.setup_accent_label()}</span>
+          <button bind:this={moreBtn} type="button" class="more" onclick={() => (editing = true)}
+            >{m.setup_accent_more()}</button
+          >
+        </div>
         <div class="acc-wrap">
           <div
             role="radiogroup"
-            use:radiogroup
+            use:radiogroup={{ cols }}
             aria-label={m.setup_accent_label()}
             class="accents"
             class:amob={x.accMob}
+            {@attach measureCols(x.accMob)}
           >
-            {#each accents as a (a)}
-              {@const on = choices.accent === a}
+            {#each closed as t (t.hex)}
+              {@const on = t.hex === selHex}
               <button
                 type="button"
                 role="radio"
                 aria-checked={on}
                 class="acc"
                 class:on
-                style:--swatch={ACCENTS[a].base}
-                style:--swatch-ink={ACCENTS[a].ink}
-                onclick={() => choose({ accent: a })}
+                style:--swatch={t.accent ? ACCENTS[t.accent].base : t.hex}
+                style:--swatch-ink={t.accent ? ACCENTS[t.accent].ink : accentInk(t.hex)}
+                onclick={() => pick(t.hex)}
               >
                 <span class="swatch"><Icon name="ti-check" /></span>
-                <span class="acc-label">{ACCENT_LABELS[a]()}</span>
+                <span class="acc-label">{tileName(t)}</span>
               </button>
             {/each}
-            <button
-              bind:this={customBtn}
-              type="button"
-              role="radio"
-              aria-checked={isCustom}
-              data-opens-dialog
-              class="acc"
-              class:on={isCustom}
-              style:--swatch={custom ?? 'var(--acc)'}
-              onclick={() => (editing = true)}
-            >
-              <span class="swatch">
-                <AccentRing dot={custom} icon={isCustom ? 'ti-check' : custom ? 'ti-pencil' : 'ti-plus'} />
-              </span>
-              <span class="acc-label">{custom ? customName(custom) : m.setup_accent_more()}</span>
-            </button>
           </div>
         </div>
       </div>
@@ -711,23 +760,56 @@
     transform: rotate(-8deg);
   }
 
-  /* Accent row: five colours plus "Custom", exactly as wide as the cards above (six columns with their 10 px gap);
-     below 386 px two rows of three, aligned with the three cards */
+  /* Label row of the accents: "More colors" as a text button on the right, like "Forgot password?" on the sign-in page
+     (without the underline); its touch target reaches 6 px above and below, 4 px to the sides */
+  .sec-head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 0 4px;
+  }
+
+  .sec-head .sec-label {
+    padding: 0;
+  }
+
+  .more {
+    position: relative;
+    flex-shrink: 0;
+    font-size: 13.5px;
+    font-weight: 800;
+    color: var(--deep);
+    border-radius: 9999px;
+  }
+
+  .more::after {
+    content: '';
+    position: absolute;
+    inset: -6px -4px;
+    border-radius: 9999px;
+  }
+
+  .more:focus-visible {
+    outline: 2px solid var(--acc);
+    outline-offset: 4px;
+  }
+
+  /* Accent grid: as many columns as fit (at least 66 px: a 56 px swatch and room for the longest name; 60 px with 50 px
+     swatches in the compact row), the leftover width shared evenly, so the square swatches sit close together at every
+     width. It does not line up with the three cards above. */
   .acc-wrap {
     container-type: inline-size;
   }
 
   .accents {
     display: grid;
-    grid-template-columns: repeat(6, minmax(0, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fill, minmax(66px, 1fr));
+    gap: 12px 10px;
   }
 
-  @container (max-width: 385px) {
-    .accents {
-      grid-template-columns: repeat(3, minmax(0, 1fr));
-      row-gap: 12px;
-    }
+  .accents.amob {
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
   }
 
   .acc {
@@ -746,10 +828,11 @@
     transition: none;
   }
 
+  /* Always square, centred in its column */
   .swatch {
     width: 100%;
     aspect-ratio: 1;
-    max-height: 56px;
+    max-width: 56px;
     border-radius: 20px;
     background: var(--swatch);
     /* fixed value (tile edge) */
@@ -764,7 +847,7 @@
   }
 
   .amob .swatch {
-    max-height: 50px;
+    max-width: 50px;
     border-radius: 18px;
     font-size: 20px;
   }
@@ -773,7 +856,7 @@
     opacity: 0;
   }
 
-  /* Selected: a ring in its colour, no tilt (a wide swatch would reach into its neighbour) */
+  /* Selected: a ring in its colour that stays within the column gap, no tilt or zoom */
   .acc.on .swatch {
     box-shadow:
       0 0 0 3px var(--surface),

@@ -97,6 +97,32 @@ describe('use:radiogroup', () => {
   });
 
   describe('arrow keys', () => {
+    it('move by a row with ↑/↓ in a grid of `cols` columns, stopping at the ends', async () => {
+      const { handle, clicks } = group(['a*', 'b', 'c', 'd', 'e', 'f', 'g'], { cols: 3 });
+      $('a').focus();
+      await fireEvent.keyDown($('a'), { key: 'ArrowDown' });
+      expect(document.activeElement).toBe($('d'));
+      await fireEvent.keyDown($('d'), { key: 'ArrowDown' });
+      expect(document.activeElement).toBe($('g'));
+      // Past the last row: the last option, no wrapping.
+      await fireEvent.keyDown($('g'), { key: 'ArrowDown' });
+      await fireEvent.keyDown($('g'), { key: 'ArrowRight' });
+      expect(document.activeElement).toBe($('g'));
+      await fireEvent.keyDown($('g'), { key: 'ArrowUp' });
+      expect(document.activeElement).toBe($('d'));
+      await fireEvent.keyDown($('d'), { key: 'ArrowLeft' });
+      expect(document.activeElement).toBe($('c'));
+      await fireEvent.keyDown($('c'), { key: 'Home' });
+      expect(document.activeElement).toBe($('a'));
+      await fireEvent.keyDown($('a'), { key: 'ArrowLeft' });
+      expect(document.activeElement).toBe($('a'));
+      expect(clicks).toEqual(['d', 'g', 'd', 'c', 'a']);
+      // The column count follows the layout.
+      handle.update({ cols: 2 });
+      await fireEvent.keyDown($('a'), { key: 'ArrowDown' });
+      expect(document.activeElement).toBe($('c'));
+    });
+
     it('move with →/↓ to the next option and select it, wrapping at the end', async () => {
       const { node, clicks } = group(['a*', 'b', 'c']);
       $('a').focus();

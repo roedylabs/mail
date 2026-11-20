@@ -8,8 +8,8 @@
  * answer shows "No connection" (`offline`); everything entered stays.
  *
  * Session of this browser tab (`sessionStorage`, keys `roedy-setup-*`):
- * language, theme, accent, name and email, and the step to return to on a
- * reload. The setup token and the passwords live in memory only. A reload on
+ * language, theme, accent, the recently used colours, name and email, and
+ * the step to return to on a reload. The setup token and the passwords live in memory only. A reload on
  * steps 3–5 returns to step 2 with the stored values prefilled; a tab
  * without setup data starts with language System, theme System, accent
  * Apricot.
@@ -19,7 +19,7 @@
  */
 import { ACCENTS, DEFAULT_ACCENT, type AccentName } from '@roedy/tokens';
 import { ApiError, NetworkError, api, retryAfter } from '#lib/api.ts';
-import { customName } from '#lib/color-editor.svelte.ts';
+import { PRESETS, customName } from '#lib/color-editor.svelte.ts';
 import { isHexColor, parseHex, type HexColor } from '#lib/color.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
@@ -73,7 +73,7 @@ export type Focus = Field | 'lang' | 'heading';
 // ---- Session of this browser tab ----
 
 /** Keys in `sessionStorage` (with the prefix `roedy-setup-`); token and passwords are never stored. */
-export type SessionKey = 'lang' | 'dark' | 'accent' | 'accentHex' | 'name' | 'email' | 'step';
+export type SessionKey = 'lang' | 'dark' | 'accent' | 'accentHex' | 'accRecent' | 'name' | 'email' | 'step';
 export const SESSION_PREFIX = 'roedy-setup-';
 
 function store(): Storage | null {
@@ -169,6 +169,102 @@ export function storeChoice(patch: Partial<SetupChoices>): void {
     writeSession('accent', custom ? 'custom' : patch.accent);
     writeSession('accentHex', custom ? patch.accent : null);
   }
+}
+
+// ---- Accent colours of the first step ----
+
+/** Recently used colours kept in the session (most recent first). */
+export const RECENT_MAX = 12;
+
+/** Recently used colours of the session: valid hex codes only, normalised, without duplicates, at most `RECENT_MAX`. */
+export function recentOf(): HexColor[] {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(readSession('accRecent') ?? '[]');
+  } catch {
+    return [];
+  }
+  if (!Array.isArray(raw)) return [];
+  const hexes = raw.map((x) => (typeof x === 'string' ? parseHex(x) : null)).filter((x) => x !== null);
+  return hexes.filter((x, i) => hexes.indexOf(x) === i).slice(0, RECENT_MAX);
+}
+
+/** `recent` with `hex` in front: moved there if it was in the list already, the oldest dropped beyond `RECENT_MAX`. */
+export function withRecent(recent: readonly HexColor[], hex: HexColor): HexColor[] {
+  return [hex, ...recent.filter((x) => x !== hex)].slice(0, RECENT_MAX);
+}
+
+/** Stores a colour picked in "More colors" as the most recently used one; returns the new list. */
+export function rememberColor(hex: HexColor): HexColor[] {
+  const next = withRecent(recentOf(), hex);
+  writeSession('accRecent', JSON.stringify(next));
+  return next;
+}
+
+/** A tile of the accent grid: one of the five accents, a preset or an own hex code. */
+export interface ColorTile {
+  hex: HexColor;
+  /** Set for the five accents (picked as the named accent). */
+  accent?: AccentName;
+}
+
+const ACCENT_NAMES = Object.keys(ACCENTS) as AccentName[];
+
+/** The named accent whose colour is `hex`, if any. */
+export function accentOfHex(hex: HexColor): AccentName | undefined {
+  return ACCENT_NAMES.find((a) => ACCENTS[a].base === hex);
+}
+
+/** The colour of a choice: a named accent's base, or the hex code itself. */
+export function accentHex(accent: AccentChoice): HexColor {
+  return isHexColor(accent) ? accent : ACCENTS[accent].base;
+}
+
+/**
+ * All colours of the accent grid in one order: the recently used ones (most
+ * recent first), then the five accents, then the presets, each once. A
+ * `current` own colour that is in none of them (a session without its
+ * recently used list) follows the recently used ones, ahead of the accents,
+ * so it shows in the closed row while picks in "More colors" still lead.
+ */
+export function colorOrder(recent: readonly HexColor[], current?: AccentChoice): ColorTile[] {
+  const tile = (hex: HexColor): ColorTile => {
+    const accent = accentOfHex(hex);
+    return accent ? { hex, accent } : { hex };
+  };
+  const base = [...ACCENT_NAMES.map((a) => ACCENTS[a].base), ...PRESETS.map(([, hex]) => hex)];
+  const own = current !== undefined && isHexColor(current) && ![...recent, ...base].includes(current) ? [current] : [];
+  const all = [...recent, ...own, ...base];
+  return all.filter((x, i) => all.indexOf(x) === i).map(tile);
+}
+
+/**
+ * Tiles of the closed grid with `cols` columns: one row (two or more only
+ * where fewer than five columns fit, so the five accents still show), never
+ * more than there are colours.
+ */
+export function closedCount(cols: number, total = Number.POSITIVE_INFINITY): number {
+  const c = Math.max(1, Math.floor(cols));
+  return Math.min(total, Math.ceil(ACCENT_NAMES.length / c) * c);
+}
+
+/**
+ * The closed grid: the first `closedCount(cols)` tiles of `order`. If the
+ * selected colour (`sel`) is further back (a preset picked in the row before
+ * the grid lost a column), it takes the row's last place, so the current
+ * accent always shows and the count stays the same.
+ */
+export function closedTiles(order: readonly ColorTile[], cols: number, sel: HexColor): ColorTile[] {
+  const row = order.slice(0, closedCount(cols, order.length));
+  const picked = order.find((t) => t.hex === sel);
+  if (!picked || row.includes(picked)) return row;
+  return [...row.slice(0, -1), picked];
+}
+
+/** Columns of a grid from its computed `grid-template-columns` (resolved tracks in px); 0 while not laid out. */
+export function trackCount(template: string): number {
+  const tracks = template.trim().split(/\s+/).filter(Boolean);
+  return tracks.length && tracks.every((t) => /^[\d.]+px$/.test(t)) ? tracks.length : 0;
 }
 
 /** Step after a reload: step 1 stays, steps 2–5 return to step 2 (token and password must be entered again). */
