@@ -10,6 +10,7 @@
 -->
 <script lang="ts">
   import { ACCENTS, MODE_PREV } from '@roedy/tokens';
+  import { untrack } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { accentInk, type HexColor } from '#lib/color.ts';
@@ -186,7 +187,17 @@
   const order = $derived(colorOrder(recent, initial.accent));
   /** The closed grid: one row of the order (never more, whatever was used). */
   const selHex = $derived(accentHex(choices.accent));
-  const closed = $derived(closedTiles(order, cols, selHex));
+  /**
+   * The closed row changes only with the columns or the order, keeping the colour selected at that moment (see
+   * `closedTiles`); a pick in the row leaves it as it is.
+   */
+  const closed = $derived(
+    closedTiles(
+      order,
+      cols,
+      untrack(() => selHex),
+    ),
+  );
 
   function tileName(t: ColorTile): string {
     return t.accent ? ACCENT_LABELS[t.accent]() : customName(t.hex);

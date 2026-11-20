@@ -1,5 +1,6 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
 import { ACCENTS } from '@roedy/tokens';
+import { tick } from 'svelte';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
@@ -11,6 +12,7 @@ const nav = vi.hoisted(() => ({ goto: vi.fn(() => Promise.resolve()) }));
 vi.mock('$app/navigation', () => ({ goto: nav.goto }));
 
 afterEach(() => {
+  vi.restoreAllMocks();
   nav.goto.mockClear();
   vi.unstubAllGlobals();
   vi.useRealTimers();
@@ -853,6 +855,51 @@ describe('Step 1: language and appearance', () => {
     await fireEvent.keyDown(accent.option('Custom #123456'), { key: 'ArrowDown' });
     expect(accent.option('Rose')).toHaveFocus();
     expect(prefs.values.accent).toBe('rose');
+  });
+
+  it('keeps the selected tile in the row when the grid loses a column, and the row after another pick', async () => {
+    // The grid's columns as laid out, changed by a resize.
+    let template = '70px 70px 70px 70px 70px 70px';
+    const resized: (() => void)[] = [];
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(cb: () => void) {
+          resized.push(cb);
+        }
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const real = window.getComputedStyle.bind(window);
+    vi.spyOn(window, 'getComputedStyle').mockImplementation((el, pseudo) => {
+      const style = real(el, pseudo);
+      if (!el.classList.contains('accents')) return style;
+      return new Proxy(style, {
+        get: (target, key) => {
+          if (key === 'gridTemplateColumns') return template;
+          const value: unknown = Reflect.get(target, key, target);
+          return typeof value === 'function' ? (value.bind(target) as unknown) : value;
+        },
+      });
+    });
+    const resize = async (cols: number) => {
+      template = Array.from({ length: cols }, () => '70px').join(' ');
+      for (const cb of resized) cb();
+      await tick();
+    };
+    render(Page);
+    const accent = group('Accent color');
+    await fireEvent.click(accent.option('Coral'));
+    await resize(5);
+    expect(names(accent.el)).toEqual(['Apricot', 'Sage', 'Lavender', 'Sky', 'Coral']);
+    await fireEvent.click(accent.option('Sky'));
+    expect(names(accent.el)).toEqual(['Apricot', 'Sage', 'Lavender', 'Sky', 'Coral']);
+    // A new column count: the first tiles again, the selected one among them.
+    await resize(6);
+    expect(names(accent.el)).toEqual(['Apricot', 'Sage', 'Lavender', 'Sky', 'Rose', 'Coral']);
+    await resize(4);
+    expect(names(accent.el)).toEqual(['Apricot', 'Sage', 'Lavender', 'Sky', 'Rose', 'Coral', 'Honey', 'Lemon']);
   });
 
   it('keeps an own colour without recently used ones in its place when another tile is picked', async () => {
