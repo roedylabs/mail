@@ -602,7 +602,7 @@
   "region_lang_en_sub": "Englisch",
   "region_lang_system": "System",
   "region_lang_system_sub": "Browser: {lang}",
-  "region_lang_system_mail": "E-Mails von {app} kommen in der Sprache deiner letzten Anmeldung.",
+  "region_lang_system_mail": "E-Mails von {app} kommen in der Sprache Ihrer letzten Anmeldung.",
   "region_region_desc": "Land und Zeitzone.",
   "region_country_title": "Land oder Region",
   "region_country_desc": "Für Feiertage und Währungsangaben",
