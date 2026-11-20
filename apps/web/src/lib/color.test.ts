@@ -1,4 +1,4 @@
-import { ACCENTS, ACCENT_TEXT, MODES, type ModeName } from '@roedy/tokens';
+import { ACCENTS, ACCENT_TEXT, ACCSOFT_SHARE, MODES, type ModeName } from '@roedy/tokens';
 import { describe, expect, it } from 'vitest';
 import { PRESETS } from '#lib/color-editor.svelte.ts';
 import * as exact from '#lib/test/contrast.ts';
@@ -135,17 +135,39 @@ describe('accentInk', () => {
   });
 });
 
+/** Rounded to 8 bits as `#rrggbb`, like a colour set as a custom property. */
+const hexOfExact = (rgb: exact.Rgb): HexColor =>
+  `#${rgb
+    .map((c) =>
+      Math.round(c * 255)
+        .toString(16)
+        .padStart(2, '0'),
+    )
+    .join('')}`;
+
 describe('accentText', () => {
-  /** `--deep` on `--surface`, `--toastacc` on `--ink` and on its hover surface. */
+  /**
+   * `--deep` on `--surface` and on `--accsoft`, `--mfg` and `--danger` on
+   * `--accsoft`, `--toastacc` on `--ink` and on its hover surface.
+   */
   function contrasts(hex: HexColor, mode: ModeName) {
     const tokens = MODES[mode];
     const text = accentText(hex, mode);
-    const [deep, toast, surface, ink] = [text['--deep'], text['--toastacc'], tokens['--surface'], tokens['--ink']].map(
-      exact.hex,
-    ) as [exact.Rgb, exact.Rgb, exact.Rgb, exact.Rgb];
+    const [deep, soft, toast, surface, ink, mfg, danger] = [
+      text['--deep'],
+      text['--accsoft'],
+      text['--toastacc'],
+      tokens['--surface'],
+      tokens['--ink'],
+      tokens['--mfg'],
+      tokens['--danger'],
+    ].map(exact.hex) as [exact.Rgb, exact.Rgb, exact.Rgb, exact.Rgb, exact.Rgb, exact.Rgb, exact.Rgb];
     const hover = exact.over(ink, exact.hex(tokens['--inkfg']), TOAST_HOVER);
     return {
       deep: exact.contrast(deep, surface),
+      deepSoft: exact.contrast(deep, soft),
+      mfgSoft: exact.contrast(mfg, soft),
+      dangerSoft: exact.contrast(danger, soft),
       toast: Math.min(exact.contrast(toast, ink), exact.contrast(toast, hover)),
     };
   }
@@ -153,34 +175,61 @@ describe('accentText', () => {
   /** The mix of `ACCENT_TEXT` as in CSS, rounded to 8 bits. */
   function mixed(hex: HexColor, mode: ModeName, name: '--deep' | '--toastacc'): HexColor {
     const mix = ACCENT_TEXT[mode][name];
-    const rgb = mix ? exact.mixOklab(exact.hex(hex), exact.hex(mix.toward), mix.share / 100) : exact.hex(hex);
-    return `#${rgb
-      .map((c) =>
-        Math.round(c * 255)
-          .toString(16)
-          .padStart(2, '0'),
-      )
-      .join('')}`;
+    return hexOfExact(mix ? exact.mixOklab(exact.hex(hex), exact.hex(mix.toward), mix.share / 100) : exact.hex(hex));
   }
+
+  /** `--accsoft` with `share` % of the accent, rounded to 8 bits. */
+  const soft = (hex: HexColor, mode: ModeName, share: number) =>
+    hexOfExact(exact.mixOklab(exact.hex(hex), exact.hex(MODES[mode]['--surface']), share / 100));
 
   for (const mode of ['light', 'dark'] as const) {
     it(`reaches 4.5:1 on every colour of the RGB cube in ${mode} mode`, () => {
       for (const hex of cube(8)) {
-        const { deep, toast } = contrasts(hex, mode);
+        const { deep, deepSoft, mfgSoft, dangerSoft, toast } = contrasts(hex, mode);
         expect(deep, `${hex} --deep`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+        expect(deepSoft, `${hex} --deep on --accsoft`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+        expect(mfgSoft, `${hex} --mfg on --accsoft`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+        expect(dangerSoft, `${hex} --danger on --accsoft`).toBeGreaterThanOrEqual(MIN_CONTRAST);
         expect(toast, `${hex} --toastacc`).toBeGreaterThanOrEqual(MIN_CONTRAST);
       }
     });
 
-    it(`keeps the mix where it already reaches 4.5:1 in ${mode} mode`, () => {
+    it(`keeps the mixes where they already reach 4.5:1 in ${mode} mode`, () => {
       for (const [name, { base }] of Object.entries(ACCENTS)) {
         expect(accentText(base, mode), name).toEqual({
+          '--accsoft': soft(base, mode, ACCSOFT_SHARE[mode]),
           '--deep': mixed(base, mode, '--deep'),
           '--toastacc': mixed(base, mode, '--toastacc'),
         });
       }
     });
+
+    it(`keeps the 18 presets at 4.5:1 on --accsoft in ${mode} mode`, () => {
+      for (const [name, hex] of PRESETS) {
+        const { deep, deepSoft, mfgSoft, dangerSoft } = contrasts(hex, mode);
+        for (const [what, value] of Object.entries({ deep, deepSoft, mfgSoft, dangerSoft })) {
+          expect(value, `${name} ${what}`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+        }
+      }
+    });
   }
+
+  it('lowers the share of --accsoft in steps of 1 % only as far as needed', () => {
+    // Raspberry at 26 %: `--danger` 4.31:1.
+    const share = [...Array(27).keys()].reverse().find((s) => {
+      const surface = exact.hex(soft('#e8798f', 'light', s));
+      return [MODES.light['--mfg'], MODES.light['--danger']].every(
+        (text) => exact.contrast(exact.hex(text), surface) >= MIN_CONTRAST,
+      );
+    })!;
+    expect(share).toBeLessThan(ACCSOFT_SHARE.light);
+    expect(accentText('#e8798f', 'light')['--accsoft']).toBe(soft('#e8798f', 'light', share));
+    // Black in light mode drops furthest (6 %), a pale cyan in dark mode to 17 %.
+    expect(accentText('#000000', 'light')['--accsoft']).toBe(soft('#000000', 'light', 6));
+    expect(accentText('#e0f0f0', 'dark')['--accsoft']).toBe(soft('#e0f0f0', 'dark', 17));
+    // Dark blue on the dark surface keeps 22 %.
+    expect(accentText('#1e3a8a', 'dark')['--accsoft']).toBe(soft('#1e3a8a', 'dark', ACCSOFT_SHARE.dark));
+  });
 
   it('moves the lightness only as far as needed, away from the surface', () => {
     // Light mode: the accent itself on the dark `--ink` pill gets lighter.
@@ -189,8 +238,47 @@ describe('accentText', () => {
     expect(exact.contrast(exact.hex(toast), exact.hex('#ffffff'))).toBeLessThan(
       exact.contrast(exact.hex('#808080'), exact.hex('#ffffff')),
     );
-    // Dark mode: `--deep` of a dark blue on the dark surface gets lighter too.
-    const deep = accentText('#1e3a8a', 'dark')['--deep'];
-    expect(contrast(deep, MODES.dark['--surface'])).toBeLessThan(MIN_CONTRAST + 0.15);
+    // Dark mode: `--deep` of a dark blue gets lighter too, until it reaches 4.5:1 on the
+    // dark `--surface` and on its `--accsoft`, whichever is harder.
+    const text = accentText('#1e3a8a', 'dark');
+    const lowest = Math.min(
+      contrast(text['--deep'], MODES.dark['--surface']),
+      contrast(text['--deep'], text['--accsoft']),
+    );
+    expect(lowest).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    expect(lowest).toBeLessThan(MIN_CONTRAST + 0.15);
+  });
+});
+
+describe('named accents on --accsoft (CSS mixes)', () => {
+  /** `color-mix(in oklab, accent share, toward)` as in `tokens.css`. */
+  const mix = (base: HexColor, share: number, toward: string) =>
+    exact.mixOklab(exact.hex(base), exact.hex(toward), share / 100);
+
+  for (const mode of ['light', 'dark'] as const) {
+    it(`keeps --deep, --mfg and --danger at 4.5:1 on --accsoft in ${mode} mode`, () => {
+      const tokens = MODES[mode];
+      const deepMix = ACCENT_TEXT[mode]['--deep'];
+      for (const [name, { base }] of Object.entries(ACCENTS)) {
+        const soft = mix(base, ACCSOFT_SHARE[mode], tokens['--surface']);
+        const deep = mix(base, deepMix.share, deepMix.toward);
+        // Some distance to the limit: the browser rounds intermediate values (`#lib/test/contrast.ts`).
+        expect(exact.contrast(deep, soft), `${name} --deep`).toBeGreaterThanOrEqual(MIN_CONTRAST + 0.1);
+        expect(
+          exact.contrast(deep, exact.hex(tokens['--surface'])),
+          `${name} --deep on --surface`,
+        ).toBeGreaterThanOrEqual(MIN_CONTRAST + 0.1);
+        for (const text of ['--mfg', '--danger'] as const) {
+          expect(exact.contrast(exact.hex(tokens[text]), soft), `${name} ${text}`).toBeGreaterThanOrEqual(MIN_CONTRAST);
+        }
+      }
+    });
+  }
+
+  it('lifts Sage above 4.5:1 with 52 % accent in the light --deep', () => {
+    const { base } = ACCENTS.sage;
+    const soft = mix(base, ACCSOFT_SHARE.light, MODES.light['--surface']);
+    expect(exact.contrast(mix(base, 55, '#2b1405'), soft)).toBeLessThan(MIN_CONTRAST);
+    expect(exact.contrast(mix(base, 52, '#2b1405'), soft)).toBeGreaterThanOrEqual(4.6);
   });
 });

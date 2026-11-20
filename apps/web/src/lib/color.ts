@@ -1,10 +1,10 @@
 /**
  * Custom accent colours: reading and normalising hex input (`parseHex()`),
- * the colour for text and icons on the accent (`accentInk()`) and the text
- * colours derived from it (`accentText()`), each at least `MIN_CONTRAST`.
+ * the colour for text and icons on the accent (`accentInk()`) and the
+ * colours derived from it (`accentText()`), each text at least `MIN_CONTRAST`.
  * Shared by the theme (`#lib/theme.ts`), the setup and Settings › Appearance.
  */
-import { ACCENT_TEXT, MODES, type AccentMix, type ModeName } from '@roedy/tokens';
+import { ACCENT_TEXT, ACCSOFT_SHARE, MODES, type AccentMix, type ModeName } from '@roedy/tokens';
 
 /** A colour as `#rrggbb` in lowercase. */
 export type HexColor = `#${string}`;
@@ -171,19 +171,41 @@ function mixLab(a: Lab, b: Lab, share: number): Lab {
 }
 
 /**
- * Derived text colours of a custom accent in `mode`: the mixes of
- * `ACCENT_TEXT`, each moved to `MIN_CONTRAST` on its surface — `--deep` on
- * `--surface`, `--toastacc` on `--ink` and on its hover surface
+ * `--accsoft`: `start` % of the accent mixed in oklab with `surface` (like its
+ * `color-mix()` in CSS), the share lowered in steps of 1 % until every colour
+ * of `texts` reaches `MIN_CONTRAST` on it; at 0 % the surface itself.
+ */
+function softOn(accent: Rgb, surface: Rgb, start: number, texts: readonly Rgb[]): Rgb {
+  const [a, s] = [toOklab(accent), toOklab(surface)];
+  for (let share = start; share > 0; share--) {
+    const rgb = rgbOf(hexOf(fromOklab(mixLab(a, s, share / 100))));
+    if (texts.every((text) => rgbContrast(text, rgb) >= MIN_CONTRAST)) return rgb;
+  }
+  return surface;
+}
+
+/** Colours a custom accent derives per mode (`accentText()`). */
+export type AccentText = Record<'--accsoft' | '--deep' | '--toastacc', HexColor>;
+
+/**
+ * Derived colours of a custom accent in `mode`: `--accsoft` with
+ * `ACCSOFT_SHARE` of the accent or less, so that `--mfg` and `--danger` reach
+ * `MIN_CONTRAST` on it, and the mixes of `ACCENT_TEXT`, each moved to
+ * `MIN_CONTRAST` on its surfaces — `--deep` on `--surface` and on that
+ * `--accsoft`, `--toastacc` on `--ink` and on its hover surface
  * (`TOAST_HOVER` of `--inkfg` over `--ink`).
  */
-export function accentText(hex: HexColor, mode: ModeName): Record<'--deep' | '--toastacc', HexColor> {
+export function accentText(hex: HexColor, mode: ModeName): AccentText {
   const tokens = MODES[mode];
   const accent = rgbOf(hex);
+  const surface = rgbOf(tokens['--surface']);
+  const soft = softOn(accent, surface, ACCSOFT_SHARE[mode], [rgbOf(tokens['--mfg']), rgbOf(tokens['--danger'])]);
   const ink = rgbOf(tokens['--ink']);
   const inkfg = rgbOf(tokens['--inkfg']);
   const hover = ink.map((c, i) => c * (1 - TOAST_HOVER) + inkfg[i]! * TOAST_HOVER) as unknown as Rgb;
   return {
-    '--deep': textOn(accent, ACCENT_TEXT[mode]['--deep'], [rgbOf(tokens['--surface'])]),
+    '--accsoft': hexOf(soft),
+    '--deep': textOn(accent, ACCENT_TEXT[mode]['--deep'], [surface, soft]),
     '--toastacc': textOn(accent, ACCENT_TEXT[mode]['--toastacc'], [ink, hover]),
   };
 }

@@ -576,7 +576,7 @@
     display: grid;
     flex-shrink: 0;
     font-size: 16px;
-    color: var(--acc);
+    color: var(--deep);
     opacity: 0;
   }
 

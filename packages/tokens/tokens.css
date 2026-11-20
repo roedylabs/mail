@@ -70,7 +70,7 @@
   --sh3: 0 2px 6px rgba(60,35,10,0.06), 0 40px 90px -24px rgba(60,35,10,0.38);
   --sh-edge: inset 0 -3px 0 rgba(0,0,0,0.08);
   --accsoft: color-mix(in oklab, var(--acc) 26%, var(--surface));
-  --deep: color-mix(in oklab, var(--acc) 55%, #2b1405);
+  --deep: color-mix(in oklab, var(--acc) 52%, #2b1405);
   --toastacc: var(--acc);
   color-scheme: light;
 }
@@ -98,7 +98,7 @@
     --sh3: 0 2px 6px rgba(60,35,10,0.06), 0 40px 90px -24px rgba(60,35,10,0.38);
     --sh-edge: inset 0 -3px 0 rgba(0,0,0,0.08);
     --accsoft: color-mix(in oklab, var(--acc) 26%, var(--surface));
-    --deep: color-mix(in oklab, var(--acc) 55%, #2b1405);
+    --deep: color-mix(in oklab, var(--acc) 52%, #2b1405);
     --toastacc: var(--acc);
     color-scheme: light;
   }
