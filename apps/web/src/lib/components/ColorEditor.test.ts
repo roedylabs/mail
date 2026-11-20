@@ -5,7 +5,15 @@ import ColorEditor from './ColorEditor.svelte';
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
+
+/** A visual viewport (on-screen keyboard, pinch zoom) that the test changes and then announces. */
+function fakeViewport(init: { height: number; offsetTop?: number; scale?: number }) {
+  const vv = Object.assign(new EventTarget(), { offsetTop: 0, scale: 1, ...init });
+  vi.stubGlobal('visualViewport', vv);
+  return vv;
+}
 
 /** Opens the editor and waits until it has taken the focus. */
 async function open(start: HexColor = '#f5a06e', sheet = false) {
@@ -108,5 +116,24 @@ describe('ColorEditor', () => {
     expect(dialog).toHaveClass('sheet');
     expect(view.container.querySelector('.grip')).not.toBeNull();
     expect(view.container.querySelector('[data-scrim]')).toHaveClass('sheet');
+    // "Cancel" closes it: no close button next to the title.
+    expect(within(dialog).queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
+  });
+
+  it('moves the sheet above the on-screen keyboard, but not for a pinch zoom', async () => {
+    const vv = fakeViewport({ height: window.innerHeight });
+    const { dialog } = await open('#f5a06e', true);
+    // The sheet's bottom edge: 8 px above the keyboard (calc() is simplified by the style engine).
+    const raised = () => !/^calc\(8px\)$|^8px$/.test(dialog.style.bottom);
+    expect(raised()).toBe(false);
+    // Keyboard: the visual viewport gets 300 px shorter at normal scale.
+    vv.height = window.innerHeight - 300;
+    vv.dispatchEvent(new Event('resize'));
+    await vi.waitFor(() => expect(dialog.style.bottom).toMatch(/300px|308px/));
+    // Zoomed in to twice the size: the viewport is half as high without any keyboard; the sheet stays down.
+    Object.assign(vv, { height: window.innerHeight / 2, scale: 2 });
+    vv.dispatchEvent(new Event('resize'));
+    await vi.waitFor(() => expect(raised()).toBe(false));
   });
 });

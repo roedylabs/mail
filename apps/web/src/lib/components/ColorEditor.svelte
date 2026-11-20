@@ -99,11 +99,17 @@
   });
 
   // Phone: the on-screen keyboard covers the bottom of the layout; the sheet moves above it.
+  // The browser also scrolls the whole page up to bring the hex field into view; the page goes back
+  // at once, so only the sheet moves. Not while zoomed in: the user moved the view, and a zoomed visual
+  // viewport is smaller without any keyboard, so the sheet stays where it is.
   $effect(() => {
     const vv = sheet ? window.visualViewport : null;
     if (!vv) return;
     const update = () => {
-      kb = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
+      const zoomed = vv.scale >= 1.01;
+      const panned = vv.offsetTop > 0 || window.scrollY > 0;
+      if (panned && !zoomed && pop?.contains(document.activeElement)) window.scrollTo(0, 0);
+      kb = zoomed ? 0 : Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
     };
     update();
     vv.addEventListener('resize', update);
@@ -177,9 +183,12 @@
   {#if sheet}<div class="grip" aria-hidden="true"><span></span></div>{/if}
   <div class="head">
     <h2 id="{id}-title">{m.color_editor_title()}</h2>
-    <button type="button" class="close" aria-label={m.color_editor_close()} onclick={onclose}>
-      <Icon name="ti-x" />
-    </button>
+    <!-- The sheet closes with "Cancel", by dragging it down or on its backdrop. -->
+    {#if !sheet}
+      <button type="button" class="close" aria-label={m.color_editor_close()} onclick={onclose}>
+        <Icon name="ti-x" />
+      </button>
+    {/if}
   </div>
   <div bind:this={body} class="body">
     <div role="radiogroup" aria-label={m.color_editor_title()} class="grid" tabindex="-1" onkeydown={gridKey}>
@@ -317,8 +326,10 @@
     padding: 12px 10px 0 20px;
   }
 
+  /* Without the close button: as high as with it, title in line with the fields */
   .sheet .head {
-    padding: 0 8px 0 18px;
+    min-height: 44px;
+    padding: 0 18px;
   }
 
   h2 {
@@ -510,6 +521,7 @@
 
   /* Edges in line with the fields; "Cancel" as wide as its label, "Apply" the rest */
   .btns {
+    container-type: inline-size;
     flex-shrink: 0;
     display: flex;
     gap: 10px;
@@ -587,6 +599,23 @@
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
+  }
+
+  /* Narrow phones: less padding, then without the icon in "Apply", so both labels stay whole */
+  @container (width < 336px) {
+    .cancel {
+      padding: 0 14px 0 12px;
+    }
+
+    .apply {
+      padding: 0 12px;
+    }
+  }
+
+  @container (width < 296px) {
+    .apply .bi {
+      display: none;
+    }
   }
 
   /* Hover only with a mouse, so a tapped button does not stay lifted */
