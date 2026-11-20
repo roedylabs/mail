@@ -303,9 +303,18 @@ The server applies pending migrations by itself on start (`roedy-mail migrate` d
 Neither needs a sign-in, and both are also open behind the proxy; they reveal nothing but the health. The image checks itself with `roedy-mail healthcheck` (queries `/healthz`, without curl) every 30 seconds; after three failures the container counts as `unhealthy`. Docker does not restart it because of that; only `restart: unless-stopped` does after a crash. Because the health check only queries `/healthz`, the container stays `healthy` even with an unreadable database; only `/readyz` shows that. For external monitoring, `/readyz` via the public address is therefore the right choice:
 
 ```sh
+docker compose ps                                          # column STATUS: healthy
 docker inspect --format '{{.State.Health.Status}}' roedy-mail
+docker inspect --format '{{json .State.Health.Log}}' roedy-mail   # last results
 curl -fsS https://webmail.example.com/readyz
 ```
+
+**Compose:** [`deploy/compose.yml`](../deploy/compose.yml) states the same check explicitly as `healthcheck:` with the image's timings: `interval: 30s`, `timeout: 5s`, `start_period: 10s`, `start_interval: 1s` (checks every second during the start, so the container is usually `healthy` within a few seconds), `retries: 3`. The exec form `["CMD", "roedy-mail", "healthcheck"]` is needed because the image has no shell. The command reads the same `ROEDY_*` variables as the server: it queries the port of `ROEDY_LISTEN` over loopback (`127.0.0.1`, for `[::]` first `::1`), or the address itself if `ROEDY_LISTEN` names one, so a changed port needs no change to the check, only to `ports:`. It runs with the container's user (`ROEDY_UID`/`ROEDY_GID`) and restrictions, writes nothing and needs no capabilities.
+
+- **Tune:** change the values in `compose.yml`, or in a `compose.override.yml` next to it, which `docker compose` merges by itself (not with `-f`), e.g. `services: { roedy-mail: { healthcheck: { interval: 60s } } }`. Recreate the container with `docker compose up -d`.
+- **Docker Engine before 25:** Compose refuses `start_interval`; delete that line; during the start the check then also runs every 30 seconds, so `healthy` can take up to 30 seconds.
+- **Turn off:** replace the keys of the block with `disable: true` alone (Compose does not accept `disable` together with `test`). Deleting the block does not turn the check off; the image's `HEALTHCHECK` applies again.
+- **Reverse proxy in the same Compose file:** with `depends_on: { roedy-mail: { condition: service_healthy } }` it starts only once the server responds; it reaches the server at `http://roedy-mail:8080`.
 
 ### Logs
 

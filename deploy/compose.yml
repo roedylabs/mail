@@ -62,6 +62,32 @@ services:
       - no-new-privileges:true
     # The server finishes running requests within 8 s.
     stop_grace_period: 10s
+    # Same check and timings as the image's HEALTHCHECK. `roedy-mail
+    # healthcheck` sends GET /healthz to the port of ROEDY_LISTEN (default
+    # 0.0.0.0:8080) over loopback, or to the address itself if it names one,
+    # and exits 0 on 200. It runs with this container's user, environment and
+    # restrictions and writes nothing. It shows that the process responds, not
+    # that the database is readable (/readyz, docs/ops.md › Health). Exec form:
+    # the image has no shell and no curl. start_interval needs Docker Engine 25
+    # or later; delete that line on older engines. To turn the check off,
+    # replace the keys below with `disable: true` alone; deleting the block
+    # brings back the image's check.
+    healthcheck:
+      test: ["CMD", "roedy-mail", "healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      start_interval: 1s
+      retries: 3
+
+  # A reverse proxy in this file can wait until the server is healthy and
+  # reach it at http://roedy-mail:8080:
+  #
+  # proxy:
+  #   image: caddy:2
+  #   depends_on:
+  #     roedy-mail:
+  #       condition: service_healthy
 
 volumes:
   roedy-data:
