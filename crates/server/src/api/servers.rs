@@ -461,8 +461,10 @@ async fn create(
     };
     let csp = state.csp.clone();
     let keys = state.secrets.clone();
-    let expected_redirect = redirect_uri(&state.public_url());
+    let public_url = state.public_url.clone();
     let server = db::call(&state.db, move |conn| {
+        // On the database thread: after a restore this is already its address.
+        let expected_redirect = redirect_uri(&public_url.get());
         let tx = conn.transaction()?;
         let others = servers::list(&tx)?;
         let input = match validate(
@@ -595,8 +597,10 @@ async fn update(
     };
     let csp = state.csp.clone();
     let keys = state.secrets.clone();
-    let expected_redirect = redirect_uri(&state.public_url());
+    let public_url = state.public_url.clone();
     let result = db::call(&state.db, move |conn| {
+        // On the database thread: after a restore this is already its address.
+        let expected_redirect = redirect_uri(&public_url.get());
         let tx = conn.transaction()?;
         let all = servers::list(&tx)?;
         let Some(current) = all.iter().find(|s| s.id == id).cloned() else {
