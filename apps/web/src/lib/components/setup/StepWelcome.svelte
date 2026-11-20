@@ -6,19 +6,23 @@
   Three radio groups (arrows and Space pick, Enter does what "Get started"
   does). The accent colours are one grid of square tiles in one order
   (recently used, the five accents, the presets) of which one closed row
-  shows; "More colors" in the label row opens the colour editor.
+  shows; "More colors" in the label row opens all of them inline: language
+  and theme fold away at the top, the hex field unfolds above the grid, the
+  grid grows to all colours and "Back" slides in left of "Get started".
+  Every pick there applies at once. Not a dialog: Escape or "Back" closes,
+  Tab moves on normally.
 -->
 <script lang="ts">
   import { ACCENTS, MODE_PREV } from '@roedy/tokens';
-  import { untrack } from 'svelte';
+  import { tick, untrack } from 'svelte';
   import type { Attachment } from 'svelte/attachments';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { accentInk, type HexColor } from '#lib/color.ts';
-  import { customName, editorStart } from '#lib/color-editor.svelte.ts';
-  import ColorEditor from '#lib/components/ColorEditor.svelte';
+  import { ColorDraft, customName, editorStart } from '#lib/color-editor.svelte.ts';
   import Icon from '#lib/components/Icon.svelte';
   import SetupShell from '#lib/components/setup/SetupShell.svelte';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
+  import { fold, FOLD_MS, unfold } from '#lib/fold.ts';
   import type { IconName } from '#lib/icons.ts';
   import { browserLang } from '#lib/locale.ts';
   import { m } from '#lib/paraglide/messages.js';
@@ -30,6 +34,7 @@
     choicesOf,
     closedTiles,
     colorOrder,
+    openTiles,
     recentOf,
     rememberColor,
     storeChoice,
@@ -225,24 +230,192 @@
     };
   }
 
-  // ---- Colour editor ----
+  // ---- More colors (inline) ----
 
-  let editing = $state(false);
+  /** The hex field's draft while "More colors" is open (`null`: closed). */
+  let draft = $state<ColorDraft | null>(null);
+  /** Folding back ("Back", Escape): the parts move to their closed heights, then the draft goes. */
+  let closing = $state(false);
+  /** Open and not folding back: the parts show the open state (fades, "Back", hidden "More colors"). */
+  const shut = $derived(draft !== null && !closing);
+  /** The open grid's tiles, fixed from opening until closed (picks never reorder it). */
+  let openList = $state<ColorTile[]>([]);
+  /** Tiles of the closed row in `openList` (the ones after it fade in and out). */
+  let openRow = $state(0);
+  /** Desktop: the card's height while open (fixed, so only the fields column scrolls). */
+  let cardH = $state<number | null>(null);
+  let cardEl: HTMLDivElement | undefined = $state();
   let moreBtn: HTMLButtonElement | undefined = $state();
-  /** The editor starts with the current accent's colour. */
-  const editStart = $derived(editorStart(choices.accent));
+  let prefsEl: HTMLDivElement | undefined = $state();
+  let topEl: HTMLDivElement | undefined = $state();
+  let bodyEl: HTMLDivElement | undefined = $state();
+  let gridEl: HTMLDivElement | undefined = $state();
+  let hexEl: HTMLInputElement | undefined = $state();
+  /** Heights of language and theme and of the grid before opening: where closing returns to. */
+  let before = { top: 0, grid: 0 };
+  let shiftTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Duration of the switch; 0 with motion off (every change at once). */
+  const ms = () => (prefs.motion ? FOLD_MS : 0);
 
-  function closeEditor() {
-    editing = false;
-    setTimeout(() => moreBtn?.focus({ preventScroll: true }), 0);
-  }
+  /** The tiles shown: the closed row, or all colours while open (in the order from opening). */
+  const tiles = $derived(draft ? openList : closed);
+  /** The marked tile: the colour in the hex field while open. */
+  const markHex = $derived(draft ? draft.hex : selHex);
 
-  /** A colour from "More colors" counts as recently used and leads the order from now on. */
-  function applyCustom(hex: HexColor) {
+  /** A colour picked in "More colors" applies and is stored at once, and counts as recently used. */
+  function commit(hex: HexColor) {
     recent = rememberColor(hex);
     pick(hex);
-    closeEditor();
   }
+
+  async function openMore() {
+    if (!topEl || !gridEl || !bodyEl || (draft && !closing)) return;
+    if (!draft) {
+      openList = openTiles(closed, order);
+      openRow = closed.length;
+      before = { top: topEl.offsetHeight, grid: gridEl.offsetHeight };
+      if (cardEl && !prefsEl?.classList.contains('mobile')) cardH = cardEl.offsetHeight;
+      draft = new ColorDraft(editorStart(choices.accent));
+    }
+    const from = { top: topEl.offsetHeight, body: bodyEl.offsetHeight, grid: gridEl.offsetHeight };
+    closing = false;
+    await tick();
+    if (!topEl || !bodyEl || !gridEl) return;
+    const d = ms();
+    fold(topEl, from.top, 0, { ms: d, keep: true });
+    unfold(bodyEl);
+    fold(bodyEl, from.body, bodyEl.scrollHeight, { ms: d });
+    unfold(gridEl);
+    fold(gridEl, from.grid, gridEl.offsetHeight, { ms: d, clip: 'bottom' });
+    gridEl.querySelector<HTMLElement>('[role="radio"][aria-checked="true"], [role="radio"][tabindex="0"]')?.focus({
+      preventScroll: true,
+    });
+  }
+
+  /** Height of the grid once closed: the rows of the closed row it will have (with the colours picked meanwhile). */
+  function closedGridHeight(grid: HTMLElement): number {
+    const tile = grid.querySelector<HTMLElement>('[role="radio"]');
+    if (!tile) return grid.offsetHeight;
+    const n = closedTiles(colorOrder(recent, initial.accent), cols, selHex).length;
+    const rows = Math.max(1, Math.ceil(n / Math.max(1, cols)));
+    return rows * tile.offsetHeight + (rows - 1) * (parseFloat(getComputedStyle(grid).rowGap) || 0);
+  }
+
+  /**
+   * Scrolled down (desktop: the fields column, mobile: the panel), the shorter closed content would clamp the scroll
+   * position mid-way and jump: the scroller goes to the top at once and its content is shifted up by the same amount
+   * (nothing moves on screen), then the shift eases back to 0 with the fold.
+   */
+  function unscroll(d: number) {
+    const sc = prefsEl?.classList.contains('mobile') ? cardEl : prefsEl?.parentElement;
+    const s0 = sc?.scrollTop ?? 0;
+    if (!sc || s0 <= 0) return;
+    sc.scrollTop = 0;
+    if (!d) return;
+    const kids = [...sc.children] as HTMLElement[];
+    clearTimeout(shiftTimer);
+    for (const k of kids) {
+      k.style.transition = 'none';
+      k.style.transform = `translateY(${-s0}px)`;
+    }
+    void sc.offsetHeight;
+    for (const k of kids) {
+      k.style.transition = `transform ${d}ms cubic-bezier(0.2, 0.9, 0.25, 1)`;
+      k.style.transform = 'translateY(0px)';
+    }
+    shiftTimer = setTimeout(() => {
+      for (const k of kids) {
+        k.style.transition = '';
+        k.style.transform = '';
+      }
+    }, d + 80);
+  }
+
+  /**
+   * Closes "More colors" (the colour picked there stays): the hex field folds to 0, the grid to its closed rows,
+   * language and theme unfold to their height from before; once they are back the card is released and the focus
+   * returns to "More colors". If the closed row gains or loses a row, the card's fixed height moves in step.
+   */
+  function closeMore() {
+    if (!draft || closing || !topEl || !bodyEl || !gridEl) return;
+    const d = ms();
+    unscroll(d);
+    fold(bodyEl, bodyEl.offsetHeight, 0, { ms: d, keep: true });
+    const to = closedGridHeight(gridEl);
+    if (cardH !== null) cardH = Math.round(cardH + to - before.grid);
+    fold(gridEl, gridEl.offsetHeight, to, { ms: d, clip: 'bottom', keep: true });
+    closing = true;
+    fold(topEl, topEl.offsetHeight, before.top, { ms: d, after: gone });
+  }
+
+  /** Language and theme are back: the draft goes, the card is released, the new order shows. */
+  function gone() {
+    if (!closing) return;
+    draft = null;
+    closing = false;
+    cardH = null;
+    openList = [];
+    void tick().then(() => {
+      if (bodyEl) unfold(bodyEl);
+      if (gridEl) unfold(gridEl);
+      moreBtn?.focus({ preventScroll: true });
+    });
+  }
+
+  $effect(() => () => {
+    clearTimeout(shiftTimer);
+    for (const el of [topEl, bodyEl, gridEl]) if (el) unfold(el);
+  });
+
+  /** A tile: applies at once; while open it also goes into the hex field. */
+  function pickTile(hex: HexColor) {
+    if (!draft) return pick(hex);
+    if (closing) return;
+    commit(hex);
+    draft.pick(hex);
+  }
+
+  /** Typing: six digits apply at once (a half-typed `#F5A` of `#F5A06E` never does). */
+  function hexInput(e: Event & { currentTarget: HTMLInputElement }) {
+    if (!draft || closing) return;
+    const value = e.currentTarget.value;
+    draft.input(value);
+    if (draft.parsed && value.trim().replace(/^#/, '').length === 6) commit(draft.parsed);
+  }
+
+  /** Leaving the field: a short `#rgb` applies now. */
+  function hexBlur() {
+    if (!draft || closing) return;
+    if (draft.parsed && draft.text.trim().replace(/^#/, '').length === 3) commit(draft.parsed);
+    draft.blur();
+  }
+
+  /** "Get started" with an invalid hex code: the message shows and the focus goes to the field. */
+  function blocked() {
+    if (draft && !draft.apply()) hexEl?.focus();
+  }
+
+  /** "Get started": while open the hex field's colour first (stored at once like every pick), then step 2. */
+  function start() {
+    if (draft && !closing) {
+      const hex = draft.apply();
+      if (!hex) return blocked();
+      commit(hex);
+    }
+    flow.start();
+  }
+
+  /** Escape anywhere in the accent section closes "More colors". */
+  const escCloses: Attachment<HTMLElement> = (el) => {
+    const onkey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || !draft || closing) return;
+      e.preventDefault();
+      e.stopPropagation();
+      closeMore();
+    };
+    el.addEventListener('keydown', onkey);
+    return () => el.removeEventListener('keydown', onkey);
+  };
 
   /** Enter on a card does what "Get started" does (Space and the arrows pick). */
   const enterStarts: Attachment<HTMLElement> = (el) => {
@@ -263,12 +436,6 @@
 
 {#snippet code(c: string)}<span class="code">{c}</span>{/snippet}
 
-{#snippet overlay(look: Look)}
-  {#if editing}
-    <ColorEditor start={editStart} anchor={moreBtn} sheet={look.mobile} onapply={applyCustom} onclose={closeEditor} />
-  {/if}
-{/snippet}
-
 <SetupShell
   step={1}
   docTitle={m.setup_doc_title({ step: m.setup_step_prefs() })}
@@ -278,20 +445,31 @@
   {mob}
   contentKey={choices.mode}
   {hidden}
-  primary={{ label: m.setup_start(), icon: 'ti-arrow-right' }}
-  actionsW="300px"
-  onsubmit={() => flow.start()}
+  primary={{
+    label: m.setup_start(),
+    icon: 'ti-arrow-right',
+    dim: shut && !draft?.valid,
+    bg: shut ? draft?.hex : undefined,
+    ink: shut && draft ? accentInk(draft.hex) : undefined,
+  }}
+  onsubmit={start}
+  onblocked={blocked}
   reg={targets.reg}
-  {overlay}
+  slideBack={{ open: shut, onclick: closeMore }}
+  {cardH}
+  frozen={draft !== null}
+  bind:cardEl
 >
   {#snippet fields(look: Look, level: number)}
     {@const table = look.mobile ? mob : desk}
     {@const x = table[Math.min(level, table.length - 1)]!}
     {@const pv = previewOf(look, x)}
     <div
+      bind:this={prefsEl}
       class="prefs"
       class:mobile={look.mobile}
-      style:gap={look.gapL}
+      class:still={!prefs.motion}
+      style:--d="{prefs.motion ? FOLD_MS : 0}ms"
       style:--sec={x.sec}
       style:--pv-h={pv.h}
       style:--pv-r={pv.r}
@@ -303,135 +481,192 @@
       style:--card-gap={pv.cardGap}
       {@attach enterStarts}
     >
-      <div class="sec">
-        <span class="sec-label">{m.setup_lang_label()}</span>
-        <div role="radiogroup" use:radiogroup aria-label={m.setup_lang_label()} class="cards">
-          {#each langCards as c (c.value)}
-            {@const on = choices.lang === c.value}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={on}
-              class="card"
-              class:on
-              onclick={() => choose({ lang: c.value })}
-              {@attach on && targets.reg('lang')}
-            >
-              {#if x.prev}
-                <span class="lprev" aria-hidden="true">
-                  {#if c.other}
-                    <span class="b2 behind" data-text={c.other}></span><span class="b2 front">{c.hello}</span>
-                  {:else}
-                    <span class="b1">{c.hello}<span class="bang">!</span></span>
+      <!-- Language and theme. Opening "More colors" folds this block to 0 with its content anchored at the bottom, so
+           they leave at the top edge in step with the accent section; the spacing below them is part of the content
+           (folded is really 0). Hidden once folded, so Tab and screen readers skip them. -->
+      <div bind:this={topEl} class="fold end">
+        <div class="top" class:shut inert={shut} style:gap={look.gapL} style:padding-bottom={look.gapL}>
+          <div class="sec">
+            <span class="sec-label">{m.setup_lang_label()}</span>
+            <div role="radiogroup" use:radiogroup aria-label={m.setup_lang_label()} class="cards">
+              {#each langCards as c (c.value)}
+                {@const on = choices.lang === c.value}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  class="card"
+                  class:on
+                  onclick={() => choose({ lang: c.value })}
+                  {@attach on && targets.reg('lang')}
+                >
+                  {#if x.prev}
+                    <span class="lprev" aria-hidden="true">
+                      {#if c.other}
+                        <span class="b2 behind" data-text={c.other}></span><span class="b2 front">{c.hello}</span>
+                      {:else}
+                        <span class="b1">{c.hello}<span class="bang">!</span></span>
+                      {/if}
+                    </span>
                   {/if}
-                </span>
-              {/if}
-              {#if look.mobile}
-                <span class="m-foot">
-                  <span class="icon" aria-hidden="true"
-                    >{#if c.icon}<Icon name={c.icon} />{:else}{@render code(c.code)}{/if}</span
-                  >
-                  <span>{c.label}</span>
-                </span>
-              {:else}
-                <span class="foot">
-                  <span class="label">
-                    <span class="icon" aria-hidden="true"
-                      >{#if c.icon}<Icon name={c.icon} />{:else}{@render code(c.code)}{/if}</span
-                    >
-                    <span>{c.label}</span>
-                  </span>
-                  <span class="check"><Icon name="ti-check" /></span>
-                </span>
-              {/if}
-            </button>
-          {/each}
+                  {#if look.mobile}
+                    <span class="m-foot">
+                      <span class="icon" aria-hidden="true"
+                        >{#if c.icon}<Icon name={c.icon} />{:else}{@render code(c.code)}{/if}</span
+                      >
+                      <span>{c.label}</span>
+                    </span>
+                  {:else}
+                    <span class="foot">
+                      <span class="label">
+                        <span class="icon" aria-hidden="true"
+                          >{#if c.icon}<Icon name={c.icon} />{:else}{@render code(c.code)}{/if}</span
+                        >
+                        <span>{c.label}</span>
+                      </span>
+                      <span class="check"><Icon name="ti-check" /></span>
+                    </span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          </div>
+
+          <div class="sec">
+            <span class="sec-label">{m.setup_mode_label()}</span>
+            <div role="radiogroup" use:radiogroup aria-label={m.setup_mode_label()} class="cards">
+              {#each modeCards as c (c.value)}
+                {@const on = choices.mode === c.value}
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={on}
+                  class="card"
+                  class:on
+                  style:--mp-bg={MODE_PREV[c.value].bg}
+                  style:--mp-panel={MODE_PREV[c.value].panel}
+                  style:--mp-line={MODE_PREV[c.value].line}
+                  style:--mp-ink={MODE_PREV[c.value].inkc}
+                  onclick={() => choose({ mode: c.value })}
+                >
+                  {#if look.mobile}
+                    {#if x.prev}
+                      <span class="m-prev" aria-hidden="true"
+                        ><span class="m-bar"></span><span class="m-panel"><span class="m-dot"></span></span></span
+                      >
+                    {/if}
+                    <span class="m-foot">
+                      <span class="icon" aria-hidden="true"><Icon name={c.icon} /></span>
+                      <span>{c.label}</span>
+                    </span>
+                  {:else}
+                    {#if x.prev}
+                      <span class="prev" aria-hidden="true">
+                        <span class="side">
+                          <span class="bar-ink"></span>
+                          <span class="bar-acc"></span>
+                          <span class="bar-line w80"></span>
+                          <span class="bar-line w65"></span>
+                        </span>
+                        <span class="panel">
+                          <span class="bar-head"></span>
+                          <span class="grow"></span>
+                          <span class="dot"></span>
+                          <span class="grow"></span>
+                        </span>
+                      </span>
+                    {/if}
+                    <span class="foot">
+                      <span class="label"
+                        ><span class="icon" aria-hidden="true"><Icon name={c.icon} /></span><span>{c.label}</span></span
+                      >
+                      <span class="check"><Icon name="ti-check" /></span>
+                    </span>
+                  {/if}
+                </button>
+              {/each}
+            </div>
+          </div>
         </div>
       </div>
 
-      <div class="sec">
-        <span class="sec-label">{m.setup_mode_label()}</span>
-        <div role="radiogroup" use:radiogroup aria-label={m.setup_mode_label()} class="cards">
-          {#each modeCards as c (c.value)}
-            {@const on = choices.mode === c.value}
-            <button
-              type="button"
-              role="radio"
-              aria-checked={on}
-              class="card"
-              class:on
-              style:--mp-bg={MODE_PREV[c.value].bg}
-              style:--mp-panel={MODE_PREV[c.value].panel}
-              style:--mp-line={MODE_PREV[c.value].line}
-              style:--mp-ink={MODE_PREV[c.value].inkc}
-              onclick={() => choose({ mode: c.value })}
-            >
-              {#if look.mobile}
-                {#if x.prev}
-                  <span class="m-prev" aria-hidden="true"
-                    ><span class="m-bar"></span><span class="m-panel"><span class="m-dot"></span></span></span
-                  >
-                {/if}
-                <span class="m-foot">
-                  <span class="icon" aria-hidden="true"><Icon name={c.icon} /></span>
-                  <span>{c.label}</span>
-                </span>
-              {:else}
-                {#if x.prev}
-                  <span class="prev" aria-hidden="true">
-                    <span class="side">
-                      <span class="bar-ink"></span>
-                      <span class="bar-acc"></span>
-                      <span class="bar-line w80"></span>
-                      <span class="bar-line w65"></span>
-                    </span>
-                    <span class="panel">
-                      <span class="bar-head"></span>
-                      <span class="grow"></span>
-                      <span class="dot"></span>
-                      <span class="grow"></span>
-                    </span>
-                  </span>
-                {/if}
-                <span class="foot">
-                  <span class="label"
-                    ><span class="icon" aria-hidden="true"><Icon name={c.icon} /></span><span>{c.label}</span></span
-                  >
-                  <span class="check"><Icon name="ti-check" /></span>
-                </span>
-              {/if}
-            </button>
-          {/each}
-        </div>
-      </div>
-
-      <div class="sec">
+      <div class="sec acc-sec" {@attach escCloses}>
         <div class="sec-head">
           <span class="sec-label">{m.setup_accent_label()}</span>
-          <button bind:this={moreBtn} type="button" class="more" onclick={() => (editing = true)}
+          <button bind:this={moreBtn} type="button" class="more" class:shut inert={shut} onclick={openMore}
             >{m.setup_accent_more()}</button
           >
         </div>
         <div class="acc-wrap">
+          <!-- The hex field unfolds here, right under the label row (height from 0, fading in), with the subheading
+               over the grid -->
+          <div bind:this={bodyEl} class="fold">
+            <div class="ed" class:shut>
+              {#if draft}
+                {@const note = draft.note}
+                <div class="ed-in">
+                  <div class="hex">
+                    <label for="setup-hex">{m.setup_accent_hex()}</label>
+                    <div class="hex-ctl">
+                      <span class="hex-sw" aria-hidden="true" style:background={draft.hex}></span>
+                      <input
+                        bind:this={hexEl}
+                        id="setup-hex"
+                        type="text"
+                        autocomplete="off"
+                        autocapitalize="characters"
+                        spellcheck="false"
+                        maxlength="7"
+                        value={draft.text}
+                        class:bad={note === 'invalid'}
+                        aria-invalid={note === 'invalid'}
+                        aria-describedby="setup-hex-msg"
+                        oninput={hexInput}
+                        onblur={hexBlur}
+                      />
+                    </div>
+                    <!-- One message line of a fixed height (invalid code before contrast hint) -->
+                    <span id="setup-hex-msg" class="msg" class:bad={note === 'invalid'} aria-live="polite">
+                      {#if note === 'invalid'}
+                        <span class="msg-icon"><Icon name="ti-alert-circle" /></span>
+                        <span class="msg-text">{m.color_editor_hex_invalid()}</span>
+                      {:else if note}
+                        <span class="msg-icon warn"><Icon name="ti-alert-triangle" /></span>
+                        <span class="msg-text"
+                          >{note === 'dark' ? m.color_editor_low_dark() : m.color_editor_low_light()}</span
+                        >
+                      {/if}
+                    </span>
+                  </div>
+                  <span class="sec-label sub">{m.setup_accent_colors()}</span>
+                </div>
+              {/if}
+            </div>
+          </div>
+          <!-- One radio group for all colours in one order. Closed one row; open all of them (the closed row's tiles
+               stay put, the others fade in), folding back they fade out while the grid shrinks to its row. -->
           <div
+            bind:this={gridEl}
             role="radiogroup"
             use:radiogroup={{ cols }}
             aria-label={m.setup_accent_label()}
             class="accents"
             class:amob={x.accMob}
+            class:out={closing}
             {@attach measureCols(x.accMob)}
           >
-            {#each closed as t (t.hex)}
-              {@const on = t.hex === selHex}
+            {#each tiles as t, i (t.hex)}
+              {@const on = t.hex === markHex}
               <button
                 type="button"
                 role="radio"
                 aria-checked={on}
                 class="acc"
                 class:on
+                class:extra={draft !== null && i >= openRow}
                 style:--swatch={t.accent ? ACCENTS[t.accent].base : t.hex}
                 style:--swatch-ink={t.accent ? ACCENTS[t.accent].ink : accentInk(t.hex)}
-                onclick={() => pick(t.hex)}
+                onclick={() => pickTile(t.hex)}
               >
                 <span class="swatch"><Icon name="ti-check" /></span>
                 <span class="acc-label">{tileName(t)}</span>
@@ -448,6 +683,185 @@
   .prefs {
     display: flex;
     flex-direction: column;
+  }
+
+  /* Blocks whose height the switch moves (`#lib/fold.ts`): a column whose content keeps its own height; `end`
+     anchors it at the bottom, so while the block gets lower its content leaves at the top */
+  .fold {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .fold.end {
+    justify-content: flex-end;
+  }
+
+  .top {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    transition:
+      opacity var(--d) cubic-bezier(0, 0, 0.2, 1),
+      visibility 0s;
+  }
+
+  .top.shut {
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity calc(var(--d) * 0.8) cubic-bezier(0.4, 0, 1, 1),
+      visibility 0s linear var(--d);
+  }
+
+  .ed {
+    flex-shrink: 0;
+    opacity: 0;
+    transition: opacity calc(var(--d) * 0.4) ease;
+  }
+
+  .ed.shut {
+    opacity: 1;
+    transition: opacity calc(var(--d) * 0.6) ease;
+  }
+
+  .ed-in {
+    display: flex;
+    flex-direction: column;
+    padding-bottom: var(--sec);
+  }
+
+  .hex {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .hex label {
+    padding: 0 4px;
+    font-size: 13.5px;
+    font-weight: 700;
+  }
+
+  .hex-ctl {
+    position: relative;
+    display: flex;
+    align-items: center;
+  }
+
+  .hex-sw {
+    position: absolute;
+    left: 11px;
+    width: 32px;
+    height: 32px;
+    border-radius: 11px;
+    /* fixed value (colour edge) */
+    box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.12);
+    transition: background-color 150ms;
+  }
+
+  /* Like the other setup fields */
+  .hex input {
+    width: 100%;
+    height: 52px;
+    border-radius: 18px;
+    border: 1.5px solid var(--fbd);
+    outline: none;
+    padding: 0 16px 0 54px;
+    font-family: var(--font-mono);
+    font-size: 16px;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--fg);
+    background: var(--fbg);
+    box-shadow: var(--sh1);
+    transition:
+      border-color 220ms,
+      box-shadow 220ms,
+      background-color 220ms;
+  }
+
+  .hex input.bad {
+    border-color: var(--err);
+  }
+
+  .hex input:focus {
+    border-color: var(--deep);
+    background: var(--surface);
+    box-shadow:
+      0 0 0 5px var(--accsoft),
+      var(--sh1);
+  }
+
+  .msg {
+    min-height: 18px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 4px;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 500;
+    color: var(--mfg);
+  }
+
+  .msg.bad {
+    font-weight: 600;
+    color: var(--errfg);
+  }
+
+  .msg-icon {
+    display: grid;
+    flex-shrink: 0;
+    font-size: 15px;
+  }
+
+  .msg-icon.warn {
+    color: var(--warn);
+  }
+
+  .msg-text {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .sub {
+    margin-top: 8px;
+  }
+
+  /* The tiles beyond the closed row: fade in as the grid grows, out as it shrinks */
+  .acc.extra {
+    animation: suFade 260ms ease 60ms both;
+  }
+
+  .out .acc.extra {
+    animation: suFadeOut 160ms ease both;
+  }
+
+  .still .acc.extra {
+    animation: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .acc.extra,
+    .out .acc.extra {
+      animation: none;
+    }
+  }
+
+  @keyframes suFade {
+    from {
+      opacity: 0;
+    }
+  }
+
+  @keyframes suFadeOut {
+    to {
+      opacity: 0;
+    }
   }
 
   .sec {
@@ -781,6 +1195,18 @@
     font-weight: 800;
     color: var(--deep);
     border-radius: 9999px;
+    transition:
+      opacity calc(var(--d) * 0.57) ease,
+      visibility 0s;
+  }
+
+  /* Hidden while "More colors" is open */
+  .more.shut {
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      opacity calc(var(--d) * 0.48) ease,
+      visibility 0s linear calc(var(--d) * 0.48);
   }
 
   .more::after {

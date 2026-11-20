@@ -261,6 +261,15 @@ export function closedTiles(order: readonly ColorTile[], cols: number, sel: HexC
   return [...row.slice(0, -1), picked];
 }
 
+/**
+ * The open grid ("More colors"): the closed row as it is (its tiles stay
+ * put), then the rest of `order`.
+ */
+export function openTiles(closed: readonly ColorTile[], order: readonly ColorTile[]): ColorTile[] {
+  const shown = closed.map((t) => t.hex);
+  return [...closed, ...order.filter((t) => !shown.includes(t.hex))];
+}
+
 /** Columns of a grid from its computed `grid-template-columns` (resolved tracks in px); 0 while not laid out. */
 export function trackCount(template: string): number {
   const tracks = template.trim().split(/\s+/).filter(Boolean);

@@ -1006,6 +1006,8 @@
   "setup_mode_label": "Theme",
   "setup_accent_label": "Accent color",
   "setup_accent_more": "More colors",
+  "setup_accent_hex": "Your own hex code",
+  "setup_accent_colors": "Colors",
   "color_editor_title": "More colors",
   "color_editor_close": "Close",
   "color_editor_hex": "Or your own hex code",

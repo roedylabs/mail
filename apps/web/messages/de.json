@@ -1006,6 +1006,8 @@
   "setup_mode_label": "Design",
   "setup_accent_label": "Akzentfarbe",
   "setup_accent_more": "Weitere Farben",
+  "setup_accent_hex": "Eigener Hex-Code",
+  "setup_accent_colors": "Farben",
   "color_editor_title": "Weitere Farben",
   "color_editor_close": "Schließen",
   "color_editor_hex": "Oder eigener Hex-Code",

@@ -41,6 +41,9 @@ export class SetupFit {
   private over = 0;
   /** Room the next roomier level needs (measured). */
   private gap: number | null = null;
+  /** Held (a step's inline editor is open): the level stays; a new size or content refits on release. */
+  private held = false;
+  private pending: { w: number; h: number } | null = null;
   private readonly t: FitTargets;
 
   constructor(targets: FitTargets) {
@@ -49,6 +52,10 @@ export class SetupFit {
 
   /** Size of the page changed (observer); more than 4 px per axis counts. */
   resize(w: number, h: number): void {
+    if (this.held) {
+      this.pending = w === this.w && h === this.h && !this.pending ? null : { w, h };
+      return;
+    }
     const same =
       isMobileWidth(w) === this.mobile &&
       w >= WIDE === this.w >= WIDE &&
@@ -78,6 +85,11 @@ export class SetupFit {
 
   /** Content changed its height (language, messages, web fonts): from level 0 again. */
   relayout(w = this.w, h = this.h): void {
+    if (this.held) {
+      // A newer size from `resize` stays (a relayout without one uses the old size).
+      if (!this.pending || w !== this.w || h !== this.h) this.pending = { w, h };
+      return;
+    }
     this.ready = true;
     this.checked = { w, h };
     this.over = 0;
@@ -89,6 +101,19 @@ export class SetupFit {
     if (this.fitting) return;
     this.fitting = true;
     void this.run();
+  }
+
+  /**
+   * Holds the current level (`true`) or releases it: while held, size and
+   * content changes only mark the step for a refit, which runs on release.
+   */
+  hold(on: boolean): void {
+    if (on === this.held) return;
+    this.held = on;
+    if (on) return;
+    const next = this.pending;
+    this.pending = null;
+    if (next) this.relayout(next.w, next.h);
   }
 
   /** Observes the page size and the web fonts; returns the cleanup (for `$effect`). */

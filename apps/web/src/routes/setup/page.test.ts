@@ -915,76 +915,189 @@ describe('Step 1: language and appearance', () => {
     expect(accent.option('Sky')).toHaveAttribute('aria-checked', 'true');
 
     // A pick in "More colors" leads, the own colour follows it.
+    prefs.set({ animations: false });
     await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
-    const editor = screen.getByRole('dialog', { name: 'More colors' });
-    await fireEvent.click(within(editor).getByRole('radio', { name: 'Mint' }));
-    await fireEvent.click(within(editor).getByRole('button', { name: 'Apply' }));
+    await fireEvent.click(accent.option('Mint'));
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await tick();
     expect(names(accent.el)).toEqual(['Mint', 'Custom #123456', 'Apricot', 'Sage', 'Lavender', 'Sky']);
     expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'true');
   });
 
-  it('picks a colour in "More colors", which then leads the row', async () => {
+  /** All colours in their order while "More colors" is open (the closed row first). */
+  const ALL = [
+    'Apricot',
+    'Sage',
+    'Lavender',
+    'Sky',
+    'Rose',
+    'Coral',
+    'Honey',
+    'Lemon',
+    'Lime',
+    'Mint',
+    'Jade',
+    'Turquoise',
+    'Cornflower',
+    'Lilac',
+    'Orchid',
+    'Fuchsia',
+    'Raspberry',
+    'Sand',
+    'Mocha',
+    'Moss',
+    'Slate',
+    'Dove',
+    'Pebble',
+  ];
+
+  /** `el` or one of its ancestors is inert. */
+  function inert(el: HTMLElement): boolean {
+    for (let e: HTMLElement | null = el; e; e = e.parentElement) if (e.inert) return true;
+    return false;
+  }
+
+  it('opens "More colors" inline and closes it with Escape or "Back"', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    render(Page);
+    const view = render(Page);
     await vi.waitFor(() => expect(group('Language').option('System')).toHaveFocus());
     const accent = group('Accent color');
     const more = screen.getByRole('button', { name: 'More colors' });
+    expect(view.queryByRole('button', { name: 'Back' })).toBeNull();
 
     await fireEvent.click(more);
-    const dialog = screen.getByRole('dialog', { name: 'More colors' });
-    await vi.waitFor(() => expect(dialog).toHaveFocus());
-    // Escape closes without a change; the focus returns to "More colors".
-    await fireEvent.keyDown(dialog, { key: 'Escape' });
+    // No dialog: the hex field and all colours in place, language and theme folded away (not reachable).
     expect(screen.queryByRole('dialog')).toBeNull();
-    expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'true');
+    const hex = screen.getByLabelText('Your own hex code');
+    expect(hex).toHaveValue(ACCENTS.apricot.base.toUpperCase());
+    expect(hex).toHaveAttribute('aria-describedby', 'setup-hex-msg');
+    expect(screen.getByText('Colors')).toBeInTheDocument();
+    expect(names(accent.el)).toEqual(ALL);
+    expect(inert(group('Language').el)).toBe(true);
+    expect(inert(group('Theme').el)).toBe(true);
+    expect(more.inert).toBe(true);
+    await vi.waitFor(() => expect(accent.option('Apricot')).toHaveFocus());
+    expect(view.getByRole('button', { name: 'Back' })).toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'Get started' })).toBeInTheDocument();
+
+    // Escape anywhere in the accent section closes: folding back first, then the focus returns to "More colors".
+    await fireEvent.keyDown(accent.option('Apricot'), { key: 'Escape' });
+    expect(view.queryByRole('button', { name: 'Back' })).toBeNull();
+    await vi.waitFor(() => expect(screen.queryByLabelText('Your own hex code')).toBeNull());
     await vi.waitFor(() => expect(more).toHaveFocus());
+    expect(names(accent.el)).toEqual(ALL.slice(0, 6));
+    expect(inert(group('Language').el)).toBe(false);
+    expect(more.inert).toBe(false);
     expect(sessionStorage.getItem('roedy-setup-accRecent')).toBeNull();
 
+    // "Back" closes too.
     await fireEvent.click(more);
-    const again = screen.getByRole('dialog', { name: 'More colors' });
-    await fireEvent.click(within(again).getByRole('radio', { name: 'Mint' }));
-    await fireEvent.click(within(again).getByRole('button', { name: 'Apply' }));
-    expect(screen.queryByRole('dialog')).toBeNull();
-    expect(names(accent.el)).toEqual(['Mint', 'Apricot', 'Sage', 'Lavender', 'Sky', 'Rose']);
-    expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'true');
-    expect(accent.option('Apricot')).toHaveAttribute('aria-checked', 'false');
+    await fireEvent.click(view.getByRole('button', { name: 'Back' }));
+    await vi.waitFor(() => expect(screen.queryByLabelText('Your own hex code')).toBeNull());
     await vi.waitFor(() => expect(more).toHaveFocus());
+  });
+
+  it('applies every pick in "More colors" at once; "Back" keeps it, the new order shows after closing', async () => {
+    prefs.set({ animations: false });
+    render(Page);
+    const accent = group('Accent color');
+    await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
+    await fireEvent.click(accent.option('Mint'));
     expect(prefs.values.accent).toBe('#78c895');
     expect(sessionStorage.getItem('roedy-setup-accent')).toBe('custom');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#78c895');
     expect(JSON.parse(sessionStorage.getItem('roedy-setup-accRecent') ?? '')).toEqual(['#78c895']);
+    // Exactly one tile marked (the colour in the field); the grid keeps its order while open.
+    expect(screen.getByLabelText('Your own hex code')).toHaveValue('#78C895');
+    expect(within(accent.el).getAllByRole('radio', { checked: true })).toHaveLength(1);
+    expect(names(accent.el)).toEqual(ALL);
 
-    // A named accent again: the custom colour is dropped, Mint stays in its place.
+    // A named accent is stored as that accent.
     await fireEvent.click(accent.option('Sky'));
     expect(prefs.values.accent).toBe('sky');
-    expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'false');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBeNull();
-    expect(names(accent.el)[0]).toBe('Mint');
+    expect(JSON.parse(sessionStorage.getItem('roedy-setup-accRecent') ?? '')).toEqual([ACCENTS.sky.base, '#78c895']);
 
-    // The editor then starts with the active accent: no preset marked, its code in the field.
-    await fireEvent.click(more);
-    const third = screen.getByRole('dialog', { name: 'More colors' });
-    expect(within(third).queryByRole('radio', { checked: true })).toBeNull();
-    expect(within(third).getByLabelText('Or your own hex code')).toHaveValue(ACCENTS.sky.base.toUpperCase());
-    // An own code equal to an accent's colour is that accent.
-    await fireEvent.input(within(third).getByLabelText('Or your own hex code'), {
-      target: { value: ACCENTS.rose.base },
-    });
-    await fireEvent.click(within(third).getByRole('button', { name: 'Apply' }));
-    expect(prefs.values.accent).toBe('rose');
-    expect(sessionStorage.getItem('roedy-setup-accent')).toBe('rose');
-    expect(names(accent.el)).toEqual(['Rose', 'Mint', 'Apricot', 'Sage', 'Lavender', 'Sky']);
-    expect(accent.option('Rose')).toHaveAttribute('aria-checked', 'true');
+    await fireEvent.click(screen.getByRole('button', { name: 'Back' }));
+    await tick();
+    expect(screen.queryByLabelText('Your own hex code')).toBeNull();
+    expect(prefs.values.accent).toBe('sky');
+    expect(names(accent.el)).toEqual(['Sky', 'Mint', 'Apricot', 'Sage', 'Lavender', 'Rose']);
+    expect(accent.option('Sky')).toHaveAttribute('aria-checked', 'true');
+    await vi.waitFor(() => expect(screen.getByRole('button', { name: 'More colors' })).toHaveFocus());
+
+    // Opening again starts with the active accent's code.
+    await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
+    expect(screen.getByLabelText('Your own hex code')).toHaveValue(ACCENTS.sky.base.toUpperCase());
   });
 
-  it('hides an open colour editor behind "No connection"', async () => {
+  it('applies a hex code once all six digits are there, a short one when leaving the field', async () => {
+    prefs.set({ animations: false });
+    render(Page);
+    await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
+    const hex = screen.getByLabelText('Your own hex code');
+    // Half-typed: nothing applies.
+    await fireEvent.input(hex, { target: { value: '#F5A' } });
+    expect(prefs.values.accent).toBe('apricot');
+    expect(sessionStorage.getItem('roedy-setup-accRecent')).toBeNull();
+    expect(within(group('Accent color').el).queryAllByRole('radio', { checked: true })).toHaveLength(0);
+    // Leaving the field: the short code in full.
+    await fireEvent.blur(hex);
+    expect(hex).toHaveValue('#FF55AA');
+    expect(prefs.values.accent).toBe('#ff55aa');
+    // Six digits apply at once; an accent's colour is that accent.
+    await fireEvent.input(hex, { target: { value: ACCENTS.rose.base } });
+    expect(prefs.values.accent).toBe('rose');
+    expect(group('Accent color').option('Rose')).toHaveAttribute('aria-checked', 'true');
+    expect(JSON.parse(sessionStorage.getItem('roedy-setup-accRecent') ?? '')).toEqual([ACCENTS.rose.base, '#ff55aa']);
+    // A barely visible colour gets the hint.
+    await fireEvent.input(hex, { target: { value: '#111111' } });
+    expect(screen.getByText('Barely visible in the dark theme.')).toBeInTheDocument();
+  });
+
+  it('"Get started" goes on with the colour; an invalid hex code blocks it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    prefs.set({ animations: false });
+    const view = render(Page);
+    await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
+    const hex = screen.getByLabelText('Your own hex code');
+    await fireEvent.input(hex, { target: { value: '#12' } });
+    const go = view.getByRole('button', { name: 'Get started' });
+    expect(go).toHaveAttribute('aria-disabled', 'true');
+    await fireEvent.click(go);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome');
+    expect(screen.getByText('Enter a hex code like #F5A06E.')).toBeInTheDocument();
+    expect(hex).toHaveAttribute('aria-invalid', 'true');
+    expect(hex).toHaveFocus();
+
+    // Enter in the field = "Get started".
+    await fireEvent.input(hex, { target: { value: '#1E3A8A' } });
+    expect(go).toHaveAttribute('aria-disabled', 'false');
+    await fireEvent.keyDown(hex, { key: 'Enter' });
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up Roedy Mail');
+    expect(prefs.values.accent).toBe('#1e3a8a');
+    expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#1e3a8a');
+  });
+
+  it('starts with Enter on a tile while "More colors" is open', async () => {
+    prefs.set({ animations: false });
+    const view = render(Page);
+    await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
+    const lime = group('Accent color').option('Lime');
+    await fireEvent.click(lime);
+    await fireEvent.keyDown(lime, { key: 'Enter' });
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up Roedy Mail');
+    expect(prefs.values.accent).toBe('#a8c65e');
+  });
+
+  it('hides open "More colors" with the page behind "No connection"', async () => {
     mockApi({});
     render(Page);
     await fireEvent.click(screen.getByRole('button', { name: 'More colors' }));
-    const editor = screen.getByRole('dialog', { name: 'More colors' });
+    const hex = screen.getByLabelText('Your own hex code');
     window.dispatchEvent(new Event('offline'));
     expect(await screen.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
-    const layer = editor.closest<HTMLElement>('[aria-hidden="true"]');
+    const layer = hex.closest<HTMLElement>('[aria-hidden="true"]');
     expect(layer).not.toBeNull();
     expect(layer?.inert).toBe(true);
   });
