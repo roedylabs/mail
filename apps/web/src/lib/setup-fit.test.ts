@@ -1,5 +1,5 @@
 import { flushSync } from 'svelte';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { SetupFit } from './setup-fit.svelte.ts';
 
 /** Page whose content is `content` px high in a window of `height` px. */
@@ -73,6 +73,41 @@ describe('SetupFit', () => {
     await settle();
     expect(fit.h).toBe(480);
     expect(fit.level).toBeGreaterThan(0);
+  });
+
+  it('refits when a web font finishes loading after fonts.ready', async () => {
+    const { root, fit } = page();
+    const fonts = Object.assign(new EventTarget(), { ready: Promise.resolve() });
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        observe() {}
+        disconnect() {}
+      },
+    );
+    const had = Object.getOwnPropertyDescriptor(document, 'fonts');
+    Object.defineProperty(document, 'fonts', { value: fonts, configurable: true });
+    try {
+      // Fallback fonts: the content is too high, the card takes a denser level.
+      root.content = 900;
+      const stop = fit.observe(root as unknown as HTMLElement);
+      await settle();
+      expect(fit.level).toBeGreaterThan(0);
+      // The web font arrives later and the content fits again.
+      root.content = 500;
+      fonts.dispatchEvent(new Event('loadingdone'));
+      await settle();
+      expect(fit.level).toBe(0);
+      stop();
+      root.content = 900;
+      fonts.dispatchEvent(new Event('loadingdone'));
+      await settle();
+      expect(fit.level).toBe(0);
+    } finally {
+      if (had) Object.defineProperty(document, 'fonts', had);
+      else delete (document as { fonts?: unknown }).fonts;
+      vi.unstubAllGlobals();
+    }
   });
 
   it('does not refit on release without a change', async () => {

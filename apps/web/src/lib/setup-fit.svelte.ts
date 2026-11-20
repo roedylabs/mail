@@ -116,18 +116,26 @@ export class SetupFit {
     if (next) this.relayout(next.w, next.h);
   }
 
-  /** Observes the page size and the web fonts; returns the cleanup (for `$effect`). */
+  /**
+   * Observes the page size and the web fonts; returns the cleanup (for `$effect`). A font face that only starts
+   * loading after `fonts.ready` (first visit, no cache) refits too: fitted on the fallback fonts, the card would
+   * otherwise keep a denser level until the next relayout (such as a change of language).
+   */
   observe(root: HTMLElement): () => void {
     const ro = new ResizeObserver(() => this.resize(root.clientWidth, root.clientHeight));
     ro.observe(root);
     this.relayout(root.clientWidth, root.clientHeight);
     let alive = true;
-    void document.fonts?.ready.then(() => {
+    const fonts = typeof document !== 'undefined' ? document.fonts : undefined;
+    const loaded = () => {
       if (alive) this.relayout();
-    });
+    };
+    void fonts?.ready.then(loaded);
+    fonts?.addEventListener?.('loadingdone', loaded);
     return () => {
       alive = false;
       ro.disconnect();
+      fonts?.removeEventListener?.('loadingdone', loaded);
     };
   }
 
