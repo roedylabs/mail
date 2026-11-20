@@ -669,9 +669,33 @@ export interface SheetDrag {
 export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> {
   return (el) => {
     let resetTimer: ReturnType<typeof setTimeout> | undefined;
+    /** Touch that may become this gesture: where it went down, and whether the gesture has taken it. */
+    let touch: { x: number; y: number; target: Element; taken: boolean } | null = null;
+
+    /** Vertical movement the panel takes on touch: anywhere, inside scrolled content only downwards from its top. */
+    const owns = (target: Element, dx: number, dy: number): boolean => {
+      if (Math.abs(dx) > Math.abs(dy)) return false;
+      const sc = scroller(target, el);
+      return !sc || (dy > 0 && sc.scrollTop <= 0);
+    };
+
+    // The panel has `touch-action: pan-y` so that its content scrolls natively; the browser would then also
+    // take a drag of the panel itself and cancel it (`pointercancel`). Its touch moves are kept from the
+    // browser as soon as the movement belongs to the panel, so it follows the finger wherever it is held.
+    const onTouchMove = (e: TouchEvent) => {
+      const t = e.touches[0];
+      if (!touch || !t || e.touches.length !== 1 || !e.cancelable) return;
+      const dx = t.clientX - touch.x;
+      const dy = t.clientY - touch.y;
+      if (touch.taken || (Math.hypot(dx, dy) >= 3 && owns(touch.target, dx, dy))) e.preventDefault();
+    };
+    const onTouchEnd = (e: TouchEvent) => {
+      if (e.touches.length === 0) touch = null;
+    };
 
     const onDown = (e: PointerEvent) => {
       cancelAnimationFrame(flingRaf);
+      touch = null;
       if (!canStart(e)) return;
       const o = get();
       if (!o) return;
@@ -683,16 +707,22 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
       let st0 = 0;
       let height = 0;
       let off = 0;
+      const own = e.pointerType === 'touch' ? { x: e.clientX, y: e.clientY, target, taken: false } : null;
+      touch = own;
 
       follow(e, {
         decide: (dx, dy) => {
-          if (Math.abs(dx) > Math.abs(dy)) return false;
+          if (Math.abs(dx) > Math.abs(dy) || (!mouse && !owns(target, dx, dy))) {
+            // Not this gesture: the rest of the touch stays with the browser.
+            if (touch === own) touch = null;
+            return false;
+          }
           sc = scroller(target, el);
-          if (!mouse && sc && !(dy > 0 && sc.scrollTop <= 0)) return false;
           st0 = sc ? sc.scrollTop : 0;
           return true;
         },
         start: () => {
+          if (own) own.taken = true;
           clearTimeout(resetTimer);
           claim(el);
           scrim = o.scrim === undefined ? el.parentElement : o.scrim;
@@ -727,8 +757,14 @@ export function dragSheet(get: () => SheetDrag | null): Attachment<HTMLElement> 
     };
 
     el.addEventListener('pointerdown', onDown);
+    el.addEventListener('touchmove', onTouchMove, { passive: false });
+    el.addEventListener('touchend', onTouchEnd);
+    el.addEventListener('touchcancel', onTouchEnd);
     return () => {
       el.removeEventListener('pointerdown', onDown);
+      el.removeEventListener('touchmove', onTouchMove);
+      el.removeEventListener('touchend', onTouchEnd);
+      el.removeEventListener('touchcancel', onTouchEnd);
       clearTimeout(resetTimer);
     };
   };

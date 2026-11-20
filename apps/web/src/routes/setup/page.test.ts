@@ -853,10 +853,17 @@ describe('Step 1: language and appearance', () => {
     expect(sessionStorage.getItem('roedy-setup-accent')).toBe('custom');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#78c895');
 
-    // A named accent again: the swatch keeps the custom colour.
+    // A named accent again: the custom colour is dropped, the tile shows "More" again.
     await fireEvent.click(accent.option('Sky'));
-    expect(accent.option('Mint')).toHaveAttribute('aria-checked', 'false');
     expect(prefs.values.accent).toBe('sky');
+    expect(accent.option('More')).toHaveAttribute('aria-checked', 'false');
+    expect(sessionStorage.getItem('roedy-setup-accentHex')).toBeNull();
+
+    // The editor then starts with the active accent: no preset marked, its code in the field.
+    await fireEvent.click(accent.option('More'));
+    const third = screen.getByRole('dialog', { name: 'More colors' });
+    expect(within(third).queryByRole('radio', { checked: true })).toBeNull();
+    expect(within(third).getByLabelText('Or your own hex code')).toHaveValue(ACCENTS.sky.base.toUpperCase());
   });
 
   it('hides an open colour editor behind "No connection"', async () => {

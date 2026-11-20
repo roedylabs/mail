@@ -108,5 +108,8 @@ describe('ColorEditor', () => {
     expect(dialog).toHaveClass('sheet');
     expect(view.container.querySelector('.grip')).not.toBeNull();
     expect(view.container.querySelector('[data-scrim]')).toHaveClass('sheet');
+    // "Cancel" closes it: no close button next to the title.
+    expect(within(dialog).queryByRole('button', { name: 'Close' })).toBeNull();
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toBeInTheDocument();
   });
 });

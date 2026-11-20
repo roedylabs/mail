@@ -155,7 +155,7 @@ export function choicesOf(): SetupChoices {
   };
 }
 
-/** Custom accent of the session (kept while a named accent is chosen), `null` without one. */
+/** Custom accent of the session, `null` without one (a named accent drops it). */
 export function customHexOf(): HexColor | null {
   return parseHex(readSession('accentHex') ?? '');
 }
@@ -167,7 +167,7 @@ export function storeChoice(patch: Partial<SetupChoices>): void {
   if (patch.accent !== undefined) {
     const custom = isHexColor(patch.accent);
     writeSession('accent', custom ? 'custom' : patch.accent);
-    if (custom) writeSession('accentHex', patch.accent);
+    writeSession('accentHex', custom ? patch.accent : null);
   }
 }
 

@@ -79,10 +79,11 @@ describe('Session of the tab', () => {
     expect(sessionStorage.getItem('roedy-setup-accent')).toBe('custom');
     expect(sessionStorage.getItem('roedy-setup-accentHex')).toBe('#4a7bd0');
     expect(choicesOf()).toEqual({ lang: 'de', mode: 'light', accent: '#4a7bd0' });
-    // A named accent again: the custom colour stays for the swatch "Custom".
+    // A named accent again: the custom colour is dropped, the tile shows "More" again.
     storeChoice({ accent: 'rose' });
     expect(choicesOf().accent).toBe('rose');
-    expect(customHexOf()).toBe('#4a7bd0');
+    expect(customHexOf()).toBeNull();
+    expect(sessionStorage.getItem('roedy-setup-accentHex')).toBeNull();
     storeChoice({ mode: 'system' });
     expect(choicesOf().mode).toBe('system');
     // Unknown values: the defaults.

@@ -132,7 +132,7 @@
   // ---- Choices ----
 
   let choices = $state<SetupChoices>(choicesOf());
-  /** Custom colour of the session; stays while a named accent is chosen. */
+  /** Custom colour of the session; a named accent drops it (the tile shows "More" again). */
   let custom = $state<HexColor | null>(customHexOf());
   const isCustom = $derived(isHexColor(choices.accent));
 
@@ -141,6 +141,7 @@
     storeChoice(patch);
     prefs.set(patch);
     choices = { ...choices, ...patch };
+    if (patch.accent !== undefined && !isHexColor(patch.accent)) custom = null;
   }
 
   const sysLang = browserLang();
@@ -170,7 +171,7 @@
 
   let editing = $state(false);
   let customBtn: HTMLButtonElement | undefined = $state();
-  /** The editor starts with the custom colour, otherwise the current accent. */
+  /** The editor starts with the current accent (the custom colour while it is chosen). */
   const editStart = $derived(editorStart(choices.accent, custom));
 
   function closeEditor() {

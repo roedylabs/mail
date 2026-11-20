@@ -582,6 +582,56 @@ describe('dragSheet', () => {
     expect(off.el.style.translate).toBe('');
     expect(off.closed).not.toHaveBeenCalled();
   });
+
+  /** Touch event at (x, y) on `target`; returns whether the gesture kept it from the browser. */
+  function touch(type: string, x: number, y: number, target: Element): boolean {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    const touches = type === 'touchmove' ? [{ clientX: x, clientY: y }] : [];
+    Object.assign(e, { touches });
+    target.dispatchEvent(e);
+    return e.defaultPrevented;
+  }
+
+  it('keeps a vertical touch on the panel from the browser, so it follows wherever it is held', () => {
+    vi.useFakeTimers();
+    const { el, row } = sheet({ animations: false });
+    pointer('pointerdown', 100, 100, row);
+    // Already before the decision (8 px), so the browser does not start scrolling and cancel the gesture.
+    expect(touch('touchmove', 100, 104, row)).toBe(true);
+    pointer('pointermove', 100, 110);
+    expect(touch('touchmove', 100, 110, row)).toBe(true);
+    pointer('pointermove', 100, 160);
+    // Upwards again: still the panel's movement.
+    expect(touch('touchmove', 100, 60, row)).toBe(true);
+    expect(el.style.translate).not.toBe('');
+    vi.advanceTimersByTime(200);
+    pointer('pointerup', 100, 60);
+    window.dispatchEvent(new MouseEvent('click'));
+    touch('touchend', 100, 60, row);
+    // A touch that the gesture did not start on is left alone.
+    expect(touch('touchmove', 100, 200, row)).toBe(false);
+  });
+
+  it('leaves horizontal touches and scrolled content to the browser', () => {
+    vi.useFakeTimers();
+    const flat = sheet({ animations: false });
+    pointer('pointerdown', 100, 100, flat.row);
+    expect(touch('touchmove', 106, 101, flat.row)).toBe(false);
+    pointer('pointermove', 112, 102);
+    // Decided as no gesture: the rest of the touch stays with the browser, also vertically.
+    expect(touch('touchmove', 112, 150, flat.row)).toBe(false);
+    pointer('pointerup', 112, 150);
+    touch('touchend', 112, 150, flat.row);
+    flat.off?.();
+    document.body.innerHTML = '';
+
+    const { row } = sheet({ animations: false }, 50);
+    pointer('pointerdown', 100, 100, row);
+    expect(touch('touchmove', 100, 106, row)).toBe(false);
+    expect(touch('touchmove', 100, 94, row)).toBe(false);
+    pointer('pointercancel', 100, 94);
+    touch('touchcancel', 100, 94, row);
+  });
 });
 
 describe('pull-up gesture maths', () => {
