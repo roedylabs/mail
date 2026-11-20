@@ -467,7 +467,7 @@
 <style>
   .stage {
     position: relative;
-    height: calc(100dvh - var(--sab));
+    height: calc(100dvh - var(--sat) - var(--sab));
     min-width: 320px;
     min-height: 480px;
     display: flex;

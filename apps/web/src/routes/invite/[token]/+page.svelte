@@ -673,7 +673,7 @@
 <style>
   .invite {
     position: relative;
-    height: calc(100dvh - var(--sab));
+    height: calc(100dvh - var(--sat) - var(--sab));
     display: flex;
     gap: 16px;
     overflow-x: hidden;

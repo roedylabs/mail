@@ -2179,7 +2179,7 @@
   /* Reserves the insets itself: a page taller than the window (its own minimum height) still scrolls clear of them */
   .bare {
     min-height: 100dvh;
-    padding: 0 var(--sar) var(--sab) var(--sal);
+    padding: var(--sat) var(--sar) var(--sab) var(--sal);
     display: flex;
     flex-direction: column;
   }
@@ -2187,7 +2187,7 @@
   /* Toast and confirmation above pages without a shell that scroll themselves */
   .layer {
     position: fixed;
-    inset: 0 var(--sar) var(--sab) var(--sal);
+    inset: var(--sat) var(--sar) var(--sab) var(--sal);
     z-index: 95;
     pointer-events: none;
   }
@@ -2198,8 +2198,8 @@
 
   .app {
     position: relative;
-    height: calc(100dvh - var(--sab));
-    margin: 0 var(--sar) 0 var(--sal);
+    height: calc(100dvh - var(--sat) - var(--sab));
+    margin: var(--sat) var(--sar) 0 var(--sal);
     display: flex;
     flex-direction: column;
     overflow: hidden;
