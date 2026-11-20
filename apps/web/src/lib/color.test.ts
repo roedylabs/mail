@@ -5,6 +5,7 @@ import * as exact from '#lib/test/contrast.ts';
 import {
   LIGHT_INK,
   MIN_CONTRAST,
+  TERMINAL_BG,
   TOAST_HOVER,
   accentInk,
   accentText,
@@ -12,6 +13,7 @@ import {
   darkShade,
   isHexColor,
   parseHex,
+  terminalAccent,
   type HexColor,
 } from './color.ts';
 
@@ -280,6 +282,68 @@ describe('named accents on --accsoft (CSS mixes)', () => {
     const soft = mix(base, ACCSOFT_SHARE.light, MODES.light['--surface']);
     expect(exact.contrast(mix(base, 55, '#2b1405'), soft)).toBeLessThan(MIN_CONTRAST);
     expect(exact.contrast(mix(base, 52, '#2b1405'), soft)).toBeGreaterThanOrEqual(4.6);
+  });
+});
+
+describe('terminalAccent', () => {
+  const bg = exact.hex(TERMINAL_BG);
+
+  it('is the terminal background of the setup token step', () => {
+    expect(TERMINAL_BG).toBe('#1b1612');
+  });
+
+  it('mixes 36 % white into #1e3a8a', () => {
+    expect(terminalAccent('#1e3a8a')).toBe('#6880b6');
+    expect(exact.contrast(exact.hex('#6880b6'), bg)).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    // One step of 2 % less stays below 4.5:1.
+    expect(exact.contrast(exact.mixOklab(exact.hex('#ffffff'), exact.hex('#1e3a8a'), 0.34), bg)).toBeLessThan(
+      MIN_CONTRAST,
+    );
+  });
+
+  it('needs 60 % white for black', () => {
+    expect(terminalAccent('#000000')).toBe('#808080');
+    expect(exact.contrast(exact.hex('#808080'), bg)).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    expect(exact.contrast(exact.mixOklab(exact.hex('#ffffff'), exact.hex('#000000'), 0.58), bg)).toBeLessThan(
+      MIN_CONTRAST,
+    );
+  });
+
+  it('keeps the named accents and light colours unchanged', () => {
+    for (const [name, { base }] of Object.entries(ACCENTS)) expect(terminalAccent(base), name).toBe(base);
+    for (const hex of ['#ffffff', '#f5a06e', '#e8798f', '#78c895'] as const) expect(terminalAccent(hex), hex).toBe(hex);
+  });
+
+  it('reaches 4.5:1 on the terminal for every colour of the RGB cube', () => {
+    for (const hex of cube(8)) {
+      expect(exact.contrast(exact.hex(terminalAccent(hex)), bg), hex).toBeGreaterThanOrEqual(MIN_CONTRAST);
+    }
+  });
+});
+
+describe('--deep on the light terminal card (--surface2)', () => {
+  for (const mode of ['light', 'dark'] as const) {
+    it(`reaches 4.5:1 on --surface2 for every colour of the RGB cube in ${mode} mode`, () => {
+      const card = exact.hex(MODES[mode]['--surface2']);
+      for (const hex of cube(8)) {
+        const deep = exact.hex(accentText(hex, mode)['--deep']);
+        expect(exact.contrast(deep, card), hex).toBeGreaterThanOrEqual(MIN_CONTRAST);
+      }
+    });
+  }
+
+  it('keeps the named accents’ light --deep on --surface2 (CSS mix, 5.19–5.60 : 1)', () => {
+    const { share, toward } = ACCENT_TEXT.light['--deep'];
+    const card = exact.hex(MODES.light['--surface2']);
+    for (const [name, { base }] of Object.entries(ACCENTS)) {
+      const deep = exact.mixOklab(exact.hex(base), exact.hex(toward), share / 100);
+      expect(exact.contrast(deep, card), name).toBeGreaterThanOrEqual(5.1);
+    }
+  });
+
+  it('gives Sage’s light --deep #636a46 for "Setup-Token" on the card', () => {
+    expect(accentText(ACCENTS.sage.base, 'light')['--deep']).toBe('#636a46');
+    expect(exact.contrast(exact.hex('#636a46'), exact.hex(MODES.light['--surface2']))).toBeGreaterThanOrEqual(5.1);
   });
 });
 
