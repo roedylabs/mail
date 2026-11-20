@@ -4,6 +4,11 @@ All notable changes to Roedy Mail are documented in this file. The format follow
 
 ## [0.2.0] – 2026-11-20
 
+### Upgrade notes
+
+- `ROEDY_PUBLIC_URL` is required for new instances; the setup no longer asks for the public address. Instances set up with 0.1 keep starting with the address their setup stored ([#181](https://github.com/roedylabs/mail/pull/181)).
+- The setup now only creates the administrator. Add the mail server under Administration › Mail servers and the system emails under Administration › Email afterwards ([docs/ops.md](docs/ops.md#initial-setup)).
+
 ### Features
 
 - **server:** support the system language and custom accent colours in settings ([#163](https://github.com/roedylabs/mail/pull/163))
