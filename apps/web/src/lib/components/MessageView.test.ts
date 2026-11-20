@@ -1074,7 +1074,7 @@ describe('reading view', () => {
     const { view } = setup({ rd });
     const star = view.getByRole('button', { name: 'Remove flag' });
     expect(star).toHaveAttribute('aria-pressed', 'true');
-    expect(star).toHaveStyle({ color: '#e3a93a' });
+    expect(star.style.color).toBe('var(--star)');
     expect(star.querySelector('.tabler-icon-star-filled')).not.toBeNull();
   });
 
