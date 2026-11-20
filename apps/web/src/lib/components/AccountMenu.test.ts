@@ -1,7 +1,26 @@
 import { fireEvent, render } from '@testing-library/svelte';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import AccountMenu from './AccountMenu.svelte';
+import { hideTooltip, TIP_DELAY, TIP_FADE } from '#lib/actions/tooltip.ts';
+import { ui } from '#lib/state/ui.svelte.ts';
 import type { AccountMenuValues } from '#lib/shell.ts';
+
+async function tipOf(el: Element): Promise<string | undefined> {
+  vi.useFakeTimers();
+  await fireEvent.pointerEnter(el, { pointerType: 'mouse' });
+  vi.advanceTimersByTime(TIP_DELAY);
+  const text = ui.tip?.text;
+  await fireEvent.pointerLeave(el, { pointerType: 'mouse' });
+  vi.advanceTimersByTime(TIP_FADE + TIP_DELAY);
+  vi.useRealTimers();
+  return text;
+}
+
+afterEach(() => {
+  hideTooltip();
+  ui.reset();
+  vi.useRealTimers();
+});
 
 function values(patch: Partial<AccountMenuValues> = {}): AccountMenuValues {
   return {
@@ -14,8 +33,17 @@ function values(patch: Partial<AccountMenuValues> = {}): AccountMenuValues {
       { label: 'Dark', icon: 'ti-moon', on: true, onClick: () => {} },
     ],
     langSeg: [
-      { id: 'de', code: 'DE', name: 'German', sub: '', on: true, onClick: () => {} },
-      { id: 'en', code: 'EN', name: 'English', sub: 'English', on: false, onClick: () => {} },
+      {
+        id: 'system',
+        code: '',
+        name: 'System',
+        sub: 'Browser: English',
+        label: 'System – Browser: English',
+        on: false,
+        onClick: () => {},
+      },
+      { id: 'de', code: 'DE', name: 'Deutsch', sub: 'German', label: 'DE Deutsch', on: true, onClick: () => {} },
+      { id: 'en', code: 'EN', name: 'English', sub: '', label: 'EN English', on: false, onClick: () => {} },
     ],
     openAccountSettings: () => {},
     logout: () => {},
@@ -31,8 +59,10 @@ describe('account menu', () => {
     const v = values({ logout, openAccountSettings });
     v.modeSeg[0]!.onClick = light;
     const english = vi.fn();
-    v.langSeg[1]!.onClick = english;
-    const { getByRole, getByText, queryByRole } = render(AccountMenu, { ...v, id: 'account-pop' });
+    v.langSeg[2]!.onClick = english;
+    const system = vi.fn();
+    v.langSeg[0]!.onClick = system;
+    const { getAllByRole, getByRole, getByText, queryByRole } = render(AccountMenu, { ...v, id: 'account-pop' });
     // Named group behind the avatar instead of `role="menu"` (disclosure pattern).
     const pop = getByRole('group', { name: 'Doe, Jane' });
     expect(pop).toHaveAttribute('data-pop');
@@ -49,9 +79,23 @@ describe('account menu', () => {
     expect(en).toHaveTextContent('EN');
     expect(en).toHaveAttribute('lang', 'en');
     expect(en).not.toBeChecked();
-    expect(getByRole('radio', { name: 'DE German' })).toBeChecked();
+    expect(getByRole('radio', { name: 'DE Deutsch' })).toBeChecked();
     await fireEvent.click(en);
     expect(english).toHaveBeenCalled();
+    // "System" first, icon only: named with the browser's language, no `lang` of its own.
+    const radios = getAllByRole('radio').slice(2);
+    expect(radios.map((r) => r.getAttribute('aria-label'))).toEqual([
+      'System – Browser: English',
+      'DE Deutsch',
+      'EN English',
+    ]);
+    expect(radios[0]).toHaveTextContent('');
+    expect(radios[0]!.querySelector('.tabler-icon-world')).not.toBeNull();
+    expect(await tipOf(radios[0]!)).toBe('System');
+    expect(radios[0]).not.toHaveAttribute('lang');
+    expect(radios[0]).not.toBeChecked();
+    await fireEvent.click(radios[0]!);
+    expect(system).toHaveBeenCalled();
     await fireEvent.click(getByRole('button', { name: 'Manage account' }));
     expect(openAccountSettings).toHaveBeenCalled();
     await fireEvent.click(getByRole('button', { name: 'Sign out' }));

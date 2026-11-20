@@ -1,14 +1,20 @@
 <!--
-  Settings › Appearance: colour scheme, accent colour (locked if the branding
-  sets it), text and animation (font size, density, animations) and layout
+  Settings › Appearance: colour scheme, accent colour (five named ones and
+  "More" for a custom colour from the shared colour editor; locked if the
+  branding sets it), text and animation (font size, density, animations) and layout
   (sidebar only on desktop, message list) with section tabs. Values in
   `#lib/appearance.ts`; saved via `prefs.set()`, the sidebar is
   `ui.collapsed`. Card, ring and switch styles are classes, the fixed preview
   colours of the modes and accents come via `style:`.
 -->
 <script lang="ts">
+  import { onMount } from 'svelte';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { appearanceValues, type AppearanceContext, type SegOption } from '#lib/appearance.ts';
+  import type { HexColor } from '#lib/color.ts';
+  import { customName, editorStart, presetOf } from '#lib/color-editor.svelte.ts';
+  import AccentRing from '#lib/components/AccentRing.svelte';
+  import ColorEditor from '#lib/components/ColorEditor.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import { m } from '#lib/paraglide/messages.js';
   import { scrollToSection } from '#lib/sections.ts';
@@ -28,7 +34,51 @@
   const v = $derived(appearanceValues({ values: prefs.values, brand: session.branding, collapsed: ui.collapsed }, ctx));
   const isMobile = $derived(ui.isMobile);
   const info = $derived(pageOf('/settings/appearance'));
+
+  // ---- Colour editor of the sixth accent tile ----
+
+  let editing = $state(false);
+  const more = $derived(v.accentMore);
+  /**
+   * Active custom accent: the preset's name, otherwise "Custom" with the code in the accessible name only
+   * ("Custom #3A7BD5", which contains the visible text); without one "More".
+   */
+  const moreLabel = $derived(
+    more.hex ? (presetOf(more.hex) ? customName(more.hex) : m.appearance_accent_custom()) : m.setup_accent_more(),
+  );
+  const moreName = $derived(more.hex && !presetOf(more.hex) ? customName(more.hex) : undefined);
+  let moreBtn: HTMLButtonElement | undefined = $state();
+
+  /** Cancel, Escape, Close and Apply: the focus goes back to the tile. */
+  function closeEditor() {
+    editing = false;
+    setTimeout(() => moreBtn?.focus({ preventScroll: true }), 0);
+  }
+
+  function applyMore(hex: HexColor) {
+    more.apply(hex);
+    closeEditor();
+  }
+
+  onMount(() => {
+    // The layout shows it above the page: a popover at the tile (desktop) or its own bottom sheet (mobile).
+    ui.pageDialog = () =>
+      editing ? { title: m.color_editor_title(), close: closeEditor, content: editor, bare: true } : null;
+    return () => {
+      ui.pageDialog = null;
+    };
+  });
 </script>
+
+{#snippet editor(mobile: boolean)}
+  <ColorEditor
+    start={editorStart(more.accent)}
+    anchor={moreBtn}
+    sheet={mobile}
+    onapply={applyMore}
+    onclose={closeEditor}
+  />
+{/snippet}
 
 {#snippet segment(label: string, opts: readonly SegOption<string>[])}
   <div role="radiogroup" use:radiogroup aria-label={label} class="seg">
@@ -103,30 +153,52 @@
     {#if v.accLocked}
       <div class="locked-note"><Icon name="ti-lock" />{m.appearance_accent_locked()}</div>
     {/if}
-    <div
-      role="radiogroup"
-      use:radiogroup
-      aria-label={m.appearance_tab_accent()}
-      aria-disabled={v.accLocked}
-      class="accents"
-      class:locked={v.accLocked}
-    >
-      {#each v.accentOpts as a (a.name)}
+    <div class="acc-wrap">
+      <div
+        role="radiogroup"
+        use:radiogroup
+        aria-label={m.appearance_tab_accent()}
+        aria-disabled={v.accLocked}
+        class="accents"
+        class:locked={v.accLocked}
+      >
+        {#each v.accentOpts as a (a.name)}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={a.on}
+            disabled={v.accLocked}
+            class="accent"
+            class:on={a.on}
+            style:--swatch={a.base}
+            style:--swatch-ink={a.ink}
+            onclick={a.onClick}
+          >
+            <span class="swatch"><Icon name="ti-check" /></span>
+            <span class="accent-label">{a.label}</span>
+          </button>
+        {/each}
+        <!-- Sixth tile: opens the colour editor (arrow keys only move here, Enter and Space open it). -->
         <button
+          bind:this={moreBtn}
           type="button"
           role="radio"
-          aria-checked={a.on}
+          aria-checked={more.on}
+          aria-label={moreName}
+          data-opens-dialog
           disabled={v.accLocked}
           class="accent"
-          class:on={a.on}
-          style:--swatch={a.base}
-          style:--swatch-ink={a.ink}
-          onclick={a.onClick}
+          class:on={more.on}
+          style:--swatch={more.hex}
+          style:--swatch-ink={more.ink}
+          onclick={() => (editing = !v.accLocked)}
         >
-          <span class="swatch"><Icon name="ti-check" /></span>
-          <span class="accent-label">{a.label}</span>
+          <span class="swatch">
+            {#if more.hex}<Icon name="ti-check" />{:else}<AccentRing icon="ti-plus" />{/if}
+          </span>
+          <span class="accent-label">{moreLabel}</span>
         </button>
-      {/each}
+      </div>
     </div>
   </section>
 
@@ -528,11 +600,24 @@
     pointer-events: none;
   }
 
+  /* Mobile: six columns spread over the row; where they do not fit with their names, two rows of three.
+     338 px: six 50 px tiles with gap 4 and the longest name on the sixth (a preset like "Cornflower"). */
+  .acc-wrap {
+    container-type: inline-size;
+  }
+
   .mobile .accents {
+    display: grid;
+    grid-template-columns: repeat(6, auto);
     justify-content: space-between;
-    gap: 4px;
-    flex-wrap: nowrap;
+    gap: 12px 4px;
     margin-top: 16px;
+  }
+
+  @container (max-width: 337.98px) {
+    .mobile .accents {
+      grid-template-columns: repeat(3, auto);
+    }
   }
 
   .accent {
@@ -550,8 +635,6 @@
   }
 
   .mobile .accent {
-    flex: 1;
-    min-width: 0;
     padding: 6px 0;
     transition: none;
   }
@@ -572,7 +655,7 @@
       transform var(--dur, 220ms) cubic-bezier(0.3, 1.5, 0.5, 1);
   }
 
-  .swatch :global(svg) {
+  .swatch > :global(svg) {
     opacity: 0;
   }
 
@@ -584,7 +667,7 @@
     transform: rotate(-8deg) scale(1.05);
   }
 
-  .accent.on .swatch :global(svg) {
+  .accent.on .swatch > :global(svg) {
     opacity: 1;
   }
 
@@ -596,6 +679,7 @@
   }
 
   .accent-label {
+    white-space: nowrap;
     font-size: 13px;
     font-weight: 700;
     color: var(--mfg);

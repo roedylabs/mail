@@ -4,8 +4,10 @@
  * `selTz`) and formats (`dateOpts`, `timeOpts`, `weekOpts`, `numOpts` with the
  * preview `fmtPreview`). Changes go through `prefs.set()`; English identifiers
  * are stored (countries per ISO 3166-1), the texts from
- * `messages/<language>.json` are shown. The language itself can also be chosen
- * in the account menu (`langSeg`, the same `langChoices()`).
+ * `messages/<language>.json` are shown. "System" follows the browser's language
+ * (`prefs.browserLang`, also after a change); mails then use the language of
+ * the last sign-in (`systemNote`). The language itself can also be chosen in
+ * the account menu (`langSeg`, the same `langChoices()`).
  *
  * With `tzAuto` the zone of the device applies (`tzCur`); `prefs` reports it to
  * the server as `tz` so that the mails show the same time. Region and number
@@ -21,6 +23,7 @@ import type { SegOption } from '#lib/appearance.ts';
 import { formatDate } from '#lib/date.ts';
 import { clock } from '#lib/mail-list.ts';
 import { m } from '#lib/paraglide/messages.js';
+import type { Locale } from '#lib/paraglide/runtime.js';
 import { segOptions as seg, selectValues as select, type SelectValues } from '#lib/select.ts';
 import { TIME_FMTS, WEEK_STARTS } from '#lib/settings-choices.ts';
 import { REGIONS, displayZone, type Region, type Settings } from '#lib/state/prefs.svelte.ts';
@@ -48,11 +51,11 @@ export const NUM_FMTS: Readonly<Record<string, string>> = {
 };
 
 interface Lang {
-  id: Settings['lang'];
+  id: Locale;
   code: string;
   /** Name in the language itself ("Deutsch", "English"). */
   name: () => string;
-  /** Name in the UI language; only shown if it differs (`sub`). */
+  /** Name in the UI language; only shown if it differs from `name` ("German" under "Deutsch"). */
   sub: () => string;
 }
 
@@ -62,29 +65,65 @@ const LANGS: readonly Lang[] = [
   { id: 'en', code: 'EN', name: m.region_lang_en, sub: m.region_lang_en_sub },
 ];
 
+/** Name of a language in itself ("Deutsch", "English"). */
+function langName(lang: Locale): string {
+  return lang === 'de' ? m.region_lang_de() : m.region_lang_en();
+}
+
 /** Language as a card (page) or segment (account menu, `langSeg`). */
 export interface LangChoice {
   id: Settings['lang'];
+  /** Code on the tile and in the segment ("DE"); empty for "System", which shows `ti-world`. */
   code: string;
   name: string;
-  /** Name in the UI language, empty for the chosen one ("English" – "English"). */
+  /**
+   * Second line: the name in the UI language if it differs ("Deutsch" – "German"), for "System" always the
+   * browser's language ("Browser: English"); otherwise empty.
+   */
   sub: string;
+  /** Name in the account menu: code and name ("EN English"), for "System" with the browser's language. */
+  label: string;
   on: boolean;
   onClick: () => void;
 }
 
-/** Languages with selection; a change applies at once (`prefs.set`), without undo. */
-export function langChoices(lang: Settings['lang'], set: (patch: Partial<Settings>) => void): LangChoice[] {
-  return LANGS.map((l) => ({
-    id: l.id,
-    code: l.code,
-    name: l.name(),
-    sub: l.id === lang ? '' : l.sub(),
-    on: l.id === lang,
-    onClick: () => {
-      if (l.id !== lang) set({ lang: l.id });
+/**
+ * Languages with selection, "System" first (follows the browser, `browser`); a change applies at once
+ * (`prefs.set`), without undo. With `system` only "System" is chosen, not the language it resolves to.
+ */
+export function langChoices(
+  lang: Settings['lang'],
+  browser: Locale,
+  set: (patch: Partial<Settings>) => void,
+): LangChoice[] {
+  const pick = (id: Settings['lang']) => () => {
+    if (id !== lang) set({ lang: id });
+  };
+  const browserName = langName(browser);
+  return [
+    {
+      id: 'system',
+      code: '',
+      name: m.region_lang_system(),
+      sub: m.region_lang_system_sub({ lang: browserName }),
+      label: m.account_language_system({ lang: browserName }),
+      on: lang === 'system',
+      onClick: pick('system'),
     },
-  }));
+    ...LANGS.map((l) => {
+      const name = l.name();
+      const sub = l.sub();
+      return {
+        id: l.id,
+        code: l.code,
+        name,
+        sub: sub === name ? '' : sub,
+        label: `${l.code} ${name}`,
+        on: l.id === lang,
+        onClick: pick(l.id),
+      };
+    }),
+  ];
 }
 
 const REGION_LABELS: Record<Region, () => string> = {
@@ -110,7 +149,7 @@ export function regionLabel(region: string): string {
   return Object.hasOwn(REGION_LABELS, region) ? REGION_LABELS[region as Region]() : region;
 }
 
-/** Language (`langOpts[]`) as a card with a code. */
+/** Language (`langOpts[]`) as a card with a code ("System": `ti-world`). */
 export interface LangOption extends LangChoice {
   hasSub: boolean;
 }
@@ -118,6 +157,8 @@ export interface LangOption extends LangChoice {
 export interface LanguageValues {
   langTabs: { label: string; onClick: () => void }[];
   langOpts: LangOption[];
+  /** Note below the cards while "System" is chosen: mails use the language of the last sign-in. */
+  systemNote: string | null;
   selRegion: SelectValues;
   tgTzAuto: { on: boolean; onClick: () => void };
   selTz: SelectValues;
@@ -130,6 +171,10 @@ export interface LanguageValues {
 
 export interface LanguageInput {
   values: Pick<Settings, 'lang' | 'region' | 'tzAuto' | 'tz' | 'dateFmt' | 'timeFmt' | 'weekStart' | 'numFmt'>;
+  /** Language of the browser (`prefs.browserLang`), shown under "System". */
+  browserLang: Locale;
+  /** Name of the app in the note under "System" (`session.appName`). */
+  appName: string;
   now: number;
   /** Time zone of the device (`browserTimeZone()`); `undefined` if it reports no usable one. */
   deviceTz: string | undefined;
@@ -165,7 +210,8 @@ export function languageValues(input: LanguageInput, ctx: LanguageContext): Lang
       { label: m.region_tab_region(), onClick: () => ctx.scrollTo('region') },
       { label: m.region_tab_formats(), onClick: () => ctx.scrollTo('formats') },
     ],
-    langOpts: langChoices(values.lang, ctx.set).map((l) => ({ ...l, hasSub: !!l.sub })),
+    langOpts: langChoices(values.lang, input.browserLang, ctx.set).map((l) => ({ ...l, hasSub: !!l.sub })),
+    systemNote: values.lang === 'system' ? m.region_lang_system_mail({ app: input.appName }) : null,
     selRegion: select(
       'region',
       m.region_country_title(),

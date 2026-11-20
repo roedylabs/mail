@@ -4,6 +4,7 @@ import { prefs } from '#lib/state/prefs.svelte.ts';
 import { BRAND0, session, type PublicConfig } from '#lib/state/session.svelte.ts';
 import { ui } from '#lib/state/ui.svelte.ts';
 import Page from './+page.svelte';
+import DialogHost from './DialogHost.svelte';
 
 // The tabs scroll to the section; jsdom has no layout (`offsetParent`), hence only the call.
 const scrollToSection = vi.hoisted(() => vi.fn());
@@ -67,7 +68,7 @@ describe('Appearance page', () => {
       group('Accent color')
         .getAllByRole('radio')
         .map((r) => r.textContent.trim()),
-    ).toEqual(['Apricot', 'Sage', 'Lavender', 'Sky', 'Rose']);
+    ).toEqual(['Apricot', 'Sage', 'Lavender', 'Sky', 'Rose', 'More']);
     expect(checked('Accent color')).toHaveTextContent('Apricot');
     expect(checked('Font size')).toHaveTextContent('Medium');
     expect(checked('Density')).toHaveTextContent('Normal');
@@ -112,6 +113,93 @@ describe('Appearance page', () => {
     await fireEvent.click(sky);
     expect(prefs.values.accent).toBeNull();
     expect(checked('Accent color')).toHaveTextContent('Rose');
+    // "More" is locked too and opens nothing.
+    const more = within(accents).getByRole('radio', { name: 'More' });
+    expect(more).toBeDisabled();
+    await fireEvent.click(more);
+    expect(ui.pageDialog?.()).toBeNull();
+  });
+
+  it('a locked custom accent shows the brand colour and "More"', () => {
+    session.config = { ...CONFIG, branding: { ...BRAND0, userAccent: false, color: 'sage' } };
+    prefs.set({ accent: '#3a7bd5' });
+    render(Page);
+    expect(checked('Accent color')).toHaveTextContent('Sage');
+    expect(group('Accent color').getByRole('radio', { name: 'More' })).not.toBeChecked();
+  });
+
+  it('"More" opens the colour editor at the tile; Apply saves the custom accent at once', async () => {
+    const view = render(DialogHost);
+    const more = group('Accent color').getByRole('radio', { name: 'More' });
+    // A radio like the setup's tile: no `aria-haspopup` (not allowed on `radio`).
+    expect(more).not.toHaveAttribute('aria-haspopup');
+    expect(more).not.toBeChecked();
+    // Ring of the palette's hues with + while no custom accent is active.
+    expect(more.querySelector('.swatch .tabler-icon-plus')).not.toBeNull();
+    expect(ui.pageDialog?.()).toBeNull();
+
+    await fireEvent.click(more);
+    expect(ui.pageDialog?.()).toMatchObject({ title: 'More colors', bare: true });
+    const editor = await view.findByRole('dialog', { name: 'More colors' });
+    // Starts with the base of the active accent (apricot).
+    expect(within(editor).getByLabelText('Or your own hex code')).toHaveValue('#F5A06E');
+    await fireEvent.input(within(editor).getByLabelText('Or your own hex code'), { target: { value: '3a7bd5' } });
+    await fireEvent.click(within(editor).getByRole('button', { name: 'Apply' }));
+    expect(prefs.values.accent).toBe('#3a7bd5');
+    expect(view.queryByRole('dialog', { name: 'More colors' })).toBeNull();
+    expect(ui.toast).toBeNull();
+
+    // The tile shows the colour with the check, like a named one, and gets the focus back.
+    const custom = group('Accent color').getByRole('radio', { name: 'Custom #3A7BD5' });
+    expect(custom).toBe(more);
+    // Visible "Custom"; the code only in the name, which contains the visible text (WCAG 2.5.3).
+    expect(more.querySelector('.accent-label')).toHaveTextContent(/^Custom$/);
+    expect(checked('Accent color')).toBe(more);
+    expect(more.style.getPropertyValue('--swatch')).toBe('#3a7bd5');
+    expect(more.querySelector('.swatch > .tabler-icon-check')).not.toBeNull();
+    expect(more.querySelector('.ring')).toBeNull();
+    await vi.waitFor(() => expect(more).toHaveFocus());
+
+    // Opened again it starts with the custom colour; Escape changes nothing.
+    await fireEvent.click(more);
+    const again = await view.findByRole('dialog', { name: 'More colors' });
+    expect(within(again).getByLabelText('Or your own hex code')).toHaveValue('#3A7BD5');
+    await fireEvent.click(within(again).getByRole('radio', { name: 'Mint' }));
+    await fireEvent.keyDown(again, { key: 'Escape' });
+    expect(view.queryByRole('dialog', { name: 'More colors' })).toBeNull();
+    expect(prefs.values.accent).toBe('#3a7bd5');
+    await vi.waitFor(() => expect(more).toHaveFocus());
+
+    // A named accent turns the tile back into "More".
+    await fireEvent.click(group('Accent color').getByRole('radio', { name: 'Sky' }));
+    expect(prefs.values.accent).toBe('sky');
+    expect(more).toHaveAccessibleName('More');
+    expect(more).not.toBeChecked();
+  });
+
+  it('shows a preset as the custom accent under its name; the arrows do not open the editor', async () => {
+    prefs.set({ accent: '#78c895' });
+    render(DialogHost);
+    const mint = group('Accent color').getByRole('radio', { name: 'Mint' });
+    expect(mint).toBeChecked();
+    expect(mint).not.toHaveAttribute('aria-label');
+    expect(mint.querySelector('.accent-label')).toHaveTextContent(/^Mint$/);
+    const rose = group('Accent color').getByRole('radio', { name: 'Rose' });
+    rose.focus();
+    await fireEvent.keyDown(rose, { key: 'ArrowRight' });
+    expect(mint).toHaveFocus();
+    expect(ui.pageDialog?.()).toBeNull();
+    await fireEvent.keyDown(mint, { key: 'ArrowRight' });
+    expect(prefs.values.accent).toBe('apricot');
+  });
+
+  it('shows the colour editor as its own bottom sheet on mobile', async () => {
+    vi.stubGlobal('innerWidth', 390);
+    window.dispatchEvent(new Event('resize'));
+    const view = render(DialogHost);
+    await fireEvent.click(group('Accent color').getByRole('radio', { name: 'More' }));
+    const editor = await view.findByRole('dialog', { name: 'More colors' });
+    expect(editor).toHaveClass('sheet');
   });
 
   it('changes font size, density, message list and animations', async () => {
@@ -181,7 +269,7 @@ describe('Appearance page', () => {
     expect(group('Color scheme').getAllByRole('radio')).toHaveLength(3);
     expect(view.container.querySelector('.m-prev')).not.toBeNull();
     expect(view.container.querySelector('.prev')).toBeNull();
-    expect(group('Accent color').getAllByRole('radio')).toHaveLength(5);
+    expect(group('Accent color').getAllByRole('radio')).toHaveLength(6);
     expect(view.queryByRole('radiogroup', { name: 'Sidebar' })).toBeNull();
     expect(view.queryByText('Width and behavior of the sidebar')).toBeNull();
     expect(checked('Message list')).toHaveTextContent('Soft');

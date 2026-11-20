@@ -80,6 +80,30 @@ describe('Appearance', () => {
     expect(ctx.set).toHaveBeenCalledWith({ accent: 'sky' });
   });
 
+  it('"More": opens the editor with the active accent, Apply saves the custom colour', () => {
+    const { v, ctx } = setup();
+    expect(v.accentMore).toMatchObject({ hex: null, ink: null, on: false, accent: 'apricot' });
+    v.accentMore.apply('#3a7bd5');
+    expect(ctx.set).toHaveBeenCalledWith({ accent: '#3a7bd5' });
+  });
+
+  it('"More" shows an active custom accent like a named tile', () => {
+    const custom = setup({ values: { ...RESET0, accent: '#3a7bd5' } }).v.accentMore;
+    expect(custom).toMatchObject({ hex: '#3a7bd5', on: true, accent: '#3a7bd5' });
+    expect(custom.ink).toMatch(/^#[0-9a-f]{6}$/);
+    expect(setup({ values: { ...RESET0, accent: 'sky' } }).v.accentMore).toMatchObject({ hex: null, on: false });
+  });
+
+  it('"More" is locked like the others: brand colour, Apply without effect', () => {
+    const { v, ctx } = setup({
+      values: { ...RESET0, accent: '#3a7bd5' },
+      brand: { userAccent: false, color: 'sage' },
+    });
+    expect(v.accentMore).toMatchObject({ hex: null, on: false, accent: 'sage' });
+    v.accentMore.apply('#336699');
+    expect(ctx.set).not.toHaveBeenCalled();
+  });
+
   it('takes the own choice before the brand colour with userAccent', () => {
     const { v } = setup({ values: { ...RESET0, accent: 'rose' }, brand: { userAccent: true, color: 'sage' } });
     expect(v.accentOpts.filter((a) => a.on).map((a) => a.name)).toEqual(['rose']);

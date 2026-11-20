@@ -1772,6 +1772,23 @@ describe('Shell layout', () => {
     expect(close).toHaveBeenCalled();
   });
 
+  it("shows a `bare` page dialog on mobile without the layout's sheet", async () => {
+    vi.stubGlobal('innerWidth', 400);
+    window.dispatchEvent(new Event('resize'));
+    mockApi({
+      'GET public/config': [{ body: CONFIG }],
+      'GET auth/me': [{ body: me('admin') }],
+      'GET settings': [{ body: SETTINGS }],
+      'GET mail-accounts': [{ body: NO_ACCOUNTS }],
+    });
+    const { findByText, queryByRole } = renderAt('/settings/appearance');
+    await findByText('Page content');
+    ui.pageDialog = () => ({ title: 'More colors', close: vi.fn(), content: dialog, bare: true });
+    // The content draws its own sheet (colour editor).
+    expect(await findByText('Content in the sheet')).toBeInTheDocument();
+    expect(queryByRole('dialog', { name: 'More colors' })).toBeNull();
+  });
+
   it('shows toasts also on pages without a shell', async () => {
     mockApi({
       'GET public/config': [{ body: CONFIG }],
