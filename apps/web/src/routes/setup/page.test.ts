@@ -855,6 +855,19 @@ describe('Step 1: language and appearance', () => {
     expect(prefs.values.accent).toBe('rose');
   });
 
+  it('keeps an own colour without recently used ones in its place when another tile is picked', async () => {
+    sessionStorage.setItem('roedy-setup-accent', 'custom');
+    sessionStorage.setItem('roedy-setup-accentHex', '#123456');
+    render(Page);
+    const accent = group('Accent color');
+    const row = ['Custom #123456', 'Apricot', 'Sage', 'Lavender', 'Sky', 'Rose'];
+    expect(names(accent.el)).toEqual(row);
+    await fireEvent.click(accent.option('Sky'));
+    expect(prefs.values.accent).toBe('sky');
+    expect(names(accent.el)).toEqual(row);
+    expect(accent.option('Sky')).toHaveAttribute('aria-checked', 'true');
+  });
+
   it('picks a colour in "More colors", which then leads the row', async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     render(Page);

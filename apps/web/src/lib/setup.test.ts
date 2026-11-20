@@ -12,6 +12,7 @@ import {
   choicesSummary,
   clearSession,
   closedCount,
+  closedTiles,
   colorOrder,
   customHexOf,
   formatToken,
@@ -112,6 +113,19 @@ describe('Accent colours', () => {
     expect([1, 2, 3, 4, 5, 6, 7, 9].map((c) => closedCount(c))).toEqual([5, 6, 6, 8, 5, 6, 7, 9]);
     expect(closedCount(0)).toBe(5);
     expect(closedCount(30, 23)).toBe(23);
+  });
+
+  it('keeps the selected colour in the closed row when the grid loses columns', () => {
+    const order = colorOrder([]);
+    const hexes = (tiles: { hex: string }[]) => tiles.map((t) => t.hex);
+    // Coral, the sixth tile, picked with six columns: still there with five, in the row's last place.
+    expect(hexes(closedTiles(order, 6, '#f08a7e'))).toEqual([...accents, '#f08a7e']);
+    expect(hexes(closedTiles(order, 5, '#f08a7e'))).toEqual([...accents.slice(0, 4), '#f08a7e']);
+    // A selected tile in the row: the plain first tiles.
+    expect(hexes(closedTiles(order, 5, ACCENTS.sky.base))).toEqual(accents);
+    expect(closedTiles(order, 4, '#f08a7e')).toHaveLength(8);
+    // An unknown colour changes nothing.
+    expect(hexes(closedTiles(order, 5, '#000000'))).toEqual(accents);
   });
 
   it('counts the laid-out columns of a grid', () => {

@@ -27,7 +27,7 @@
     accentHex,
     accentOfHex,
     choicesOf,
-    closedCount,
+    closedTiles,
     colorOrder,
     recentOf,
     rememberColor,
@@ -139,7 +139,8 @@
 
   // ---- Choices ----
 
-  let choices = $state<SetupChoices>(choicesOf());
+  const initial = choicesOf();
+  let choices = $state<SetupChoices>(initial);
 
   /** Applies a choice at once (the whole wizard) and keeps it for the next steps. */
   function choose(patch: Partial<SetupChoices>) {
@@ -178,10 +179,14 @@
   let recent = $state(recentOf());
   /** Columns of the grid as laid out (6 until measured). */
   let cols = $state(6);
-  const order = $derived(colorOrder(recent, choices.accent));
+  /**
+   * The accent the step opened with leads the order if it is an own colour missing from the recently used ones (a
+   * session without them); kept for the whole step, so picking another tile in the row moves nothing.
+   */
+  const order = $derived(colorOrder(recent, initial.accent));
   /** The closed grid: one row of the order (never more, whatever was used). */
-  const closed = $derived(order.slice(0, closedCount(cols, order.length)));
   const selHex = $derived(accentHex(choices.accent));
+  const closed = $derived(closedTiles(order, cols, selHex));
 
   function tileName(t: ColorTile): string {
     return t.accent ? ACCENT_LABELS[t.accent]() : customName(t.hex);

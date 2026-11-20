@@ -247,6 +247,19 @@ export function closedCount(cols: number, total = Number.POSITIVE_INFINITY): num
   return Math.min(total, Math.ceil(ACCENT_NAMES.length / c) * c);
 }
 
+/**
+ * The closed grid: the first `closedCount(cols)` tiles of `order`. If the
+ * selected colour (`sel`) is further back (a preset picked in the row before
+ * the grid lost a column), it takes the row's last place, so the current
+ * accent always shows and the count stays the same.
+ */
+export function closedTiles(order: readonly ColorTile[], cols: number, sel: HexColor): ColorTile[] {
+  const row = order.slice(0, closedCount(cols, order.length));
+  const picked = order.find((t) => t.hex === sel);
+  if (!picked || row.includes(picked)) return row;
+  return [...row.slice(0, -1), picked];
+}
+
 /** Columns of a grid from its computed `grid-template-columns` (resolved tracks in px); 0 while not laid out. */
 export function trackCount(template: string): number {
   const tracks = template.trim().split(/\s+/).filter(Boolean);
