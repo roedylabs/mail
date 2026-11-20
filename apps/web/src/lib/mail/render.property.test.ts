@@ -16,7 +16,7 @@ const BLOB = 'blob:http://localhost/1';
 const OPTIONS: RenderOptions = {
   remote: false,
   cids: new Map([['logo@x', BLOB]]),
-  theme: readTheme(false, false),
+  theme: readTheme(false, false, 'apricot'),
   padding: '0',
   blockedLabel: 'Image blocked',
 };

@@ -535,7 +535,10 @@
   });
 
   $effect(() => {
-    applyTheme(document.documentElement, { ...themeOf(prefs.values, session.branding), animations: prefs.motion });
+    applyTheme(document.documentElement, {
+      ...themeOf(prefs.values, session.branding, ui.systemDark.current),
+      animations: prefs.motion,
+    });
   });
 
   // Language on `<html lang>` (WCAG 3.1.1); the account's then also applies without sign-in on this device.

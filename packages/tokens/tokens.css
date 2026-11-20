@@ -43,7 +43,7 @@
   --sh3: 0 2px 6px rgba(0,0,0,0.3), 0 40px 90px -24px rgba(0,0,0,0.7);
   --sh-edge: inset 0 -3px 0 rgba(0,0,0,0.08);
   --accsoft: color-mix(in oklab, var(--acc) 22%, var(--surface));
-  --deep: color-mix(in oklab, var(--acc) 80%, white);
+  --deep: color-mix(in oklab, var(--acc) 80%, #ffffff);
   --toastacc: color-mix(in oklab, var(--acc) 45%, #2b1405);
   color-scheme: dark;
 }

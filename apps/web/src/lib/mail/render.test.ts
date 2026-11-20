@@ -7,7 +7,7 @@ function render(html: string, patch: Partial<RenderOptions> = {}) {
   const out = renderMail(html, {
     remote: false,
     cids: new Map(),
-    theme: readTheme(false, false),
+    theme: readTheme(false, false, 'apricot'),
     padding: '22px 24px 24px',
     blockedLabel: 'Image blocked',
     ...patch,
@@ -117,13 +117,13 @@ describe('renderMail – sanitizing', () => {
   });
 
   it('builds a document of its own with a CSP without scripts and with the message colours', () => {
-    const { doc } = render('<p>Hello</p>', { theme: readTheme(true, false) });
+    const { doc } = render('<p>Hello</p>', { theme: readTheme(true, false, 'apricot') });
     const csp = doc.querySelector('meta[http-equiv="Content-Security-Policy"]')?.getAttribute('content');
     expect(csp).toBe("default-src 'none'; img-src data: blob:; style-src 'unsafe-inline'");
     expect(doc.querySelector('meta[name="referrer"]')?.getAttribute('content')).toBe('no-referrer');
     const css = doc.head.querySelector('style')?.textContent ?? '';
     expect(css).toContain('color-scheme:dark');
-    expect(css).toContain(`--fg:${readTheme(true, false).fg}`);
+    expect(css).toContain(`--fg:${readTheme(true, false, 'apricot').fg}`);
     expect(css).toContain('padding:22px 24px 24px');
   });
 

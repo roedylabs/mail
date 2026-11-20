@@ -110,6 +110,8 @@
     type MessageSource,
   } from '#lib/state/message.svelte.ts';
   import { prefs } from '#lib/state/prefs.svelte.ts';
+  import { session } from '#lib/state/session.svelte.ts';
+  import { accentOf } from '#lib/theme.ts';
   import { scheduled } from '#lib/state/scheduled.svelte.ts';
   import { TagFixError, tags } from '#lib/state/tags.svelte.ts';
   import { tagFixError } from '#lib/tag-fix.ts';
@@ -526,6 +528,7 @@
       folds,
       dark: ui.dark,
       inverted: ui.readInverted,
+      accent: accentOf(prefs.values, session.branding),
       isMobile: ui.isMobile,
       ext: { extMode: prefs.values.extMode, extAllow: prefs.values.extAllow },
       once: conversation.once,

@@ -3,6 +3,7 @@ import { fireEvent, render } from '@testing-library/svelte';
 import { describe, expect, it, vi } from 'vitest';
 import Toast from './Toast.svelte';
 import SOURCE from './Toast.svelte?raw';
+import { TOAST_HOVER } from '#lib/color.ts';
 import { contrast, hex, mixOklab, over, type Rgb } from '#lib/test/contrast.ts';
 
 const swipe = { animations: false, hold: () => {}, away: () => {}, back: () => {} };
@@ -164,6 +165,8 @@ describe('Toast', () => {
       expect(pill).toBe('--ink');
       expect(text).toBe('--toastacc');
       expect(hover).toBe('8');
+      // Custom accents compute "Undo" for the same hover surface (`accentText()`).
+      expect(Number(hover) / 100).toBe(TOAST_HOVER);
       expect(rule('.mobile .undo')).not.toMatch(/color:/);
     });
 

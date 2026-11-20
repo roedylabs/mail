@@ -3,13 +3,15 @@
  * attributes on `<html>`, the logo plate of the branding as custom
  * properties.
  */
-import { ACCENTS, DEFAULT_ACCENT, PLATES } from '@roedy/tokens';
-import { accentInk, isHexColor } from '#lib/color.ts';
+import { ACCENTS, DEFAULT_ACCENT, derivedAccentVars, PLATES, type CssVars } from '@roedy/tokens';
+import { accentInk, accentText, isHexColor } from '#lib/color.ts';
 import type { AccentChoice, ModeName, Settings } from '#lib/state/prefs.svelte.ts';
 import type { Branding } from '#lib/state/session.svelte.ts';
 
 export interface Theme {
   mode: ModeName;
+  /** Whether the dark colours apply (`isDarkMode()`, with "System" like the operating system). */
+  dark: boolean;
   /** Named accent or a custom colour (`#rrggbb`). */
   accent: AccentChoice;
   density: Settings['density'];
@@ -42,9 +44,11 @@ export function isDarkMode(mode: Settings['mode'], systemDark: boolean): boolean
   return mode === 'system' ? systemDark : mode !== 'light';
 }
 
-export function themeOf(values: Settings, brand: Branding): Theme {
+/** Theme of the settings and branding; `systemDark` is the operating system's choice for "System". */
+export function themeOf(values: Settings, brand: Branding, systemDark: boolean): Theme {
   return {
     mode: modeName(values.mode),
+    dark: isDarkMode(values.mode, systemDark),
     accent: accentOf(values, brand),
     density: values.density,
     fontSize: values.fontSize,
@@ -61,10 +65,13 @@ export function applyTheme(root: HTMLElement, theme: Theme): void {
     root.dataset.accent = 'custom';
     root.style.setProperty('--acc', theme.accent);
     root.style.setProperty('--accink', accentInk(theme.accent));
+    // Computed per active mode: on a theme change (also by the system) this runs again.
+    for (const [name, value] of Object.entries(accentText(theme.accent, theme.dark ? 'dark' : 'light'))) {
+      root.style.setProperty(name, value);
+    }
   } else {
     root.dataset.accent = theme.accent;
-    root.style.removeProperty('--acc');
-    root.style.removeProperty('--accink');
+    for (const name of ['--acc', '--accink', '--deep', '--toastacc']) root.style.removeProperty(name);
   }
   root.dataset.density = theme.density;
   root.dataset.fontSize = theme.fontSize;
@@ -78,6 +85,16 @@ export function applyTheme(root: HTMLElement, theme: Theme): void {
     root.style.removeProperty('--logo-ink');
   }
   root.style.setProperty('--logo-tilt', theme.logoTilt ? '1' : '0');
+}
+
+/**
+ * Colours derived from the accent in `mode` (`derivedAccentVars()`): for a
+ * custom accent with `--deep` and `--toastacc` computed to the minimum contrast
+ * like on `<html>` (`applyTheme()`), for the message theme of the other mode.
+ */
+export function accentVars(accent: AccentChoice, mode: 'light' | 'dark'): CssVars {
+  const vars = derivedAccentVars(mode);
+  return isHexColor(accent) ? { ...vars, ...accentText(accent, mode) } : vars;
 }
 
 /**
