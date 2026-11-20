@@ -63,12 +63,15 @@ and in `compose.yml` `- /srv/roedy-mail:/data` instead of `- roedy-data:/data`. 
 **Container user:** The server runs as user and group 65532 (the image's `USER`). To run it under other IDs, for example a service account that owns the data directory on the host, set `ROEDY_UID` and `ROEDY_GID` in `.env`; `compose.yml` passes them as `user:`. Never use 0 (root). The data directory must belong to these IDs:
 
 - **New instance:** use a [bind mount](#with-docker-compose) created with these IDs, e.g. `sudo install -d -o 1500 -g 1500 -m 700 /srv/roedy-mail`. Not a new named volume: while it is empty, Docker fills it from the image's `/data` when the container is created, including owner 65532, so a `chown` beforehand does not last.
-- **Existing instance** (the volume already holds the database): stop the container, change the owner once, then set the IDs in `.env` and start again:
+- **Existing instance** (the volume already holds the database): stop the container, change the owner once, set the IDs in `.env` and recreate the container with `docker compose up -d` (`docker compose start` would keep the old user):
 
   ```sh
   docker compose stop
   docker run --rm -v roedy-mail_roedy-data:/data alpine:3.24 chown -R 1500:1500 /data
+  docker compose up -d
   ```
+
+  The volume name assumes the project name `roedy-mail` from `compose.yml`; with `-p` or `COMPOSE_PROJECT_NAME` it is `<project>_roedy-data`.
 
   With a bind mount `sudo chown -R 1500:1500 <directory>` instead. The same applies to a separately mounted `/data/backups` ([Backup and restore](#backup-and-restore)).
 
@@ -248,7 +251,7 @@ docker run --rm -v roedy-mail_roedy-data:/data -v "$PWD":/backup:ro alpine:3.24 
    install -o $uid -g $gid -m 600 /backup/$file /data/backups/"
 ```
 
-If `/data/backups` is mounted separately as above, the helper container only sees the volume underneath, and the app would not find the file. Then put the backup on the host as root directly into that directory, such as `sudo install -o "$uid" -g "$gid" -m 600 "$file" /mnt/backup/roedy-mail/`.
+If `/data/backups` is mounted separately as above, the helper container only sees the volume underneath, and the app would not find the file. Then put the backup on the host as root directly into that directory, such as `sudo install -o "$uid" -g "$gid" -m 600 "$file" /mnt/backup/roedy-mail/`. The same applies when `/data` itself is a bind mount: put the file into its `backups` directory on the host, e.g. `sudo install -d -o "$uid" -g "$gid" -m 700 /srv/roedy-mail/backups` and `sudo install -o "$uid" -g "$gid" -m 600 "$file" /srv/roedy-mail/backups/`.
 
 **By hand, with the server stopped** – for example for an older version after a failed update, or when the server no longer starts. The host needs `zstd` for this (the `tar` in the `alpine` helper container cannot do it):
 
