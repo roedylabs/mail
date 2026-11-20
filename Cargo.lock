@@ -1634,7 +1634,7 @@ dependencies = [
 
 [[package]]
 name = "roedy-jmap"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "reqwest",
  "serde",
@@ -1644,7 +1644,7 @@ dependencies = [
 
 [[package]]
 name = "roedy-mail-server"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "anyhow",
  "argon2",
