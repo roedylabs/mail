@@ -131,7 +131,8 @@ describe('Appearance page', () => {
   it('"More" opens the colour editor at the tile; Apply saves the custom accent at once', async () => {
     const view = render(DialogHost);
     const more = group('Accent color').getByRole('radio', { name: 'More' });
-    expect(more).toHaveAttribute('aria-haspopup', 'dialog');
+    // A radio like the setup's tile: no `aria-haspopup` (not allowed on `radio`).
+    expect(more).not.toHaveAttribute('aria-haspopup');
     expect(more).not.toBeChecked();
     // Ring of the palette's hues with + while no custom accent is active.
     expect(more.querySelector('.swatch .tabler-icon-plus')).not.toBeNull();
@@ -151,6 +152,8 @@ describe('Appearance page', () => {
     // The tile shows the colour with the check, like a named one, and gets the focus back.
     const custom = group('Accent color').getByRole('radio', { name: 'Custom #3A7BD5' });
     expect(custom).toBe(more);
+    // Visible "Custom"; the code only in the name, which contains the visible text (WCAG 2.5.3).
+    expect(more.querySelector('.accent-label')).toHaveTextContent(/^Custom$/);
     expect(checked('Accent color')).toBe(more);
     expect(more.style.getPropertyValue('--swatch')).toBe('#3a7bd5');
     expect(more.querySelector('.swatch > .tabler-icon-check')).not.toBeNull();
@@ -179,6 +182,8 @@ describe('Appearance page', () => {
     render(DialogHost);
     const mint = group('Accent color').getByRole('radio', { name: 'Mint' });
     expect(mint).toBeChecked();
+    expect(mint).not.toHaveAttribute('aria-label');
+    expect(mint.querySelector('.accent-label')).toHaveTextContent(/^Mint$/);
     const rose = group('Accent color').getByRole('radio', { name: 'Rose' });
     rose.focus();
     await fireEvent.keyDown(rose, { key: 'ArrowRight' });

@@ -12,7 +12,7 @@
   import { radiogroup } from '#lib/actions/radiogroup.ts';
   import { appearanceValues, type AppearanceContext, type SegOption } from '#lib/appearance.ts';
   import type { HexColor } from '#lib/color.ts';
-  import { customName, editorStart } from '#lib/color-editor.svelte.ts';
+  import { customName, editorStart, presetOf } from '#lib/color-editor.svelte.ts';
   import AccentRing from '#lib/components/AccentRing.svelte';
   import ColorEditor from '#lib/components/ColorEditor.svelte';
   import Icon from '#lib/components/Icon.svelte';
@@ -39,8 +39,14 @@
 
   let editing = $state(false);
   const more = $derived(v.accentMore);
-  /** "Custom #3A7BD5" or the preset's name while a custom accent is active, otherwise "More". */
-  const moreLabel = $derived(more.hex ? customName(more.hex) : m.setup_accent_more());
+  /**
+   * Active custom accent: the preset's name, otherwise "Custom" with the code in the accessible name only
+   * ("Custom #3A7BD5", which contains the visible text); without one "More".
+   */
+  const moreLabel = $derived(
+    more.hex ? (presetOf(more.hex) ? customName(more.hex) : m.appearance_accent_custom()) : m.setup_accent_more(),
+  );
+  const moreName = $derived(more.hex && !presetOf(more.hex) ? customName(more.hex) : undefined);
   let moreBtn: HTMLButtonElement | undefined = $state();
 
   /** Cancel, Escape, Close and Apply: the focus goes back to the tile. */
@@ -147,51 +153,52 @@
     {#if v.accLocked}
       <div class="locked-note"><Icon name="ti-lock" />{m.appearance_accent_locked()}</div>
     {/if}
-    <div
-      role="radiogroup"
-      use:radiogroup
-      aria-label={m.appearance_tab_accent()}
-      aria-disabled={v.accLocked}
-      class="accents"
-      class:locked={v.accLocked}
-    >
-      {#each v.accentOpts as a (a.name)}
+    <div class="acc-wrap">
+      <div
+        role="radiogroup"
+        use:radiogroup
+        aria-label={m.appearance_tab_accent()}
+        aria-disabled={v.accLocked}
+        class="accents"
+        class:locked={v.accLocked}
+      >
+        {#each v.accentOpts as a (a.name)}
+          <button
+            type="button"
+            role="radio"
+            aria-checked={a.on}
+            disabled={v.accLocked}
+            class="accent"
+            class:on={a.on}
+            style:--swatch={a.base}
+            style:--swatch-ink={a.ink}
+            onclick={a.onClick}
+          >
+            <span class="swatch"><Icon name="ti-check" /></span>
+            <span class="accent-label">{a.label}</span>
+          </button>
+        {/each}
+        <!-- Sixth tile: opens the colour editor (arrow keys only move here, Enter and Space open it). -->
         <button
+          bind:this={moreBtn}
           type="button"
           role="radio"
-          aria-checked={a.on}
+          aria-checked={more.on}
+          aria-label={moreName}
+          data-opens-dialog
           disabled={v.accLocked}
           class="accent"
-          class:on={a.on}
-          style:--swatch={a.base}
-          style:--swatch-ink={a.ink}
-          onclick={a.onClick}
+          class:on={more.on}
+          style:--swatch={more.hex}
+          style:--swatch-ink={more.ink}
+          onclick={() => (editing = !v.accLocked)}
         >
-          <span class="swatch"><Icon name="ti-check" /></span>
-          <span class="accent-label">{a.label}</span>
+          <span class="swatch">
+            {#if more.hex}<Icon name="ti-check" />{:else}<AccentRing icon="ti-plus" />{/if}
+          </span>
+          <span class="accent-label">{moreLabel}</span>
         </button>
-      {/each}
-      <!-- Sixth tile: opens the colour editor (arrow keys only move here, Enter and Space open it). -->
-      <!-- svelte-ignore a11y_role_supports_aria_props (announces the editor; a global attribute in ARIA 1.1, axe accepts it) -->
-      <button
-        bind:this={moreBtn}
-        type="button"
-        role="radio"
-        aria-checked={more.on}
-        aria-haspopup="dialog"
-        data-opens-dialog
-        disabled={v.accLocked}
-        class="accent"
-        class:on={more.on}
-        style:--swatch={more.hex}
-        style:--swatch-ink={more.ink}
-        onclick={() => (editing = !v.accLocked)}
-      >
-        <span class="swatch">
-          {#if more.hex}<Icon name="ti-check" />{:else}<AccentRing icon="ti-plus" />{/if}
-        </span>
-        <span class="accent-label">{moreLabel}</span>
-      </button>
+      </div>
     </div>
   </section>
 
@@ -593,11 +600,24 @@
     pointer-events: none;
   }
 
+  /* Mobile: six columns spread over the row; where they do not fit with their names, two rows of three.
+     338 px: six 50 px tiles with gap 4 and the longest name on the sixth (a preset like "Cornflower"). */
+  .acc-wrap {
+    container-type: inline-size;
+  }
+
   .mobile .accents {
+    display: grid;
+    grid-template-columns: repeat(6, auto);
     justify-content: space-between;
-    gap: 4px;
-    flex-wrap: nowrap;
+    gap: 12px 4px;
     margin-top: 16px;
+  }
+
+  @container (max-width: 337.98px) {
+    .mobile .accents {
+      grid-template-columns: repeat(3, auto);
+    }
   }
 
   .accent {
@@ -615,8 +635,6 @@
   }
 
   .mobile .accent {
-    flex: 1;
-    min-width: 0;
     padding: 6px 0;
     transition: none;
   }
@@ -653,20 +671,14 @@
     opacity: 1;
   }
 
-  /* Six tiles from 320 px: up to 50 px, narrower when the row has less room */
   .mobile .swatch {
-    width: 100%;
-    max-width: 50px;
-    height: auto;
-    aspect-ratio: 1;
+    width: 50px;
+    height: 50px;
     border-radius: 18px;
     font-size: 20px;
   }
 
   .accent-label {
-    max-width: 100%;
-    overflow: hidden;
-    text-overflow: ellipsis;
     white-space: nowrap;
     font-size: 13px;
     font-weight: 700;
