@@ -137,7 +137,7 @@ All settings come from environment variables, with Compose from the `.env` file 
 |---|---|---|
 | `ROEDY_LISTEN` | `0.0.0.0:8080` | Address and port of the HTTP server. The reverse proxy handles TLS. |
 | `ROEDY_DATA_DIR` | `data` relative to the working directory (in the image `/data`) | [Data directory](#data-directory) with the database `roedy.sqlite3`. Must be on a local file system (SQLite in WAL mode). |
-| `ROEDY_PUBLIC_URL` | – | **Required.** Public address, e.g. `https://mail.example.com` (without credentials, query or fragment). Without it, `serve` exits with an error, unless the setup of an older version stored an address. |
+| `ROEDY_PUBLIC_URL` | – | **Required.** Public address, e.g. `https://mail.example.com` (without credentials, query or fragment). Without it, `serve` exits with `error: ROEDY_PUBLIC_URL is not set – …`, unless the setup of an older version stored an address. The setup does not ask for it. |
 | `ROEDY_LOG` | `info` | Log filter in the format of [`EnvFilter`](https://docs.rs/tracing-subscriber/latest/tracing_subscriber/filter/struct.EnvFilter.html), e.g. `warn` or `info,roedy_mail_server=debug`. The setup token always appears. |
 | `ROEDY_LOG_FORMAT` | `json` | `json` (one line per event) or `text`. Logs go to stderr. |
 | `ROEDY_WEB_DIR` | – | Directory with the web app build (e.g. `apps/web/build`). Takes precedence over the embedded web app; for development. |
@@ -152,7 +152,7 @@ All settings come from environment variables, with Compose from the `.env` file 
 
 ## Initial setup
 
-As long as no administrator exists, the app redirects to the setup (`/setup`), and the server writes the **setup token** to the log on every start, regardless of `ROEDY_LOG`. The setup asks for it in the first step:
+As long as no administrator exists, the app redirects to the setup (`/setup`), and the server writes the **setup token** to the log on every start, regardless of `ROEDY_LOG`. The setup asks for it in the second step:
 
 ```sh
 docker logs roedy-mail 2>&1 | grep Setup-Token
@@ -161,15 +161,25 @@ docker exec roedy-mail roedy-mail setup-token   # alternatively
 
 The token is valid until the setup is completed; afterwards `roedy-mail setup-token` reports `error: Setup is complete; there is no setup token anymore.` (exit code 1). After five wrong entries, input from that address is blocked for 30 seconds.
 
-The setup creates the administrator: setup token, name and email address, password and a summary. Afterwards the administrator is signed in and adds the mail server ([`stalwart.md`](setup/stalwart.md#oauth-client)) under Administration › Mail servers and the system emails ([sender account](setup/stalwart.md#sender-account-for-system-emails)) under Administration › Email.
+The setup only creates the administrator, in five steps:
+
+1. **Language and appearance:** language (System, English, German), theme (System, Light, Dark) and accent color (five colors or your own under "More"). They apply to the wizard at once and become the administrator's settings; nothing is sent to the server yet.
+2. **Setup token:** the token from the log.
+3. **Administrator:** name and email address.
+4. **Password:** password and confirmation; "Continue" is available once the rules below the field are met.
+5. **Review** ("All set?"): a summary with "Change" per row; "Finish setup" creates the administrator and revokes the setup token.
+
+The setup runs in this browser tab: language, appearance, name and email address stay in the tab's session storage, the token and the password only in memory. After a reload on steps 3 to 5 the wizard returns to the setup token with the other details kept. Then it signs the administrator in and opens Administration › Mail servers. The public address is not part of the setup; it comes from [`ROEDY_PUBLIC_URL`](#configuration).
 
 Next:
 
-1. Back up the [instance key](#instance-key).
-2. Set up an authenticator app under Account › Security.
-3. Under Administration › Maintenance, check the schedule of the [backups](#backup-and-restore) (daily by default, 30 days).
-4. Invite more people under Administration › Users: with system emails by email, without them via "Copy link".
-5. Optionally adjust the [update check](#updates) under Administration › Updates.
+1. Add the mail server under Administration › Mail servers, with the OAuth client ([`stalwart.md`](setup/stalwart.md#oauth-client)); "Test connection" checks it.
+2. Set up the system emails under Administration › Email with a [sender account](setup/stalwart.md#sender-account-for-system-emails) (optional; invitations, password reset and notifications by email need it).
+3. Back up the [instance key](#instance-key).
+4. Set up an authenticator app under Account › Security.
+5. Under Administration › Maintenance, check the schedule of the [backups](#backup-and-restore) (daily by default, 30 days).
+6. Invite more people under Administration › Users: with system emails by email, without them via "Copy link".
+7. Optionally adjust the [update check](#updates) under Administration › Updates.
 
 ## Data directory
 

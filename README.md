@@ -80,12 +80,12 @@ Roedy Mail does not proxy your mail. The backend manages app accounts, settings 
 curl -fsSLO https://raw.githubusercontent.com/roedylabs/mail/main/deploy/compose.yml
 curl -fsSL -o .env https://raw.githubusercontent.com/roedylabs/mail/main/deploy/.env.example
 chmod 600 .env
-${EDITOR:-vi} .env                                # public URL, image version
+${EDITOR:-vi} .env                                # ROEDY_PUBLIC_URL (required), image version
 docker compose up -d                              # listens on 127.0.0.1:8080
 docker compose logs roedy-mail | grep Setup-Token
 ```
 
-Put a reverse proxy with TLS in front of it (for example Caddy, Traefik or nginx), open the URL and follow the setup wizard with the setup token from the log. The image `ghcr.io/roedylabs/mail` is available for `linux/amd64` and `linux/arm64`, runs as an unprivileged user on `scratch`, and is signed with [cosign](https://docs.sigstore.dev/). Static binaries are attached to every [release](https://github.com/roedylabs/mail/releases).
+Without `ROEDY_PUBLIC_URL` (the public address, such as `https://mail.example.com`) the server does not start. Put a reverse proxy with TLS in front of it (for example Caddy, Traefik or nginx), open the URL and follow the setup wizard with the setup token from the log; afterwards add the mail server under Administration › Mail servers. The image `ghcr.io/roedylabs/mail` is available for `linux/amd64` and `linux/arm64`, runs as an unprivileged user on `scratch`, and is signed with [cosign](https://docs.sigstore.dev/). Static binaries are attached to every [release](https://github.com/roedylabs/mail/releases).
 
 ## Documentation
 
