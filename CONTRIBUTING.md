@@ -33,6 +33,7 @@ Common tasks are in the [`justfile`](justfile) (`pnpm exec just …` if [just](h
 | `just dist` | Static release binaries with the embedded web app |
 | `just image` / `just smoke` | Build and smoke-test the container image (needs Docker) |
 | `just screenshots` | Regenerate the screenshots in `docs/screenshots/` with demo data |
+| `just branding` | Regenerate the icons, logo and social preview in `assets/branding/` |
 
 ## Checks
 
@@ -69,6 +70,7 @@ New parsers of external input should get a property or a fuzz target; a bug foun
 | `packages/tokens` | Design tokens as CSS and TypeScript constants |
 | `fuzz/` | Fuzz targets for the backend (cargo-fuzz, outside the workspace) |
 | `docs/` | Operator documentation |
+| `assets/branding/` | Icons, logo and social preview of the project |
 | `scripts/` | Git hooks, release, E2E, load test and developer tooling |
 
 ## Conventions
