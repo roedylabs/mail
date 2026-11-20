@@ -4,9 +4,13 @@
     <meta charset="utf-8" />
     <!--
       resizes-content: the on-screen keyboard shrinks the layout (and 100dvh) instead of only
-      covering it, so full-height pages keep their bottom bar above the keyboard.
+      covering it, so full-height pages keep their bottom bar above the keyboard. viewport-fit=cover: the page
+      draws behind the navigation bar (edge to edge) and colours it; layouts keep clear of it via --sab (app.css).
     -->
-    <meta name="viewport" content="width=device-width, initial-scale=1, interactive-widget=resizes-content" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content"
+    />
     <meta name="color-scheme" content="dark light" />
     <link rel="icon" href="%sveltekit.assets%/favicon.svg" type="image/svg+xml" />
     <link rel="manifest" href="/manifest.webmanifest" />

@@ -2177,7 +2177,7 @@
 
 <style>
   .bare {
-    min-height: 100dvh;
+    min-height: calc(100dvh - var(--sab));
     display: flex;
     flex-direction: column;
   }
@@ -2185,7 +2185,7 @@
   /* Toast and confirmation above pages without a shell that scroll themselves */
   .layer {
     position: fixed;
-    inset: 0;
+    inset: 0 0 var(--sab);
     z-index: 95;
     pointer-events: none;
   }
@@ -2196,7 +2196,7 @@
 
   .app {
     position: relative;
-    height: 100dvh;
+    height: calc(100dvh - var(--sab));
     display: flex;
     flex-direction: column;
     overflow: hidden;

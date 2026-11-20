@@ -467,7 +467,7 @@
 <style>
   .stage {
     position: relative;
-    height: 100dvh;
+    height: calc(100dvh - var(--sab));
     min-width: 320px;
     min-height: 480px;
     display: flex;
@@ -846,7 +846,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    padding: 12px 10px calc(16px + env(safe-area-inset-bottom));
+    padding: 12px 10px 16px;
   }
 
   .back,

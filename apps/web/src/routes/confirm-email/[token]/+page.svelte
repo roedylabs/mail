@@ -203,7 +203,7 @@
 <style>
   .confirm-page {
     position: relative;
-    height: 100dvh;
+    height: calc(100dvh - var(--sab));
     display: flex;
     gap: 16px;
     padding: 16px;
