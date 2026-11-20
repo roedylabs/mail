@@ -57,7 +57,7 @@ If you want to allow only the app's address instead of `*`, you can also set the
 
 Users sign in in the browser with Stalwart's OAuth flow (code with PKCE); afterwards Stalwart from v1.0.1 asks once for consent. From v1.1.0 Stalwart's sign-in page also offers passkeys ("Sign in with a passkey"); for Roedy Mail this changes nothing, because the sign-in runs entirely on Stalwart's side. A passkey replaces password and second factor there (Stalwart then does not ask for TOTP); its relying party ID is the host of Stalwart's public URL. For this every server needs an OAuth client with
 
-- **redirect URI** `<app address>/oauth/callback`, e.g. `https://app.example.com/oauth/callback` (Administration › Mail servers shows it for copying),
+- **redirect URI** `<app address>/oauth/callback`, e.g. `https://app.example.com/oauth/callback`, where the app address is `ROEDY_PUBLIC_URL` (required, [Operations › Configuration](../ops.md#configuration); Administration › Mail servers shows the URI for copying),
 - the scopes `offline_access urn:ietf:params:oauth:scope:mail urn:ietf:params:oauth:scope:contacts` (that is what they are called in Stalwart; Stalwart does not know `mail` alone). Stalwart v1 enforces them: a token only sees what its scope allows; Roedy Mail needs contacts for the recipient suggestions.
 
 A newly registered client (new client ID) only applies to new sign-ins: Stalwart v1 binds every sign-in to its client, so all connected mail accounts require a new sign-in afterwards ("Sign in again"). If the app's address changes, register the client again – it only applies to its redirect URI.

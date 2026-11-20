@@ -7,7 +7,7 @@ The web app runs in the browser or as an installed app (progressive web app) fro
 ## Requirements
 
 - **HTTPS:** Service worker, installation and push only exist in a secure context, i.e. via HTTPS or `http://localhost`. Signing in needs it anyway, because the session cookie is `Secure` ([Operations › Configuration](../ops.md#configuration)).
-- **Own origin:** The app needs the root `/` of its origin (`start_url` and `scope` are `/`). It does not support a sub-path; it does not run there at all.
+- **Own origin:** The app needs the root `/` of its origin (`start_url` and `scope` are `/`). It does not support a sub-path; it does not run there at all. `ROEDY_PUBLIC_URL`, which the server requires, is this origin ([Operations › Configuration](../ops.md#configuration)).
 - **Reverse proxy:** `/manifest.webmanifest`, `/service-worker.js`, `/branding/…` and `/_app/…` must reach the backend unchanged. The backend sets the cache headers itself: files under `/_app/immutable/` one year (`immutable`), everything else `no-cache` with ETag. A proxy must not cache `/`, `/service-worker.js` and the manifest longer, otherwise new versions and a changed branding arrive late.
 - **Production build only:** The service worker only caches in the built app (image or `ROEDY_WEB_DIR`). In the Vite dev server the cache stays off.
 

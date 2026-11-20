@@ -41,7 +41,7 @@ Invitations, confirmation links, security notices and notifications go out throu
 
 **Limits:** Test emails are limited per administrator to ten at once, then one per minute; only what actually goes out after a successful check counts. After five rejected sign-ins at one server within 15 minutes, Roedy Mail stops trying there for 15 minutes ([Stalwart › Sender account](stalwart.md#sender-account-for-system-emails)).
 
-**Requirement:** System emails need the public address (`ROEDY_PUBLIC_URL`) for their links. It is changed via `ROEDY_PUBLIC_URL`; there is no field for it under Administration.
+**Public address:** The links in system emails use the public address from `ROEDY_PUBLIC_URL`, which the server requires to start ([Operations › Configuration](../ops.md#configuration)). It is changed only there; neither the setup nor Administration has a field for it.
 
 App password and token are stored in the database encrypted with the instance key and appear in no response, no log and no audit log entry.
 

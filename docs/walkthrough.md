@@ -10,37 +10,43 @@ A guided tour of Roedy Mail: from the first start of the container through every
 
 Roedy Mail needs a Stalwart v1.x server that is reachable over HTTPS, allows requests from the browser (CORS) and accepts an OAuth client for the app. [Preparing Stalwart](setup/stalwart.md) lists the few settings once; the installation with Docker Compose and a reverse proxy is described in [Operations](ops.md#installation).
 
+The app's public address is required: set `ROEDY_PUBLIC_URL` in `.env` (for example `https://mail.example.com`) before the first start; without it, the server does not start. Links in emails and the OAuth redirect URI use this address.
+
 After the first start, the server writes a one-time **setup token** to its log:
 
 ```sh
 docker compose logs roedy-mail | grep Setup-Token
 ```
 
-### 2. Enter the setup token
+### 2. Run the setup wizard
 
-Open the app's address in the browser. As long as there is no administrator, Roedy Mail opens the setup wizard, which asks for the setup token first. The token proves that you operate the server and is only valid until the setup is complete.
+Open the app's address in the browser. As long as there is no administrator, Roedy Mail opens the setup wizard. It has five steps and only creates your administrator account:
 
-![Setup wizard, step 1: the setup token](screenshots/setup-token.png)
+1. **Language and appearance:** language, theme and accent color. They apply at once and become your settings; you can change them later in Settings.
+2. **Setup token:** the token from the log. It proves that you operate the server and is only valid until the setup is complete.
+3. **Administrator:** your name and email address.
+4. **Password:** a password and its confirmation. It has to meet the rules shown below the field before you can continue.
+5. **Review:** everything at a glance, with **Change** per row.
 
-### 3. Create the administrator
+![Setup wizard, step 2: the setup token](screenshots/setup-token.png)
 
-The next two steps create your own account: name and email address, then a password. The password has to meet the rules shown below the field before you can continue.
+**Finish setup** creates the account and revokes the setup token. The done screen welcomes you by your first name, signs you in and opens **Administration › Mail servers**.
 
-### 4. Summary
+![Setup wizard, step 5: the review before finishing](screenshots/setup-review.png)
 
-The last step shows everything at a glance; **Finish setup** signs you in as the administrator.
+### 3. Connect the mail server
 
-![Setup wizard: summary before finishing](screenshots/setup-review.png)
+Under **Administration › Mail servers**, choose **Add server** and enter your Stalwart server with the email domains it serves. Under **OAuth client**, choose **Automatic** and sign in once with an administrator's app password: Roedy Mail registers its OAuth client with Stalwart and does not keep these credentials. **Test connection** checks the JMAP session, the CORS headers and the OAuth client. Details and the manual alternative: [Preparing Stalwart › OAuth client](setup/stalwart.md#oauth-client).
 
-### 5. Connect the mail server and system emails
+![Mail servers with diagnostics](screenshots/mail-servers.png)
 
-Under **Administration › Mail servers**, add your Stalwart server with the email domains it serves. Under **OAuth client**, choose **Automatic** and sign in once with an administrator's app password: Roedy Mail registers its OAuth client with Stalwart and does not keep these credentials. **Test connection** checks the JMAP session, the CORS headers and the OAuth client. Details and the manual alternative: [Preparing Stalwart › OAuth client](setup/stalwart.md#oauth-client).
+### 4. Set up system emails
 
 System emails are optional: with a sender account (ideally with an app password) under **Administration › Email**, Roedy Mail sends invitations, password reset links and notices by email ([Sender account](setup/stalwart.md#sender-account-for-system-emails)).
 
 Afterwards, back up the instance key and check the backup schedule, as listed in [Operations › Initial setup](ops.md#initial-setup).
 
-### 6. Add your mail accounts
+### 5. Add your mail accounts
 
 Roedy Mail itself stores no emails – you connect one or more mail accounts to your app account. Under **Settings › Email accounts**, choose **Add email account** and enter the address: the server is picked automatically from its domain. **Continue to sign-in** opens the sign-in page of your mail server; after signing in (with a second factor, if you use one), you return to Roedy Mail.
 
@@ -50,7 +56,7 @@ Every account can live on a different JMAP server. With more than one account, *
 
 ![Email accounts with "All accounts" as the default](screenshots/mail-accounts.png)
 
-### 7. Sign in
+### 6. Sign in
 
 Everyone else signs in on the sign-in page with their email address or username and password. Its title, text and artwork come from the branding settings. Forgotten passwords can be reset by email once system emails are set up.
 
@@ -138,9 +144,7 @@ Administrators reach the administration area with the shield icon in the header.
 
 ### Mail servers
 
-Only servers on this list can be used for mail accounts; the list also feeds the app's Content Security Policy. Each entry shows its domains and the result of the last **Test connection**, with **Show diagnostics** for details. **Add server** registers the OAuth client automatically, as in the setup. Troubleshooting the diagnostics: [Preparing Stalwart › Diagnostic reasons](setup/stalwart.md#diagnostic-reasons).
-
-![Mail servers with diagnostics](screenshots/mail-servers.png)
+Only servers on this list can be used for mail accounts; the list also feeds the app's Content Security Policy. Each entry shows its domains and the result of the last **Test connection**, with **Show diagnostics** for details. **Add server** registers the OAuth client automatically, as described in [Connect the mail server](#3-connect-the-mail-server). Troubleshooting the diagnostics: [Preparing Stalwart › Diagnostic reasons](setup/stalwart.md#diagnostic-reasons).
 
 ### Branding, organization and banner
 

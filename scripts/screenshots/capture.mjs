@@ -131,7 +131,7 @@ async function fillSetup(page) {
   }
 }
 
-/** Walks the setup wizard to step `n` (1–4): fills each step, then "Continue". */
+/** Walks the setup wizard to step `n` (1–5): fills each step, then the primary button. */
 async function setupStep(page, n) {
   const stepOf = () =>
     page.evaluate(() => {
