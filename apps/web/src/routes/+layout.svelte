@@ -252,6 +252,7 @@
           setupRequired: session.setupRequired,
           authed: session.authed,
           mailAccounts: mailAccountCount,
+          leavingSetup: ui.setupLeaving,
         })
       : null,
   );
@@ -1939,18 +1940,18 @@
   {/if}
 {/snippet}
 
-{#if session.status === 'error' && setupOffline}
-  <!-- The setup status got no answer: the wizard shows "No connection" and tries again by itself. -->
+{#if (session.status === 'error' && setupOffline) || (ready && !target && chrome === 'bare')}
+  <!--
+    Pages without the app's frame. One branch with the setup without an answer (the wizard shows "No connection" and
+    tries again by itself), so a session load without an answer during the setup keeps the wizard as it is.
+  -->
   <div class="bare">{@render children()}</div>
   <div class="layer">{@render overlays(false)}</div>
 {:else if session.status === 'error'}
   <div class="bare"><ErrorView code={session.failure ?? '500'} retry={boot} /></div>
   <div class="layer">{@render overlays(false)}</div>
 {:else if ready && !target}
-  {#if chrome === 'bare'}
-    <div class="bare">{@render children()}</div>
-    <div class="layer">{@render overlays(false)}</div>
-  {:else if !ui.isMobile}
+  {#if !ui.isMobile}
     <div class="app">
       {#if banners.length}<NoticeBar isMobile={false} {banners} />{/if}
       <Header

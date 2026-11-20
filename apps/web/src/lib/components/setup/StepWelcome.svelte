@@ -20,7 +20,14 @@
   import { browserLang } from '#lib/locale.ts';
   import { m } from '#lib/paraglide/messages.js';
   import { DESK_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
-  import { choicesOf, customHexOf, storeChoice, type SetupChoices, type SetupFlow } from '#lib/setup.svelte.ts';
+  import {
+    ACCENT_LABELS,
+    choicesOf,
+    customHexOf,
+    storeChoice,
+    type SetupChoices,
+    type SetupFlow,
+  } from '#lib/setup.svelte.ts';
   import { prefs, type ModeName } from '#lib/state/prefs.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
 
@@ -156,13 +163,6 @@
     { value: 'dark', label: m.appearance_mode_dark(), icon: 'ti-moon' },
   ]);
 
-  const ACCENT_LABELS: Record<AccentName, () => string> = {
-    apricot: m.appearance_accent_apricot,
-    sage: m.appearance_accent_sage,
-    lavender: m.appearance_accent_lavender,
-    sky: m.appearance_accent_sky,
-    rose: m.appearance_accent_rose,
-  };
   const accents = Object.keys(ACCENTS) as AccentName[];
 
   // ---- Colour editor ----
