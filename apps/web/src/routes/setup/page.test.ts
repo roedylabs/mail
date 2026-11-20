@@ -91,12 +91,14 @@ describe('Setup page', () => {
     expect(view.getByRole('button', { name: /^Copied:/ })).toBeInTheDocument();
   });
 
-  it('colours the program names in the accent, lightened on the terminal for dark custom accents', () => {
+  it('shows a dark terminal in the dark theme, programs lightened for dark custom accents', () => {
+    sessionStorage.setItem('roedy-setup-dark', '1');
     sessionStorage.setItem('roedy-setup-accent', 'custom');
     sessionStorage.setItem('roedy-setup-accentHex', '#1e3a8a');
     atToken();
     const view = render(Page);
     const term = view.container.querySelector<HTMLElement>('.term')!;
+    expect(term).not.toHaveClass('light');
     expect(term.style.getPropertyValue('--t-bg')).toBe('#1b1612');
     expect(term.style.getPropertyValue('--t-prog')).toBe('#6880b6');
     const progs = [...view.container.querySelectorAll('.cmd-parts .prog')].map((p) => p.textContent);
@@ -109,6 +111,20 @@ describe('Setup page', () => {
     expect(named.container.querySelector<HTMLElement>('.term')!.style.getPropertyValue('--t-prog')).toBe(
       ACCENTS.sky.base,
     );
+  });
+
+  it('shows a light card in the light theme, programs in --deep and "Setup-Token" in Sage’s --deep', () => {
+    sessionStorage.setItem('roedy-setup-dark', '0');
+    sessionStorage.setItem('roedy-setup-accent', 'custom');
+    sessionStorage.setItem('roedy-setup-accentHex', '#1e3a8a');
+    atToken();
+    const view = render(Page);
+    const term = view.container.querySelector<HTMLElement>('.term')!;
+    expect(term).toHaveClass('light');
+    // Background and program colour come from the stylesheet (--surface2, --deep), not from the dark terminal.
+    expect(term.style.getPropertyValue('--t-bg')).toBe('');
+    expect(term.style.getPropertyValue('--t-prog')).toBe('');
+    expect(term.style.getPropertyValue('--sage-deep')).toBe('#636a46');
   });
 
   it('keeps the log lines in English in German', () => {

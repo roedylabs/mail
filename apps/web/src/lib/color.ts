@@ -191,8 +191,9 @@ export type AccentText = Record<'--accsoft' | '--deep' | '--toastacc', HexColor>
  * Derived colours of a custom accent in `mode`: `--accsoft` with
  * `ACCSOFT_SHARE` of the accent or less, so that `--mfg` and `--danger` reach
  * `MIN_CONTRAST` on it, and the mixes of `ACCENT_TEXT`, each moved to
- * `MIN_CONTRAST` on its surfaces — `--deep` on `--surface` and on that
- * `--accsoft`, `--toastacc` on `--ink` and on its hover surface
+ * `MIN_CONTRAST` on its surfaces — `--deep` on `--surface`, on that
+ * `--accsoft` and on `--surface2` (the light terminal card of the setup token
+ * step), `--toastacc` on `--ink` and on its hover surface
  * (`TOAST_HOVER` of `--inkfg` over `--ink`).
  */
 export function accentText(hex: HexColor, mode: ModeName): AccentText {
@@ -205,19 +206,19 @@ export function accentText(hex: HexColor, mode: ModeName): AccentText {
   const hover = ink.map((c, i) => c * (1 - TOAST_HOVER) + inkfg[i]! * TOAST_HOVER) as unknown as Rgb;
   return {
     '--accsoft': hexOf(soft),
-    '--deep': textOn(accent, ACCENT_TEXT[mode]['--deep'], [surface, soft]),
+    '--deep': textOn(accent, ACCENT_TEXT[mode]['--deep'], [surface, soft, rgbOf(tokens['--surface2'])]),
     '--toastacc': textOn(accent, ACCENT_TEXT[mode]['--toastacc'], [ink, hover]),
   };
 }
 
-/** Background of the always dark terminal in the setup token step (`StepToken.svelte`, `--t-bg`). */
+/** Background of the dark terminal in the setup token step in the dark theme (`StepToken.svelte`, `--t-bg`). */
 export const TERMINAL_BG: HexColor = '#1b1612';
 
 /** Steps of the share of white in `terminalAccent()` (percent). */
 const TERMINAL_STEP = 2;
 
 /**
- * Colour of the program names in the terminal (`StepToken.svelte`): the
+ * Colour of the program names in the dark terminal (`StepToken.svelte`): the
  * accent `hex` mixed in oklab with white (like `color-mix()` in CSS), the
  * share of white raised in steps of `TERMINAL_STEP` % until it reaches
  * `MIN_CONTRAST` on `TERMINAL_BG`. The named accents and most light colours

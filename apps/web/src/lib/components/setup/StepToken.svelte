@@ -1,7 +1,7 @@
 <!--
   Step 2: setup token from the container log, checked against
-  `POST setup/token`. An always dark terminal box shows the command and the
-  log line; the token goes into twelve boxes in three groups (one hidden
+  `POST setup/token`. A terminal box (dark in the dark theme, a light card in
+  the light theme) shows the command and the log line; the token goes into twelve boxes in three groups (one hidden
   input on top: typing, pasting with or without dashes and Backspace).
   Continue stays greyed out until all twelve characters are there. Under the
   boxes: invalid token with the attempts left, the lock with a countdown, a
@@ -14,7 +14,7 @@
   import SetupShell from '#lib/components/setup/SetupShell.svelte';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
   import { Copied } from '#lib/clipboard.svelte.ts';
-  import { isHexColor, TERMINAL_BG, terminalAccent } from '#lib/color.ts';
+  import { accentText, isHexColor, TERMINAL_BG, terminalAccent } from '#lib/color.ts';
   import { m } from '#lib/paraglide/messages.js';
   import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
   import { LOG_CMD, LOG_LINES, TOKEN_LOCK_S, TOKEN_TRIES, type SetupFlow } from '#lib/setup.svelte.ts';
@@ -57,11 +57,18 @@
       t === 'docker' || t === 'grep' ? 'prog' : t === 'Setup-Token' ? 'word' : t === '|' || t === '2>&1' ? 'dim' : '',
   }));
 
-  /** Icon, prompt and programs in the current accent (like `applyTheme()`), lightened to 4.5 : 1 on the terminal. */
+  /**
+   * Dark theme: icon, prompt and programs in the current accent (like
+   * `applyTheme()`), lightened to 4.5 : 1 on the dark terminal. The light
+   * theme's light card uses `--deep` instead.
+   */
   const progColor = $derived.by(() => {
     const accent = accentOf(prefs.values, session.branding);
     return terminalAccent(isHexColor(accent) ? accent : ACCENTS[accent].base);
   });
+
+  /** Sage's light `--deep` for "Setup-Token" and "Copied" on the light card (5.19 : 1 on `--surface2`). */
+  const SAGE_DEEP = accentText(ACCENTS.sage.base, 'light')['--deep'];
 
   const copied = new Copied<'cmd'>();
   onDestroy(() => copied.stop());
@@ -124,7 +131,13 @@
     {@const x = (look.mobile ? mob : desk)[Math.min(level, (look.mobile ? mob : desk).length - 1)]!}
     {@const narrow = look.mobile}
     <div class="tok" style:--sage={ACCENTS.sage.base} style:--sage-ink={ACCENTS.sage.ink}>
-      <div class="term" style:--t-bg={TERMINAL_BG} style:--t-prog={progColor}>
+      <div
+        class="term"
+        class:light={!ui.dark}
+        style:--t-bg={ui.dark ? TERMINAL_BG : null}
+        style:--t-prog={ui.dark ? progColor : null}
+        style:--sage-deep={SAGE_DEEP}
+      >
         <div class="term-head">
           <span class="term-icon" aria-hidden="true"><Icon name="ti-terminal-2" /></span>
           <span class="term-title">
@@ -256,19 +269,50 @@
   }
 
   /*
-   * Terminal: always a dark window, in the light and the dark theme (fixed values, not the theme's tokens).
-   * --t-bg (TERMINAL_BG) and --t-prog (terminalAccent(): icon, prompt and programs) come from #lib/color.ts.
+   * Terminal: a dark window in the dark theme (fixed values, not the theme's tokens); --t-bg
+   * (TERMINAL_BG) and --t-prog (terminalAccent(): icon, prompt and programs) come from #lib/color.ts.
+   * In the light theme a light card like the account preview of the administrator step.
    */
   .term {
     --t-head: #241e19;
     --t-fg: #efe6da;
     --t-line: rgba(255, 240, 220, 0.07);
+    --t-tile: rgba(255, 240, 220, 0.08);
+    --t-shell: rgba(239, 230, 218, 0.62);
+    --t-faint: rgba(239, 230, 218, 0.55);
+    /* 0.52, not 0.5: at 12.5 px the redirects need 4.5 : 1 on the terminal (0.5 gives 4.48) */
+    --t-dim: rgba(239, 230, 218, 0.52);
+    --t-word: var(--sage);
+    --t-btn: rgba(255, 240, 220, 0.16);
+    --t-btn-hi: rgba(255, 240, 220, 0.28);
+    --t-btn-hov: rgba(255, 240, 220, 0.1);
+    --t-log: rgba(255, 240, 220, 0.05);
     border-radius: 20px;
     background: var(--t-bg);
     color: var(--t-fg);
     border: 1px solid rgba(255, 240, 220, 0.08);
     box-shadow: var(--sh2);
     overflow: hidden;
+  }
+
+  .term.light {
+    --t-bg: var(--surface2);
+    --t-head: transparent;
+    --t-fg: var(--fg);
+    --t-line: var(--bd);
+    --t-tile: var(--surface);
+    --t-prog: var(--deep);
+    --t-shell: var(--mfg);
+    --t-faint: var(--mfg);
+    --t-dim: var(--mfg);
+    --t-word: var(--sage-deep);
+    --t-btn: var(--bd);
+    --t-btn-hi: var(--bdhi);
+    --t-btn-hov: var(--hov);
+    --t-log: var(--surface);
+    border-radius: 22px;
+    border: 0;
+    box-shadow: var(--sh-edge), var(--sh1);
   }
 
   .term-head {
@@ -285,7 +329,7 @@
     height: 24px;
     flex-shrink: 0;
     border-radius: 8px;
-    background: rgba(255, 240, 220, 0.08);
+    background: var(--t-tile);
     color: var(--t-prog);
     display: grid;
     place-items: center;
@@ -313,7 +357,7 @@
     text-overflow: ellipsis;
     font-family: var(--font-mono);
     font-size: 12px;
-    color: rgba(239, 230, 218, 0.62);
+    color: var(--t-shell);
   }
 
   .term-copy {
@@ -325,7 +369,7 @@
     gap: 6px;
     padding: 0 12px 0 10px;
     border-radius: 9999px;
-    border: 1px solid rgba(255, 240, 220, 0.16);
+    border: 1px solid var(--t-btn);
     font-size: 12.5px;
     font-weight: 800;
     color: var(--t-fg);
@@ -336,7 +380,7 @@
   }
 
   .term-copy.done {
-    color: var(--sage);
+    color: var(--t-word);
   }
 
   .term-copy :global(svg) {
@@ -353,11 +397,11 @@
 
   :global([data-input='mouse']) .term-copy:hover,
   .term-copy:active {
-    background: rgba(255, 240, 220, 0.1);
+    background: var(--t-btn-hov);
   }
 
   :global([data-input='mouse']) .term-copy:hover {
-    border-color: rgba(255, 240, 220, 0.28);
+    border-color: var(--t-btn-hi);
   }
 
   .term-body {
@@ -399,12 +443,11 @@
   }
 
   .cmd-parts .word {
-    color: var(--sage);
+    color: var(--t-word);
   }
 
   .cmd-parts .dim {
-    /* 0.52, not 0.5: at 12.5 px the redirects need 4.5 : 1 on the terminal (0.5 gives 4.48) */
-    color: rgba(239, 230, 218, 0.52);
+    color: var(--t-dim);
   }
 
   .log {
@@ -413,11 +456,11 @@
     gap: 3px;
     padding: 10px 12px;
     border-radius: 12px;
-    background: rgba(255, 240, 220, 0.05);
+    background: var(--t-log);
   }
 
   .log-pending {
-    color: rgba(239, 230, 218, 0.55);
+    color: var(--t-faint);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -435,7 +478,7 @@
   }
 
   .log-dim {
-    color: rgba(239, 230, 218, 0.55);
+    color: var(--t-faint);
   }
 
   .log-text strong {
