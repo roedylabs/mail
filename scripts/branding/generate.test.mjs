@@ -1,20 +1,31 @@
 // Tests of the branding generator (node --test scripts/): the mark is the one
-// the web app draws, and the SVG files in assets/branding are what the
-// generator produces (run `just branding` after a change).
+// the web app and the server draw, and the SVG files in assets/branding and
+// the favicon of the web app are what the generator produces (run
+// `just branding` after a change).
 
 import assert from 'node:assert/strict';
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 
-import { BACK, FLAP, FRONT, svgFiles } from './generate.mjs';
+import { appFiles, BACK, FLAP, FRONT, svgFiles } from './generate.mjs';
 
 const root = join(import.meta.dirname, '../..');
 const out = join(root, 'assets/branding');
 
-test('the mark matches the default logo of the web app', () => {
+test('the mark matches the default logo of the web app and the server', () => {
   const logo = readFileSync(join(root, 'apps/web/src/lib/components/Logo.svelte'), 'utf8');
   for (const d of [BACK, FRONT, FLAP]) assert.ok(logo.includes(`d="${d}"`), d);
+  // Server: the same paths and the same safe zone for the maskable manifest icon.
+  const server = readFileSync(join(root, 'crates/server/src/logo/mod.rs'), 'utf8');
+  for (const d of [BACK, FRONT, FLAP]) assert.ok(server.includes(d), d);
+  assert.match(server, /const MASKABLE_SCALE: f32 = 0\.78;/);
+});
+
+test('the favicon of the web app is up to date', () => {
+  for (const [file, content] of Object.entries(appFiles())) {
+    assert.equal(readFileSync(join(root, file), 'utf8'), content, `${file} differs: run \`just branding\``);
+  }
 });
 
 test('the SVG files in assets/branding are up to date', () => {

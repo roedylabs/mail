@@ -41,9 +41,9 @@ fuzz target *args:
 e2e *args:
     scripts/e2e.sh "$@"
 
-# Branding files (icons, favicon.ico, logo, social preview) to assets/branding (needs rsvg-convert from librsvg)
+# Branding files (icons, favicon.ico, logo, social preview) to assets/branding and the web app's favicon.svg (needs rsvg-convert from librsvg)
 branding:
-    node scripts/branding/generate.mjs assets/branding
+    node scripts/branding/generate.mjs
 
 # README and walkthrough screenshots with demo data to docs/screenshots (Playwright via scripts/dev/browser.sh; ImageMagick shrinks the files; arguments go to the script, e.g. --only compose)
 [positional-arguments]

@@ -2,14 +2,20 @@
 
 Icons, logo and social preview of Roedy Mail, for the README, release notes,
 articles, package listings and links. They show the default logo of the app:
-the mark in `#3a1b06` on an apricot plate in `#f5a06e`. Instances with their
-own branding (Administration › Branding) draw their logo themselves; these
-files are only about the project.
+the mark in `#3a1b06` on an apricot plate in `#f5a06e`.
+
+The same script writes the favicon of the web app
+(`apps/web/static/favicon.svg`). The apple-touch, manifest, push and mail icons
+of an instance are drawn by the server from its branding
+(Administration › Branding, `crates/server/src/logo`) with the same mark, scale
+and safe zone; for the default branding its square apple-touch and maskable
+icons have the geometry of `png/apple-touch-icon.png` and `png/icon-maskable-*.png`.
 
 All files are generated, do not edit them by hand: change
 [`scripts/branding/generate.mjs`](../../scripts/branding/generate.mjs) and run
 `just branding` (needs `rsvg-convert` from librsvg). `pnpm test` checks that the
-SVG files are up to date and that the mark matches the one in the web app.
+SVG files and the favicon of the web app are up to date and that the mark
+matches the one in the web app and the server.
 
 ## Files
 
