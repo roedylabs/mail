@@ -134,7 +134,7 @@ pub async fn test_registered(
 ) -> anyhow::Result<(Report, bool)> {
     let base_url = Url::parse(&server.base_url)
         .map_err(|e| anyhow::anyhow!("servers.base_url of {} invalid: {e}", server.id))?;
-    let origin = state.public_url.origin().ascii_serialization();
+    let origin = state.public_url().origin().ascii_serialization();
     let report = probe(
         &state.http,
         &Target {

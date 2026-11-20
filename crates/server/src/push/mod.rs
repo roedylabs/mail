@@ -153,7 +153,7 @@ impl Sender {
         Ok(Self {
             http: state.user_http.clone(),
             vapid: state.vapid().await?,
-            subject: state.public_url.origin().ascii_serialization().into(),
+            subject: state.public_url().origin().ascii_serialization().into(),
             // With a version like the mail logo, so that the push service or
             // the device does not show the old one after a change.
             icon: state

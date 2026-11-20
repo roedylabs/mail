@@ -621,7 +621,7 @@ async fn preview(
         brand: &brand,
         theme: query.theme,
         format: &format,
-        public_url: &state.public_url,
+        public_url: &state.public_url(),
         now: Timestamp::now(),
         inline_logo: true,
     };

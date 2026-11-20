@@ -460,7 +460,10 @@ async fn link(
     .ok_or(ApiError::NotFound)?;
     let token = open_token(&state, &id, &sealed)?;
     let path = format!("/invite/{}", token.as_str());
-    let url = format!("{}{path}", state.public_url.origin().ascii_serialization());
+    let url = format!(
+        "{}{path}",
+        state.public_url().origin().ascii_serialization()
+    );
     Ok(Json(json!({ "url": url })))
 }
 
