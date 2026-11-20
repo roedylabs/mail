@@ -73,10 +73,10 @@ The app stores mailboxes, lists and conversations in IndexedDB, one database per
 
 ## Language
 
-The app is available in English and German. Every user chooses under Settings › Language & region or in the account menu.
+The app is available in English and German. Every user chooses under Settings › Language & region or in the account menu; "System" follows the browser (German if its language starts with `de`, otherwise English) and changes along with it.
 
 - **Without sign-in** (sign-in, setup, invitation, forgotten password) the language of the last account on this device applies, otherwise that of the browser, otherwise English. A new account takes over the language in which it signed in for the first time.
-- **Emails, bell, audit log and export** come in the language of the recipient or of the signed-in user. An invitation comes in the language of the inviting administrator, because the invited person has no settings yet. The preview of the mail templates shows the interface language.
+- **Emails, bell, audit log and export** come in the language of the recipient or of the signed-in user; with "System" in the language of their last sign-in. An invitation comes in the language of the inviting administrator, because the invited person has no settings yet. The preview of the mail templates shows the interface language.
 - **New emails via push** are shown by the service worker in the language the app last had on this device.
 - **Branding:** The app translates the default texts of the sign-in page; custom texts from the administration appear in every language as entered. The manifest names no language (`lang` is missing), because the app's name is a proper name and the manifest does not know the person's language.
 - **Formats:** English uses the British order of dates ("Tue 10 November"); the numeric date format and 12/24 hours keep following the settings.
