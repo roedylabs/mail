@@ -209,3 +209,25 @@ export function accentText(hex: HexColor, mode: ModeName): AccentText {
     '--toastacc': textOn(accent, ACCENT_TEXT[mode]['--toastacc'], [ink, hover]),
   };
 }
+
+/** Background of the always dark terminal in the setup token step (`StepToken.svelte`, `--t-bg`). */
+export const TERMINAL_BG: HexColor = '#1b1612';
+
+/** Steps of the share of white in `terminalAccent()` (percent). */
+const TERMINAL_STEP = 2;
+
+/**
+ * Colour of the program names in the terminal (`StepToken.svelte`): the
+ * accent `hex` mixed in oklab with white (like `color-mix()` in CSS), the
+ * share of white raised in steps of `TERMINAL_STEP` % until it reaches
+ * `MIN_CONTRAST` on `TERMINAL_BG`. The named accents and most light colours
+ * already do, unchanged; black needs the most (60 %).
+ */
+export function terminalAccent(hex: HexColor): HexColor {
+  const [accent, white, bg] = [toOklab(rgbOf(hex)), toOklab([255, 255, 255]), rgbOf(TERMINAL_BG)];
+  for (let share = 0; share < 100; share += TERMINAL_STEP) {
+    const rgb = rgbOf(hexOf(fromOklab(mixLab(white, accent, share / 100))));
+    if (rgbContrast(rgb, bg) >= MIN_CONTRAST) return hexOf(rgb);
+  }
+  return '#ffffff';
+}

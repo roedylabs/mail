@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, within } from '@testing-library/svelte';
+import { ACCENTS } from '@roedy/tokens';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { prefs } from '#lib/state/prefs.svelte.ts';
@@ -88,6 +89,26 @@ describe('Setup page', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Copy: docker logs roedy-mail 2>&1 | grep Setup-Token' }));
     expect(writeText).toHaveBeenCalledWith('docker logs roedy-mail 2>&1 | grep Setup-Token');
     expect(view.getByRole('button', { name: /^Copied:/ })).toBeInTheDocument();
+  });
+
+  it('colours the program names in the accent, lightened on the terminal for dark custom accents', () => {
+    sessionStorage.setItem('roedy-setup-accent', 'custom');
+    sessionStorage.setItem('roedy-setup-accentHex', '#1e3a8a');
+    atToken();
+    const view = render(Page);
+    const term = view.container.querySelector<HTMLElement>('.term')!;
+    expect(term.style.getPropertyValue('--t-bg')).toBe('#1b1612');
+    expect(term.style.getPropertyValue('--t-prog')).toBe('#6880b6');
+    const progs = [...view.container.querySelectorAll('.cmd-parts .prog')].map((p) => p.textContent);
+    expect(progs).toEqual(['docker', 'grep']);
+    view.unmount();
+
+    // A named accent stays as it is.
+    sessionStorage.setItem('roedy-setup-accent', 'sky');
+    const named = render(Page);
+    expect(named.container.querySelector<HTMLElement>('.term')!.style.getPropertyValue('--t-prog')).toBe(
+      ACCENTS.sky.base,
+    );
   });
 
   it('keeps the log lines in English in German', () => {

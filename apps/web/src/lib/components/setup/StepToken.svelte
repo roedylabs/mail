@@ -14,11 +14,14 @@
   import SetupShell from '#lib/components/setup/SetupShell.svelte';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
   import { Copied } from '#lib/clipboard.svelte.ts';
+  import { isHexColor, TERMINAL_BG, terminalAccent } from '#lib/color.ts';
   import { m } from '#lib/paraglide/messages.js';
   import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
   import { LOG_CMD, LOG_LINES, TOKEN_LOCK_S, TOKEN_TRIES, type SetupFlow } from '#lib/setup.svelte.ts';
+  import { prefs } from '#lib/state/prefs.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
+  import { accentOf } from '#lib/theme.ts';
 
   let { flow, targets, hidden = false }: { flow: SetupFlow; targets: SetupTargets; hidden?: boolean } = $props();
 
@@ -53,6 +56,12 @@
     tone:
       t === 'docker' || t === 'grep' ? 'prog' : t === 'Setup-Token' ? 'word' : t === '|' || t === '2>&1' ? 'dim' : '',
   }));
+
+  /** Programs in the current accent (like `applyTheme()`), lightened to 4.5 : 1 on the terminal. */
+  const progColor = $derived.by(() => {
+    const accent = accentOf(prefs.values, session.branding);
+    return terminalAccent(isHexColor(accent) ? accent : ACCENTS[accent].base);
+  });
 
   const copied = new Copied<'cmd'>();
   onDestroy(() => copied.stop());
@@ -115,7 +124,7 @@
     {@const x = (look.mobile ? mob : desk)[Math.min(level, (look.mobile ? mob : desk).length - 1)]!}
     {@const narrow = look.mobile}
     <div class="tok" style:--sage={ACCENTS.sage.base} style:--sage-ink={ACCENTS.sage.ink}>
-      <div class="term">
+      <div class="term" style:--t-bg={TERMINAL_BG} style:--t-prog={progColor}>
         <div class="term-head">
           <span class="term-icon" aria-hidden="true"><Icon name="ti-terminal-2" /></span>
           <span class="term-title">
@@ -246,9 +255,11 @@
     display: contents;
   }
 
-  /* Terminal: always a dark window, in the light and the dark theme (fixed values, not the theme's tokens). */
+  /*
+   * Terminal: always a dark window, in the light and the dark theme (fixed values, not the theme's tokens).
+   * --t-bg (TERMINAL_BG) and --t-prog (terminalAccent()) come from #lib/color.ts.
+   */
   .term {
-    --t-bg: #1b1612;
     --t-head: #241e19;
     --t-fg: #efe6da;
     --t-line: rgba(255, 240, 220, 0.07);
@@ -384,7 +395,7 @@
   }
 
   .cmd-parts .prog {
-    color: var(--acc);
+    color: var(--t-prog);
   }
 
   .cmd-parts .word {
