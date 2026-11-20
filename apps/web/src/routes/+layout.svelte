@@ -18,6 +18,7 @@
   import { page } from '$app/state';
   import type { TipState } from '#lib/actions/tooltip.ts';
   import { releaseWaiting, startAppWorker, watchRelease } from '#lib/app-worker.ts';
+  import { themeColor } from '#lib/theme-color.ts';
   import AccountMenu from '#lib/components/AccountMenu.svelte';
   import AccountPicker from '#lib/components/AccountPicker.svelte';
   import AccountSwitcher from '#lib/components/AccountSwitcher.svelte';
@@ -1857,6 +1858,8 @@
 
 <svelte:head>
   <title>{title}</title>
+  <!-- System bars in the page's colour (the manifest's accent only shows while the app starts) -->
+  <meta name="theme-color" content={themeColor(ui.dark)} />
 </svelte:head>
 
 <svelte:document onmousedown={onDocDown} />
