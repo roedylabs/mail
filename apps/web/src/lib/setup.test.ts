@@ -16,6 +16,7 @@ import {
   colorOrder,
   customHexOf,
   formatToken,
+  openTiles,
   readSession,
   recentOf,
   rememberColor,
@@ -132,6 +133,18 @@ describe('Accent colours', () => {
     expect(closedTiles(order, 4, '#f08a7e')).toHaveLength(8);
     // An unknown colour changes nothing.
     expect(hexes(closedTiles(order, 5, '#000000'))).toEqual(accents);
+  });
+
+  it('opens the grid with the closed row in place, then the rest of the order', () => {
+    const order = colorOrder([]);
+    const hexes = (tiles: { hex: string }[]) => tiles.map((t) => t.hex);
+    // The selected Coral took the row's last place: it stays there, Rose follows the row.
+    const row = closedTiles(order, 5, '#f08a7e');
+    const open = openTiles(row, order);
+    expect(hexes(open.slice(0, 5))).toEqual(hexes(row));
+    expect(hexes(open.slice(5, 7))).toEqual([ACCENTS.rose.base, '#ecb655']);
+    expect(open).toHaveLength(order.length);
+    expect(new Set(hexes(open)).size).toBe(order.length);
   });
 
   it('counts the laid-out columns of a grid', () => {

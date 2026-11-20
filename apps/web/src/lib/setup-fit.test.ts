@@ -58,4 +58,30 @@ describe('SetupFit', () => {
     fit.resize(519, 800);
     expect(fit.mobile).toBe(true);
   });
+
+  it('keeps its level while held and refits once released if the size changed meanwhile', async () => {
+    const { root, fit } = page();
+    fit.relayout(1280, 800);
+    await settle();
+    fit.hold(true);
+    root.height = 480;
+    fit.resize(1280, 480);
+    fit.relayout();
+    await settle();
+    expect([fit.h, fit.level]).toEqual([800, 0]);
+    fit.hold(false);
+    await settle();
+    expect(fit.h).toBe(480);
+    expect(fit.level).toBeGreaterThan(0);
+  });
+
+  it('does not refit on release without a change', async () => {
+    const { fit } = page();
+    fit.relayout(1280, 800);
+    await settle();
+    fit.hold(true);
+    fit.resize(1280, 800);
+    fit.hold(false);
+    expect([fit.w, fit.h, fit.level]).toEqual([1280, 800, 0]);
+  });
 });

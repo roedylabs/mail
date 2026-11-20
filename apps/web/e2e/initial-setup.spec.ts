@@ -67,29 +67,33 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await expect(page).toHaveURL(/\/setup$/);
   await settled(page);
 
-  // 1 Language and appearance: applies at once, a custom accent from the colour editor
+  // 1 Language and appearance: applies at once, a custom accent from "More colors"
   await step(page, 'Welcome');
   await expect(page.getByRole('radio', { name: 'System' }).first()).toBeFocused();
   await page.getByRole('radiogroup', { name: 'Theme' }).getByRole('radio', { name: 'Dark' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-mode', 'dark');
-  // One closed row of square tiles; "More colors" in the label row opens the colour editor.
-  await expect(page.getByRole('radiogroup', { name: 'Accent color' })).toBeVisible();
+  // One closed row of square tiles; "More colors" in the label row opens all colours inline (no dialog).
+  const accents = page.getByRole('radiogroup', { name: 'Accent color' });
+  await expect(accents).toBeVisible();
   expect(await axeViolations(page), 'axe: language and appearance').toEqual([]);
   const more = page.getByRole('button', { name: 'More colors' });
   await more.click();
-  const editor = page.getByRole('dialog', { name: 'More colors' });
-  await expect(editor).toBeFocused();
-  expect(await axeViolations(page), 'axe: colour editor').toEqual([]);
-  // A dark colour: the colours derived from it reach 4.5 : 1 on every page axe checks from here on (#164, #185, #187).
-  await editor.getByLabel('Or your own hex code').fill('#1e3a8a');
-  await editor.getByRole('button', { name: 'Apply' }).click();
-  await expect(editor).toBeHidden();
+  await expect(page.getByRole('dialog')).toHaveCount(0);
+  await expect(accents.getByRole('radio', { name: 'Apricot' })).toBeFocused();
+  await expect(accents.getByRole('radio')).toHaveCount(23);
+  await expect(page.getByRole('radiogroup', { name: 'Theme' })).toBeHidden();
+  const hex = page.getByLabel('Your own hex code');
+  await expect(hex).toBeVisible();
+  expect(await axeViolations(page), 'axe: more colors').toEqual([]);
+  // A dark colour, applied at once: the colours derived from it reach 4.5 : 1 on every page axe checks from here on (#164, #185, #187).
+  await hex.fill('#1e3a8a');
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom');
+  await page.getByRole('button', { name: 'Back' }).click();
+  await expect(hex).toBeHidden();
   await expect(more).toBeFocused();
   // The own colour leads the row now; Enter on a tile does what "Get started" does.
   const custom = page.getByRole('radio', { name: 'Custom #1E3A8A' });
-  await expect(page.getByRole('radiogroup', { name: 'Accent color' }).getByRole('radio').first()).toHaveAccessibleName(
-    'Custom #1E3A8A',
-  );
+  await expect(accents.getByRole('radio').first()).toHaveAccessibleName('Custom #1E3A8A');
   await expect(custom).toHaveAttribute('aria-checked', 'true');
   await custom.focus();
   await custom.press('Enter');

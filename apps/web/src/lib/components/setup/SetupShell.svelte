@@ -21,6 +21,17 @@
     busyLabel?: string;
     /** Greyed out and inert. */
     disabled?: boolean;
+    /** Faded (55 %): a press only reaches `onblocked` (the step shows why). */
+    dim?: boolean;
+    /** Background and ink instead of the accent's (a colour being chosen). */
+    bg?: string | undefined;
+    ink?: string | undefined;
+  }
+
+  /** "Back" that slides in left of the primary button while a step's inline editor is open, and closes it. */
+  export interface SlideBack {
+    open: boolean;
+    onclick: () => void;
   }
 </script>
 
@@ -46,6 +57,7 @@
   import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
   import { errorTones } from '#lib/theme.ts';
+  import { FOLD_EASE, FOLD_MS } from '#lib/fold.ts';
 
   interface Props {
     /** Current step; `null` on the done screen (all bars filled, no form). */
@@ -77,8 +89,17 @@
     reg: (key: 'heading' | 'card') => Attachment<HTMLElement>;
     /** Fields of the step (right column) or the done screen's content, with the current values and level. */
     fields: Snippet<[look: Look, level: number]>;
-    /** Layer above the page (a popover or sheet of the step), positioned in the stage; hidden with the page (`hidden`). */
-    overlay?: Snippet<[look: Look]>;
+    /** "Back" sliding in left of the primary button (⅓ : ⅔ of the slot), for a step's inline editor. */
+    slideBack?: SlideBack;
+    /**
+     * Desktop: the card keeps this height (px) while a step's inline editor is open; only the fields column scrolls.
+     * A change eases on the switch's curve.
+     */
+    cardH?: number | null;
+    /** The height level stays (an inline editor is open); a size change meanwhile refits once released. */
+    frozen?: boolean;
+    /** The card (the scrolling panel on mobile). */
+    cardEl?: HTMLDivElement | undefined;
   }
 
   let {
@@ -99,11 +120,17 @@
     onblocked,
     reg,
     fields,
-    overlay,
+    slideBack,
+    cardH = null,
+    frozen = false,
+    cardEl = $bindable(),
   }: Props = $props();
 
   let root: HTMLDivElement | undefined = $state();
   let card: HTMLDivElement | undefined = $state();
+  $effect(() => {
+    cardEl = card;
+  });
   let form: HTMLFormElement | undefined = $state();
 
   const fit = new SetupFit({
@@ -124,6 +151,10 @@
   $effect(() => {
     const el = root;
     return el ? untrack(() => fit.observe(el)) : undefined;
+  });
+  $effect(() => {
+    const on = frozen;
+    untrack(() => fit.hold(on));
   });
   // Content of another height (language, messages): from level 0 again.
   let lastKey: string | null = null;
@@ -177,11 +208,30 @@
 
   const off = $derived(!!primary?.disabled);
   const busy = $derived(!!primary?.busy);
+  const dim = $derived(!!primary?.dim);
+
+  /** Duration of the switch of an inline editor (slide of "Back", the card's height); 0 with motion off. */
+  const switchMs = $derived(prefs.motion ? FOLD_MS : 0);
+  /** Width of the sliding "Back": a third of its slot without the 10 px gap. */
+  let slideW = $state(0);
+  const measureSlot: Attachment<HTMLElement> = (el) => {
+    const measure = () => {
+      const cs = getComputedStyle(el);
+      const w = el.clientWidth - (parseFloat(cs.paddingLeft) || 0) - (parseFloat(cs.paddingRight) || 0);
+      const next = Math.max(0, Math.round((w - 10) / 3));
+      if (next !== slideW) slideW = next;
+    };
+    measure();
+    if (typeof ResizeObserver !== 'function') return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  };
 
   function submit(event: SubmitEvent) {
     event.preventDefault();
     if (busy) return;
-    if (off) onblocked?.();
+    if (off || dim) onblocked?.();
     else onsubmit?.();
   }
 
@@ -217,6 +267,22 @@
   </div>
 {/snippet}
 
+<!-- Slides in from the left: the wrapper grows from 0 to a third of the slot, the button (already that wide) anchored
+     at its right edge, clipped only on the left; hidden once gone, so Tab and screen readers skip it -->
+{#snippet slideBackBtn(sb: SlideBack, cls: string)}
+  <div
+    class="sb"
+    class:open={sb.open}
+    style:width="{sb.open ? slideW : 0}px"
+    aria-hidden={sb.open ? undefined : 'true'}
+    inert={!sb.open}
+  >
+    <button type="button" class="back {cls}" style:width="{slideW}px" onclick={sb.onclick}>
+      <span class="bi"><Icon name="ti-arrow-left" /></span><span class="ell">{m.setup_back()}</span>
+    </button>
+  </div>
+{/snippet}
+
 {#snippet primaryInner()}
   {#if busy}
     <span class="spin"><Icon name="ti-loader-2" /></span><span>{primary?.busyLabel}</span>
@@ -238,6 +304,8 @@
     onpointerover={onPointer}
     onkeydown={onKey}
     style:padding={look.rootPad}
+    style:--switch="{switchMs}ms {FOLD_EASE}"
+    style:--sw-ms="{switchMs}ms"
     {@attach setupSwipe(() => swipe)}
   >
     <div class="column">
@@ -252,6 +320,8 @@
         <div
           bind:this={card}
           class="card"
+          class:held={!mobile && cardH !== null}
+          style:height={!mobile && cardH !== null ? `${cardH}px` : undefined}
           style:max-width={look.cardMaxW}
           style:padding={look.cardPad}
           {@attach reg('card')}
@@ -273,6 +343,7 @@
               class:two={look.two}
               class:btn-left={look.btnLeft}
               class:fit-title={fitTitle}
+              class:held={!mobile && cardH !== null}
               style:grid-template-columns={look.cols}
               style:column-gap={look.colGap}
               style:--f-h1={look.h1}
@@ -305,13 +376,22 @@
                 {/if}
               </div>
 
-              <div class="right" style:margin-top={look.fieldsTop}>
+              <!-- Held (an inline editor open): only this column scrolls, without scroll anchoring; 8 px of padding,
+                   offset by a negative margin (nothing moves), keeps rings and focus outlines unclipped -->
+              <div
+                class="right"
+                style:margin={!mobile && cardH !== null
+                  ? `calc(${look.fieldsTop === '0' ? '0px' : look.fieldsTop} - 8px) -8px -8px`
+                  : `${look.fieldsTop} 0 0`}
+              >
                 {@render fields(look, fit.level)}
               </div>
 
               {#if !mobile && primary}
                 <div
                   class="actions"
+                  class:slide={!!slideBack}
+                  {@attach !!slideBack && measureSlot}
                   style:margin-top={look.btnLeft ? '16px' : look.btnTop}
                   style:width={look.two && !look.btnLeft ? actionsW : undefined}
                   style:margin-left={look.two && !look.btnLeft && actionsW ? 'auto' : undefined}
@@ -326,11 +406,16 @@
                       <span class="bi"><Icon name="ti-arrow-left" /></span><span class="ell">{m.setup_back()}</span>
                     </button>
                   {/if}
+                  {#if slideBack}{@render slideBackBtn(slideBack, 'lift press')}{/if}
                   <button
                     type="submit"
                     class="primary lift-sh press"
                     class:off
-                    aria-disabled={off || busy ? 'true' : 'false'}
+                    class:dim
+                    class:alt={slideBack?.open}
+                    style:background={primary.bg}
+                    style:color={primary.ink}
+                    aria-disabled={off || busy || dim ? 'true' : 'false'}
                     aria-busy={busy ? 'true' : 'false'}
                   >
                     {@render primaryInner()}
@@ -343,7 +428,7 @@
       </main>
 
       {#if mobile && primary}
-        <div class="bottom">
+        <div class="bottom" class:slide={!!slideBack} {@attach !!slideBack && measureSlot}>
           {#if canBack}
             <button
               type="button"
@@ -355,11 +440,16 @@
               <span class="bi"><Icon name="ti-arrow-left" /></span><span class="ell">{m.setup_back()}</span>
             </button>
           {/if}
+          {#if slideBack}{@render slideBackBtn(slideBack, 'press')}{/if}
           <button
             type="button"
             class="primary press"
             class:off
-            aria-disabled={off || busy ? 'true' : 'false'}
+            class:dim
+            class:alt={slideBack?.open}
+            style:background={primary.bg}
+            style:color={primary.ink}
+            aria-disabled={off || busy || dim ? 'true' : 'false'}
             aria-busy={busy ? 'true' : 'false'}
             onclick={() => form?.requestSubmit()}
           >
@@ -371,10 +461,6 @@
   </div>
   {#if swipe}
     <div class="chip" data-setup-chip aria-hidden="true"><Icon name="ti-chevron-left" /></div>
-  {/if}
-  {#if overlay}
-    <!-- Hidden with the page while "No connection" covers it; `display: contents`, so the layer is placed in the stage. -->
-    <div class="overlay" aria-hidden={hidden ? 'true' : undefined} inert={hidden}>{@render overlay(look)}</div>
   {/if}
 </div>
 
@@ -568,6 +654,15 @@
       box-shadow 300ms;
   }
 
+  /* Held while an inline editor is open (desktop): its height is fixed, a change eases on the switch's curve */
+  .card.held {
+    overflow: hidden;
+    transition:
+      height var(--switch),
+      background-color 300ms,
+      box-shadow 300ms;
+  }
+
   .mobile .card {
     overflow-y: auto;
     scrollbar-width: none;
@@ -603,6 +698,34 @@
   form.two.btn-left {
     grid-template-areas: 'left right' 'actions right';
     grid-template-rows: 1fr auto;
+  }
+
+  form.held {
+    flex: 1 1 0;
+    min-height: 0;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+  }
+
+  form.held.two {
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+
+  form.held .right {
+    min-height: 0;
+    padding: 8px;
+    overflow-y: auto;
+    overflow-anchor: none;
+    overscroll-behavior: contain;
+    scrollbar-width: none;
+  }
+
+  form.held .right::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Its blocks never shrink: while held they overflow and scroll */
+  form.held .right > :global(*) {
+    flex-shrink: 0;
   }
 
   .left {
@@ -711,6 +834,13 @@
     gap: 10px;
   }
 
+  /* With a sliding "Back": its wrapper keeps the gap (10 px open), the slot is the container of the open labels */
+  .actions.slide,
+  .bottom.slide {
+    gap: 0;
+    container-type: inline-size;
+  }
+
   .bottom {
     flex-shrink: 0;
     display: flex;
@@ -772,6 +902,68 @@
     padding: 0 22px;
   }
 
+  .sb {
+    flex: 0 0 auto;
+    margin-right: 0;
+    display: flex;
+    justify-content: flex-end;
+    clip-path: inset(-16px -16px -16px 0);
+    opacity: 0;
+    visibility: hidden;
+    transition:
+      width var(--switch),
+      margin-right var(--switch),
+      opacity calc(var(--sw-ms) * 0.45) ease,
+      visibility 0s linear var(--sw-ms);
+  }
+
+  .sb.open {
+    margin-right: 10px;
+    opacity: 1;
+    visibility: visible;
+    transition:
+      width var(--switch),
+      margin-right var(--switch),
+      opacity calc(var(--sw-ms) * 0.6) ease,
+      visibility 0s;
+  }
+
+  .sb .back {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  /* The pill while the editor is open: in the colour being chosen, faded while the hex code is invalid */
+  .primary.alt {
+    padding: 0 22px;
+    transition:
+      transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1),
+      box-shadow 220ms,
+      background-color 150ms,
+      color 150ms,
+      opacity 200ms;
+  }
+
+  .primary.dim {
+    opacity: 0.55;
+  }
+
+  @container (width < 336px) {
+    .sb .back {
+      padding: 0 8px;
+    }
+
+    .primary.alt {
+      padding: 0 12px;
+    }
+  }
+
+  @container (width < 296px) {
+    .primary.alt .bi {
+      display: none;
+    }
+  }
+
   .primary.off {
     background: var(--surface2);
     color: var(--mfg);
@@ -830,10 +1022,6 @@
 
   .press:not(.off, [aria-busy='true']):active {
     transform: scale(0.98);
-  }
-
-  .overlay {
-    display: contents;
   }
 
   /* Arrow chip of the swipe back */
