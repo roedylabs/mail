@@ -10,8 +10,9 @@
   import { ACCENTS, MODE_PREV, type AccentName } from '@roedy/tokens';
   import type { Attachment } from 'svelte/attachments';
   import { radiogroup } from '#lib/actions/radiogroup.ts';
-  import { accentInk, isHexColor, type HexColor } from '#lib/color.ts';
-  import { customName } from '#lib/color-editor.svelte.ts';
+  import { isHexColor, type HexColor } from '#lib/color.ts';
+  import { customName, editorStart } from '#lib/color-editor.svelte.ts';
+  import AccentRing from '#lib/components/AccentRing.svelte';
   import ColorEditor from '#lib/components/ColorEditor.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import SetupShell from '#lib/components/setup/SetupShell.svelte';
@@ -170,9 +171,7 @@
   let editing = $state(false);
   let customBtn: HTMLButtonElement | undefined = $state();
   /** The editor starts with the custom colour, otherwise the current accent. */
-  const editStart = $derived<HexColor>(
-    custom ?? (isHexColor(choices.accent) ? choices.accent : ACCENTS[choices.accent].base),
-  );
+  const editStart = $derived(editorStart(choices.accent, custom));
 
   function closeEditor() {
     editing = false;
@@ -383,14 +382,8 @@
               style:--swatch={custom ?? 'var(--acc)'}
               onclick={() => (editing = true)}
             >
-              <span class="swatch ring">
-                <span
-                  class="cdot"
-                  style:background={custom ?? 'var(--surface)'}
-                  style:color={custom ? accentInk(custom) : 'var(--fg)'}
-                >
-                  <Icon name={isCustom ? 'ti-check' : custom ? 'ti-pencil' : 'ti-plus'} />
-                </span>
+              <span class="swatch">
+                <AccentRing dot={custom} icon={isCustom ? 'ti-check' : custom ? 'ti-pencil' : 'ti-plus'} />
               </span>
               <span class="acc-label">{custom ? customName(custom) : m.setup_accent_more()}</span>
             </button>
@@ -789,26 +782,6 @@
 
   .acc.on .swatch > :global(svg) {
     opacity: 1;
-  }
-
-  /* "Custom": a ring of the palette's hues with a dot inside in the own colour (+ while none is set) */
-  .swatch.ring {
-    /* fixed values (the palette's hues) */
-    background: conic-gradient(from 210deg, #f5a06e, #f2c46b, #94c48d, #82bbec, #b0a2f2, #f097ad, #f5a06e);
-  }
-
-  .cdot {
-    height: 54%;
-    aspect-ratio: 1;
-    border-radius: 9999px;
-    display: grid;
-    place-items: center;
-    font-size: 16px;
-    /* fixed shadow (dot) */
-    box-shadow:
-      0 0 0 3px var(--surface),
-      0 2px 6px -1px rgba(0, 0, 0, 0.3);
-    transition: background-color 200ms;
   }
 
   .acc-label {

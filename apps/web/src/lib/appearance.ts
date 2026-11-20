@@ -1,11 +1,13 @@
 /**
  * Values of the Settings › Appearance page: colour scheme (`modeCards`),
- * accent colour (`accentOpts`, locked without `userAccent` of the branding),
+ * accent colour (`accentOpts` and the sixth tile `accentMore` for a custom
+ * colour from the colour editor; locked without `userAccent` of the branding),
  * font size, animations, density, mailbox design and sidebar. Changes go
  * through `prefs.set()`; the shell applies the theme at once (`applyTheme()` in
  * `#lib/theme.ts`). The sidebar is `ui.collapsed` and is not saved.
  */
 import { ACCENTS, MA_COLORS, MODE_PREV, type AccentName } from '@roedy/tokens';
+import { accentInk, isHexColor, type HexColor } from '#lib/color.ts';
 import type { IconName } from '#lib/icons.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { DENSITIES, FONT_SIZES, MODES, PF_DESIGNS } from '#lib/settings-choices.ts';
@@ -51,10 +53,29 @@ export interface AccentOption {
   onClick: () => void;
 }
 
+/**
+ * Sixth accent tile: "More" opens the colour editor; while a custom accent is active it shows that colour
+ * like a named tile. Not remembered apart from `accent`: a named accent turns it back into "More". Name and
+ * start colour of the editor come from the page (`customName()`, `editorStart()` of
+ * `#lib/color-editor.svelte.ts`, which stays out of the mailbox bundle).
+ */
+export interface AccentMore {
+  /** Active custom accent; `null`: "More" (`ti-plus`). */
+  hex: HexColor | null;
+  /** Ink of the check on it (`accentInk()`). */
+  ink: HexColor | null;
+  on: boolean;
+  /** Active accent, named or custom (the brand colour while locked): the editor starts with it. */
+  accent: AccentName | HexColor;
+  /** "Apply" of the editor: saves at once, like a click on a named tile (no toast, no undo). */
+  apply: (hex: HexColor) => void;
+}
+
 export interface AppearanceValues {
   tabs: { label: string; onClick: () => void }[];
   modeCards: ModeCard[];
   accentOpts: AccentOption[];
+  accentMore: AccentMore;
   /** Without `userAccent` the branding sets the accent colour: selection locked (`accOp`, `accPe`). */
   accLocked: boolean;
   fontOpts: SegOption<Settings['fontSize']>[];
@@ -148,6 +169,15 @@ export function appearanceValues(input: AppearanceInput, ctx: AppearanceContext)
         if (!locked) ctx.set({ accent: name });
       },
     })),
+    accentMore: {
+      hex: isHexColor(accent) ? accent : null,
+      ink: isHexColor(accent) ? accentInk(accent) : null,
+      on: isHexColor(accent),
+      accent,
+      apply: (hex) => {
+        if (!locked) ctx.set({ accent: hex });
+      },
+    },
     accLocked: locked,
     fontOpts: seg(FONT_SIZES, values.fontSize, (fontSize) => ctx.set({ fontSize })),
     densityOpts: seg(DENSITIES, values.density, (density) => ctx.set({ density })),

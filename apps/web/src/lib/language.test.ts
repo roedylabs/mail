@@ -27,6 +27,8 @@ function setup(patch: Partial<LanguageInput> = {}, values: Partial<LanguageInput
   } satisfies LanguageContext;
   const input: LanguageInput = {
     values: { ...RESET0, ...GERMANY, ...values },
+    browserLang: 'en',
+    appName: 'Example Mail',
     now: NOW,
     deviceTz: 'Europe/Berlin',
     open: null,
@@ -43,10 +45,13 @@ describe('Language & region', () => {
   it('shows the German settings: language, Germany, automatic time zone, formats', () => {
     const { v } = setup();
     expect(v.langTabs.map((t) => t.label)).toEqual(['Language', 'Region', 'Formats']);
-    expect(v.langOpts.map((l) => [l.code, l.name, l.sub, l.hasSub, l.on])).toEqual([
-      ['DE', m.region_lang_de(), '', false, true],
-      ['EN', 'English', 'English', true, false],
+    // "System" first; a language's second line only where it differs from its name, chosen or not.
+    expect(v.langOpts.map((l) => [l.id, l.code, l.name, l.sub, l.hasSub, l.on])).toEqual([
+      ['system', '', 'System', 'Browser: English', true, false],
+      ['de', 'DE', 'Deutsch', 'German', true, true],
+      ['en', 'EN', 'English', '', false, false],
     ]);
+    expect(v.systemNote).toBeNull();
     expect(v.selRegion).toMatchObject({
       title: 'Country or region',
       label: 'Germany',
@@ -177,18 +182,24 @@ describe('Language & region', () => {
     expect(ctx.show).toHaveBeenCalledWith(null);
   });
 
-  it('choose language: English saves `lang`, the chosen one changes nothing', () => {
+  it('choose language: English and System save `lang`, the chosen one changes nothing', () => {
     const { v, ctx } = setup();
+    v.langOpts[1]?.onClick();
+    expect(ctx.set).not.toHaveBeenCalled();
+    v.langOpts[2]?.onClick();
+    expect(ctx.set).toHaveBeenCalledWith({ lang: 'en' });
+    v.langOpts[0]?.onClick();
+    expect(ctx.set).toHaveBeenLastCalledWith({ lang: 'system' });
+  });
+
+  it('"system": only the System card is chosen, with the browser\'s language and the note on mails', () => {
+    const { v, ctx } = setup({ browserLang: 'de' }, { lang: 'system' });
+    expect(v.langOpts.filter((l) => l.on).map((l) => l.id)).toEqual(['system']);
+    expect(v.langOpts[0]).toMatchObject({ sub: 'Browser: Deutsch', hasSub: true, label: 'System – Browser: Deutsch' });
+    expect(v.systemNote).toBe('Emails from Example Mail use the language of your last sign-in.');
     v.langOpts[0]?.onClick();
     expect(ctx.set).not.toHaveBeenCalled();
     v.langOpts[1]?.onClick();
-    expect(ctx.set).toHaveBeenCalledWith({ lang: 'en' });
-  });
-
-  it('"system" selects no language card, a click on one replaces it', () => {
-    const { v, ctx } = setup({}, { lang: 'system' });
-    expect(v.langOpts.filter((l) => l.on)).toEqual([]);
-    v.langOpts[0]?.onClick();
     expect(ctx.set).toHaveBeenCalledWith({ lang: 'de' });
   });
 
@@ -206,6 +217,7 @@ describe('Language & region', () => {
         m.region_tab_formats({}, de),
       ]);
       expect(v.langOpts.map((l) => [l.code, l.name, l.sub, l.on])).toEqual([
+        ['', m.region_lang_system({}, de), m.region_lang_system_sub({ lang: 'English' }, de), false],
         ['DE', m.region_lang_de({}, de), '', true],
         ['EN', m.region_lang_en({}, de), m.region_lang_en_sub({}, de), false],
       ]);

@@ -1090,7 +1090,7 @@
         if (prefs.values.mode !== mode) prefs.set({ mode });
       },
     })),
-    langSeg: langChoices(prefs.values.lang, (patch) => prefs.set(patch)),
+    langSeg: langChoices(prefs.values.lang, prefs.browserLang, (patch) => prefs.set(patch)),
     openAccountSettings: () => go(PROFILE),
     logout: () => void logout(),
   });
@@ -2142,7 +2142,9 @@
           <PickerList {pick} closeSheet={() => ui.closeMenu()} />
         </Sheet>
       {/if}
-      {#if pageDialog}
+      {#if pageDialog?.bare}
+        {@render pageDialog.content(true)}
+      {:else if pageDialog}
         <Sheet level={pageDialog.own ? 3 : 1} label={pageDialog.title} onclose={pageDialog.close}>
           {@render pageDialog.content(true)}
         </Sheet>

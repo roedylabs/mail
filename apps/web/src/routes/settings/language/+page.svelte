@@ -19,6 +19,7 @@
   import { pickPop, selIds, selKey, type SelIds } from '#lib/select.ts';
   import { pageOf } from '#lib/settings-nav.ts';
   import { browserTimeZone, prefs } from '#lib/state/prefs.svelte.ts';
+  import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
 
   let root: HTMLElement | undefined = $state();
@@ -48,6 +49,8 @@
     languageValues(
       {
         values: prefs.values,
+        browserLang: prefs.browserLang,
+        appName: session.appName,
         now,
         deviceTz: browserTimeZone(),
         open: ui.menu === 'pick' ? sel : null,
@@ -183,17 +186,21 @@
     <h2>{m.region_tab_lang()}</h2>
     <p class="sec-desc">{m.region_lang_desc()}</p>
     <div role="radiogroup" aria-label={m.region_tab_lang()} use:radiogroup={{ select: false }} class="langs">
-      {#each v.langOpts as l (l.code)}
+      {#each v.langOpts as l (l.id)}
         <button type="button" role="radio" aria-checked={l.on} class="lang" class:on={l.on} onclick={l.onClick}>
-          <span class="tile">{l.code}</span>
+          <span class="tile" class:icon={!l.code}
+            >{#if l.code}{l.code}{:else}<Icon name="ti-world" />{/if}</span
+          >
           <span class="lang-text">
-            <span class="lang-name" lang={l.id}>{l.name}</span>
+            <!-- "System" is a word of the interface, the languages are named in themselves (WCAG 3.1.2). -->
+            <span class="lang-name" lang={l.code ? l.id : undefined}>{l.name}</span>
             {#if l.hasSub}<span class="lang-sub">{l.sub}</span>{/if}
           </span>
           <span class="check"><Icon name="ti-check" /></span>
         </button>
       {/each}
     </div>
+    {#if v.systemNote}<p class="lang-note">{v.systemNote}</p>{/if}
   </section>
 
   <section data-sec="region" class="sec">
@@ -417,6 +424,10 @@
       transform var(--dur, 220ms) cubic-bezier(0.3, 1.5, 0.5, 1);
   }
 
+  .tile.icon {
+    font-size: 20px;
+  }
+
   .lang.on .tile {
     background: var(--acc);
     color: var(--accink);
@@ -478,6 +489,12 @@
 
   .lang.on .check :global(svg) {
     opacity: 1;
+  }
+
+  .lang-note {
+    margin: 12px 0 0;
+    font-size: 13px;
+    color: var(--mfg);
   }
 
   /* Box with settings */

@@ -7,6 +7,7 @@ import {
   SURFACE_DARK,
   SURFACE_LIGHT,
   customName,
+  editorStart,
   gridMove,
   lowContrast,
   placePopover,
@@ -28,6 +29,13 @@ describe('Presets', () => {
     expect(presetOf('#123456')).toBeUndefined();
     expect(customName('#78c895')).toBe('Mint');
     expect(customName('#4a7bd0')).toBe('Custom #4A7BD0');
+  });
+
+  it('starts the editor with the custom colour, otherwise the active accent', () => {
+    expect(editorStart('#3a7bd5')).toBe('#3a7bd5');
+    expect(editorStart('sky')).toMatch(/^#[0-9a-f]{6}$/);
+    expect(editorStart('apricot')).toBe('#f5a06e');
+    expect(editorStart('apricot', '#123456')).toBe('#123456');
   });
 });
 

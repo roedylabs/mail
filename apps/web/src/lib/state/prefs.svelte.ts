@@ -199,6 +199,12 @@ export class Prefs {
   loaded = $state(false);
   /** Language of the browser for `system`; follows its changes (`languagechange`). */
   #browserLang = $state<Lang>(browserLang());
+
+  /** Language of the browser (what `system` shows), e.g. for "Browser: English". */
+  get browserLang(): Lang {
+    return this.#browserLang;
+  }
+
   /**
    * UI language: own `$derived` so that texts are only recreated on a
    * change, not on every new state of `values`; `system` is the browser's, an

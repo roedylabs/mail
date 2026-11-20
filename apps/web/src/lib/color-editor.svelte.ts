@@ -4,7 +4,8 @@
  * desktop popover goes. Shared by the setup wizard and Settings ›
  * Appearance; the markup is `#lib/components/ColorEditor.svelte`.
  */
-import { contrast, parseHex, type HexColor } from '#lib/color.ts';
+import { ACCENTS, type AccentName } from '@roedy/tokens';
+import { contrast, isHexColor, parseHex, type HexColor } from '#lib/color.ts';
 import { m } from '#lib/paraglide/messages.js';
 
 /** The preset colours, six per row: in the palette's soft tone, each standing out in both themes. */
@@ -68,6 +69,14 @@ export function presetOf(hex: HexColor): PresetName | undefined {
 export function customName(hex: HexColor): string {
   const preset = presetOf(hex);
   return preset ? presetLabel(preset) : m.color_custom({ hex: hex.toUpperCase() });
+}
+
+/**
+ * Colour the editor starts with: the custom colour if there is one (`custom`, the setup keeps it while a named
+ * accent is chosen), otherwise the active accent's (a named one's base).
+ */
+export function editorStart(accent: AccentName | HexColor, custom: HexColor | null = null): HexColor {
+  return custom ?? (isHexColor(accent) ? accent : ACCENTS[accent].base);
 }
 
 /** Surfaces of the dark and the light theme (`--surface`). */

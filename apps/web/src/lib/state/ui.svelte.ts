@@ -101,6 +101,8 @@ export interface PageDialog {
   content: Snippet<[boolean]>;
   /** Mobile: own layer above all other sheets (`srvMob`, `pushMob`) instead of the level 1 sheet. */
   own?: boolean;
+  /** Mobile: the content draws its own sheet (colour editor), without the layout's. */
+  bare?: boolean;
 }
 
 /** Keys of the reading view (`rdNav`): previous or next conversation of the list, back to the list. */

@@ -85,8 +85,9 @@ describe('Language & region page', () => {
       group('Language')
         .getAllByRole('radio')
         .map((r) => r.textContent.trim()),
-    ).toEqual(['DE Deutsch German', 'EN English']);
+    ).toEqual(['System Browser: English', 'DE Deutsch German', 'EN English']);
     expect(checked('Language')).toHaveTextContent('English');
+    expect(view.queryByText(/use the language of your last sign-in/)).toBeNull();
     expect(checked('Language')).toHaveClass('on');
 
     // Name from the row label and the visible value (WCAG 2.5.3).
@@ -142,14 +143,46 @@ describe('Language & region page', () => {
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(m.nav_language({}, german));
     const languages = group(m.region_tab_lang({}, german));
     expect(checked(m.region_tab_lang({}, german))).toHaveTextContent('Deutsch');
-    expect(languages.getAllByRole('radio')).toHaveLength(2);
+    expect(languages.getAllByRole('radio')).toHaveLength(3);
     expect(
       view.getByRole('combobox', { name: new RegExp(`^${m.region_country_title({}, german)} `) }),
     ).toBeInTheDocument();
     expect(view.getByRole('combobox', { name: new RegExp(`^${m.region_tz_title({}, german)} `) })).toBeInTheDocument();
-    await fireEvent.click(languages.getByRole('radio', { name: /English/ }));
+    await fireEvent.click(languages.getByRole('radio', { name: /^EN / }));
     expect(prefs.values.lang).toBe('en');
     expect(checked('Language')).toHaveTextContent('English');
+  });
+
+  it('selects "System": only its card is checked, the browser\'s language live and the note on mails', async () => {
+    const languages = vi.spyOn(navigator, 'languages', 'get').mockReturnValue(['en-US']);
+    window.dispatchEvent(new Event('languagechange'));
+    try {
+      const view = render(Page);
+      const system = group('Language').getByRole('radio', { name: 'System Browser: English' });
+      expect(group('Language').getAllByRole('radio')[0]).toBe(system);
+      expect(system.querySelector('.tile .tabler-icon-world')).not.toBeNull();
+      expect(system.querySelector('.lang-name')).not.toHaveAttribute('lang');
+      await fireEvent.click(system);
+      expect(prefs.values.lang).toBe('system');
+      expect(group('Language').getAllByRole('radio', { checked: true })).toEqual([system]);
+      expect(view.getByText('Emails from Roedy Mail use the language of your last sign-in.')).toBeInTheDocument();
+      // A new browser language applies at once: the interface and the second line follow.
+      languages.mockReturnValue(['de-DE']);
+      window.dispatchEvent(new Event('languagechange'));
+      await tick();
+      const german = { locale: 'de' } as const;
+      const cards = group(m.region_tab_lang({}, german)).getAllByRole('radio');
+      expect(cards.map((r) => r.textContent.trim())).toEqual([
+        'System Browser: Deutsch',
+        'DE Deutsch',
+        'EN English Englisch',
+      ]);
+      expect(cards.map((r) => r.getAttribute('aria-checked'))).toEqual(['true', 'false', 'false']);
+      expect(view.getByText(m.region_lang_system_mail({ app: 'Roedy Mail' }, german))).toBeInTheDocument();
+    } finally {
+      languages.mockRestore();
+      window.dispatchEvent(new Event('languagechange'));
+    }
   });
 
   it('selects country or region in the popover with the mouse', async () => {
@@ -369,7 +402,7 @@ describe('Language & region page', () => {
     expect(view.getByText('Language, date, and time format.')).toBeInTheDocument();
     expect(view.container.querySelector('.page')).toHaveClass('mobile');
     expect(view.getByRole('button', { name: 'Formats' })).toBeInTheDocument();
-    expect(group('Language').getAllByRole('radio')).toHaveLength(2);
+    expect(group('Language').getAllByRole('radio')).toHaveLength(3);
     expect(preview(view.container)).toHaveLength(3);
 
     const region = view.getByRole('button', { name: /^Country or region / });

@@ -1,6 +1,6 @@
 <!--
   Menu behind the avatar: name, email, "Manage account", light or dark theme,
-  language and sign-out. On desktop as a popover below the avatar, on mobile
+  language ("System" as a globe, then the codes) and sign-out. On desktop as a popover below the avatar, on mobile
   as the content of the sheet. Not a menu in the ARIA sense (it contains radio
   groups), but a named group behind a toggle with `aria-expanded` (disclosure
   pattern).
@@ -50,18 +50,32 @@
       <span class="icon"><Icon name="ti-language" /></span>
       <span class="label">{m.account_language()}</span>
       <div class="seg" role="radiogroup" aria-label={m.account_language()} use:radiogroup={{ select: false }}>
-        {#each langSeg as l (l.code)}
-          <button
-            role="radio"
-            class="code"
-            class:on={l.on}
-            aria-checked={l.on}
-            aria-label="{l.code} {l.name}"
-            lang={l.id}
-            onclick={l.onClick}
-          >
-            {l.code}
-          </button>
+        {#each langSeg as l (l.id)}
+          {#if l.code}
+            <button
+              role="radio"
+              class="code"
+              class:on={l.on}
+              aria-checked={l.on}
+              aria-label={l.label}
+              lang={l.id}
+              onclick={l.onClick}
+            >
+              {l.code}
+            </button>
+          {:else}
+            <!-- "System": icon only, named with the browser's language -->
+            <button
+              role="radio"
+              class:on={l.on}
+              aria-checked={l.on}
+              aria-label={l.label}
+              onclick={l.onClick}
+              use:tooltip={l.name}
+            >
+              <Icon name="ti-world" />
+            </button>
+          {/if}
         {/each}
       </div>
     </div>
