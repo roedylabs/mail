@@ -772,7 +772,7 @@ export function readValues(input: ReadInput): ReadValues {
     acctBg: input.account ? (MA_COLORS[input.account.color]?.[1] ?? MA_COLORS[0][1]) : 'var(--mfg)',
     acctMail: input.account?.email ?? '',
     starIcon: flagged ? 'ti-star-filled' : 'ti-star',
-    starC: flagged ? '#e3a93a' : 'var(--mfg)',
+    starC: flagged ? 'var(--star)' : 'var(--mfg)',
     starTip: flagged ? m.list_unstar() : m.list_star(),
     starOn: flagged ? 'true' : 'false',
     starOff: lone,

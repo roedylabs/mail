@@ -1141,7 +1141,7 @@
   }
 
   .star-btn.on {
-    color: #e3a93a;
+    color: var(--star);
   }
 
   .star-btn:hover {
@@ -1508,7 +1508,7 @@
     align-self: center;
     display: grid;
     font-size: 14px;
-    color: #e3a93a;
+    color: var(--star);
   }
 
   .mobile .time {

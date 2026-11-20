@@ -1234,7 +1234,7 @@
 
   .star {
     display: grid;
-    color: #e3a93a;
+    color: var(--star);
   }
 
   /* Quick actions; on the right 6 px beyond the row's padding, like `.side` */
@@ -1278,7 +1278,7 @@
   }
 
   .qb.qb-star.on {
-    color: #e3a93a;
+    color: var(--star);
   }
 
   .qb.qb-del:hover {

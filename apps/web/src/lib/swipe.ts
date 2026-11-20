@@ -69,7 +69,8 @@ export function swipeAction(key: string, row: { unread: boolean; star: boolean }
         key: 'star',
         icon: row.star ? 'ti-star-off' : 'ti-star',
         label: row.star ? m.list_bulk_unstar() : m.list_star(),
-        // fixed values (colour of the star)
+        // fixed values: the amber of the star as the surface, a dark icon on it (not `--star`,
+        // whose light value is too dark for a surface)
         c: '#e3a93a',
         ink: '#2e1f05',
         out: false,

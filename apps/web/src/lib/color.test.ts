@@ -282,3 +282,59 @@ describe('named accents on --accsoft (CSS mixes)', () => {
     expect(exact.contrast(mix(base, 52, '#2b1405'), soft)).toBeGreaterThanOrEqual(4.6);
   });
 });
+
+describe('flag star (--star) at 3:1 on its surfaces', () => {
+  /** Non-text contrast of a state icon (WCAG 1.4.11). */
+  const ICON_CONTRAST = 3;
+  /**
+   * With some distance to the limit: the browser rounds `color-mix()` and the `--hov` overlay to 8 bits
+   * (`#lib/test/contrast.ts`); with `#aa7300` the model said 3.02:1 on Lavender's hovered `--accsoft`,
+   * the browser 2.99:1.
+   */
+  const MIN_ICON = ICON_CONTRAST + 0.1;
+
+  /** `--hov` (`rgba(…)`) over `base`, blended in sRGB like in the browser. */
+  function hovered(base: exact.Rgb, mode: ModeName): exact.Rgb {
+    const [r, g, b, alpha] = MODES[mode]['--hov'].match(/[\d.]+/g)!.map(Number) as [number, number, number, number];
+    return exact.over(base, [r / 255, g / 255, b / 255], alpha);
+  }
+
+  /** Contrast of `--star` on `surface` and on `--hov` over it. */
+  function onSurface(surface: exact.Rgb, mode: ModeName) {
+    const star = exact.hex(MODES[mode]['--star']);
+    return Math.min(exact.contrast(star, surface), exact.contrast(star, hovered(surface, mode)));
+  }
+
+  for (const mode of ['light', 'dark'] as const) {
+    it(`reaches 3:1 on --surface, --surface2 and --cnv with and without --hov in ${mode} mode`, () => {
+      const tokens = MODES[mode];
+      for (const name of ['--surface', '--surface2', '--cnv'] as const) {
+        expect(onSurface(exact.hex(tokens[name]), mode), name).toBeGreaterThanOrEqual(MIN_ICON);
+      }
+      // Compact list: the hovered star button (`--hov`) in a hovered row (`--hov` over `--surface`).
+      const twice = hovered(exact.hex(tokens['--surface']), mode);
+      expect(onSurface(twice, mode), '--hov twice over --surface').toBeGreaterThanOrEqual(MIN_ICON);
+    });
+
+    it(`reaches 3:1 on --accsoft of the named accents with and without --hov in ${mode} mode`, () => {
+      const surface = exact.hex(MODES[mode]['--surface']);
+      for (const [name, { base }] of Object.entries(ACCENTS)) {
+        const soft = exact.mixOklab(exact.hex(base), surface, ACCSOFT_SHARE[mode] / 100);
+        expect(onSurface(soft, mode), name).toBeGreaterThanOrEqual(MIN_ICON);
+      }
+    });
+
+    it(`reaches 3:1 on --accsoft of custom accents with and without --hov in ${mode} mode`, () => {
+      for (const hex of [...cube(16), ...PRESETS.map(([, preset]) => preset)]) {
+        const soft = exact.hex(accentText(hex, mode)['--accsoft']);
+        expect(onSurface(soft, mode), hex).toBeGreaterThanOrEqual(MIN_ICON);
+      }
+    });
+  }
+
+  it('keeps the amber in dark mode, which misses 3:1 on the light --surface', () => {
+    expect(MODES.dark['--star']).toBe('#e3a93a');
+    const surface = exact.hex(MODES.light['--surface']);
+    expect(exact.contrast(exact.hex(MODES.dark['--star']), surface)).toBeLessThan(ICON_CONTRAST);
+  });
+});

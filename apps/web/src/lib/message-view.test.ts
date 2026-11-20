@@ -386,7 +386,7 @@ describe('readValues', () => {
     );
     expect(rd).toMatchObject({
       starIcon: 'ti-star-filled',
-      starC: '#e3a93a',
+      starC: 'var(--star)',
       starTip: 'Remove flag',
       starOn: 'true',
     });

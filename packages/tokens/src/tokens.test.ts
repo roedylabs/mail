@@ -102,6 +102,17 @@ describe('shadow tokens', () => {
   });
 });
 
+describe('flag star', () => {
+  it('defines --star per mode: a darker amber in light, the amber itself in dark', () => {
+    expect(MODES.light['--star']).toBe('#a77000');
+    expect(MODES.dark['--star']).toBe('#e3a93a');
+    const css = renderTokensCss();
+    // default mode (dark), explicit light mode and the system-mode media query
+    expect(css.split('--star: #e3a93a;')).toHaveLength(2);
+    expect(css.split('--star: #a77000;')).toHaveLength(3);
+  });
+});
+
 describe('constants', () => {
   it('have the same token names in both modes', () => {
     expect(Object.keys(MODES.dark)).toEqual(Object.keys(MODES.light));
