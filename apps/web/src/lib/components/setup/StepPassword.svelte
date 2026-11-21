@@ -149,6 +149,7 @@
 {/snippet}
 
 <SetupShell
+  email={flow.email.trim()}
   step={4}
   docTitle={m.setup_doc_title({ step: m.setup_step_password() })}
   title={m.setup_pw_title()}

@@ -449,6 +449,7 @@
 {#snippet code(c: string)}<span class="code">{c}</span>{/snippet}
 
 <SetupShell
+  email={flow.email.trim()}
   step={1}
   sync={syncCols}
   docTitle={m.setup_doc_title({ step: m.setup_step_prefs() })}
