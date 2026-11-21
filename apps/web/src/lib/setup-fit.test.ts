@@ -146,4 +146,39 @@ describe('SetupFit', () => {
     fit.hold(false);
     expect([fit.w, fit.h, fit.level]).toEqual([1280, 800, 0]);
   });
+
+  it('fits both languages to the same level, whichever is chosen', async () => {
+    // German is 120 px higher than English and each level saves 60 px: German needs level 4, English level 2.
+    const fitIn = async (chosen: 'en' | 'de') => {
+      let lang: 'en' | 'de' = chosen;
+      const root = {
+        height: 600,
+        get clientHeight() {
+          return this.height;
+        },
+        get scrollHeight() {
+          return Math.max(this.height, (lang === 'de' ? 820 : 700) - fit.level * 60);
+        },
+      };
+      const shown: ('en' | 'de')[] = [];
+      const fit: SetupFit = new SetupFit({
+        root: () => root as unknown as HTMLElement,
+        card: () => undefined,
+        levels: () => 7,
+        columns: true,
+        lang: {
+          other: () => (chosen === 'de' ? 'en' : 'de'),
+          set: (l) => {
+            lang = l ?? chosen;
+            shown.push(lang);
+          },
+        },
+      });
+      fit.relayout(1280, 600);
+      await settle();
+      return { level: fit.level, lang, shown };
+    };
+    expect(await fitIn('en')).toEqual({ level: 4, lang: 'en', shown: ['de', 'en', 'en'] });
+    expect(await fitIn('de')).toEqual({ level: 4, lang: 'de', shown: ['en', 'de', 'de'] });
+  });
 });

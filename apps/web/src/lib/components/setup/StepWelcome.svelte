@@ -213,20 +213,32 @@
     choose({ accent: accentOfHex(hex) ?? hex });
   }
 
+  /** The accent grid, for measuring its columns. */
+  let colsEl: HTMLElement | undefined;
+
+  /** Reads the grid's columns; `true` if they changed. */
+  function syncCols(): boolean {
+    const n = colsEl ? trackCount(getComputedStyle(colsEl).gridTemplateColumns) : 0;
+    if (!n || n === cols) return false;
+    cols = n;
+    return true;
+  }
+
   /** Measures the grid's columns (`auto-fill`: as many as fit) whenever its width or tile size changes. */
   function measureCols(mobile: boolean): Attachment<HTMLElement> {
     // `mobile` switches the tile size (60 or 66 px columns) without changing the grid's width: a new attachment measures again.
     void mobile;
     return (el) => {
-      const measure = () => {
-        const n = trackCount(getComputedStyle(el).gridTemplateColumns);
-        if (n) cols = n;
-      };
+      colsEl = el;
+      const measure = () => void syncCols();
       measure();
       if (typeof ResizeObserver !== 'function') return;
       const ro = new ResizeObserver(measure);
       ro.observe(el);
-      return () => ro.disconnect();
+      return () => {
+        ro.disconnect();
+        if (colsEl === el) colsEl = undefined;
+      };
     };
   }
 
@@ -438,6 +450,7 @@
 
 <SetupShell
   step={1}
+  sync={syncCols}
   docTitle={m.setup_doc_title({ step: m.setup_step_prefs() })}
   title={m.setup_welcome_title()}
   {intro}

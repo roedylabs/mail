@@ -53,7 +53,8 @@
   } from '#lib/setup-layout.ts';
   import { setupSwipe } from '#lib/setup-swipe.ts';
   import { STEPS, type Step } from '#lib/setup.svelte.ts';
-  import { prefs } from '#lib/state/prefs.svelte.ts';
+  import { locales } from '#lib/paraglide/runtime.js';
+  import { fitLang, prefs } from '#lib/state/prefs.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
   import { errorTones } from '#lib/theme.ts';
@@ -100,6 +101,11 @@
     frozen?: boolean;
     /** The card (the scrolling panel on mobile). */
     cardEl?: HTMLDivElement | undefined;
+    /**
+     * Before each measurement of the height fit: brings values the step reads from the layout up to date (such as
+     * the columns of a grid); `true` if one changed.
+     */
+    sync?: () => boolean;
   }
 
   let {
@@ -124,6 +130,7 @@
     cardH = null,
     frozen = false,
     cardEl = $bindable(),
+    sync,
   }: Props = $props();
 
   let root: HTMLDivElement | undefined = $state();
@@ -140,6 +147,12 @@
       step === null ? (mobile ? DONE_MOB_LEVELS : DONE_LEVELS).length : ((mobile ? mob : desk)?.length ?? 1),
     // Two columns only for the steps (read once: a step keeps its shell).
     columns: untrack(() => step !== null),
+    // Both languages fit to the same level: first the other one, then the chosen one.
+    lang: {
+      other: () => locales.find((l) => l !== prefs.lang) ?? prefs.lang,
+      set: (lang) => (fitLang.value = lang),
+    },
+    sync: () => sync?.() ?? false,
   });
 
   const look = $derived(
@@ -296,6 +309,7 @@
     bind:this={root}
     class="root"
     class:mobile
+    data-fitting={fit.fitting ? '' : undefined}
     data-input={input}
     aria-hidden={hidden ? 'true' : undefined}
     inert={hidden}
@@ -500,6 +514,14 @@
 
   .root::-webkit-scrollbar {
     display: none;
+  }
+
+  /* While the height fit runs nothing animates: a size still easing from the previous level would be measured. */
+  .root[data-fitting],
+  .root[data-fitting] :global(*),
+  .root[data-fitting] :global(*::before),
+  .root[data-fitting] :global(*::after) {
+    transition: none !important;
   }
 
   .root.mobile {
