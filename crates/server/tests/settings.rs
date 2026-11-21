@@ -1118,7 +1118,7 @@ async fn branding_is_checked_saved_drawn_and_public() {
     assert_eq!(manifest["name"], "Post");
     assert_eq!(manifest["short_name"], "Post");
     assert_eq!(manifest["background_color"], "#2b221c");
-    assert_eq!(manifest["theme_color"], "#f3eee7");
+    assert!(manifest.get("theme_color").is_none());
     let brand = env.state.brand();
     let logos = brand.logos.as_ref().unwrap();
     assert_eq!(

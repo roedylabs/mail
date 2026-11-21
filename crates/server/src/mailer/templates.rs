@@ -34,16 +34,6 @@ pub enum Theme {
     Dark,
 }
 
-impl Theme {
-    /// Page background of the theme, the web app's `--cnv`.
-    pub fn page(self) -> &'static str {
-        match self {
-            Self::Light => LIGHT.page,
-            Self::Dark => DARK.page,
-        }
-    }
-}
-
 /// Surface and text colours of a theme.
 struct Colors {
     page: &'static str,
