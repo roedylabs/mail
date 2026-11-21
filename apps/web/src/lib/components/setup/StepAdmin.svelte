@@ -68,6 +68,7 @@
 {/snippet}
 
 <SetupShell
+  email={flow.email.trim()}
   step={3}
   docTitle={m.setup_doc_title({ step: m.setup_step_admin() })}
   title={m.setup_admin_title()}

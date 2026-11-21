@@ -130,6 +130,7 @@
 {#snippet intro(short: boolean)}{short ? m.setup_token_intro_short() : m.setup_token_intro()}{/snippet}
 
 <SetupShell
+  email={flow.email.trim()}
   step={2}
   docTitle={m.setup_doc_title({ step: m.setup_step_token() })}
   title={m.setup_token_title({ app: session.appName })}

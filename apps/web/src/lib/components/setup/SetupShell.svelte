@@ -42,6 +42,7 @@
   import Logo from '#lib/components/Logo.svelte';
   import { m } from '#lib/paraglide/messages.js';
   import { SetupFit } from '#lib/setup-fit.svelte.ts';
+  import { setupHeads } from '#lib/setup-heads.ts';
   import {
     DONE_LEVELS,
     DONE_MOB_LEVELS,
@@ -107,6 +108,8 @@
      * the columns of a grid); `true` if one changed.
      */
     sync?: () => boolean;
+    /** The administrator's email so far (the password step's intro names it), for the space kept for the headings. */
+    email?: string;
   }
 
   let {
@@ -131,6 +134,7 @@
     frozen = false,
     cardEl = $bindable(),
     sync,
+    email = '',
   }: Props = $props();
 
   let root: HTMLDivElement | undefined = $state();
@@ -165,6 +169,12 @@
   /** Desktop: the card as high as the largest step at this level (not while held, not on the done screen). */
   const cardMin = $derived(!mobile && step !== null && cardH === null ? sharedCardH(fit.w, fit.two, fit.level) : null);
   const dark = $derived(ui.dark);
+  /**
+   * Desktop, two columns: heading and intro of every step in both languages lie invisibly in the same grid cell as
+   * this step's, so the space above the step overview is the largest of them and the overview never moves (between
+   * steps or languages). Their text comes from `content`, outside the text and accessibility tree.
+   */
+  const heads = $derived(step !== null ? setupHeads(session.appName, email) : []);
 
   $effect(() => {
     const el = root;
@@ -177,7 +187,8 @@
   // Content of another height (language, messages): from level 0 again.
   let lastKey: string | null = null;
   $effect(() => {
-    const key = `${contentKey}|${prefs.lang}`;
+    // The email changes the hidden password intro (`heads`), which may change the space above the overview.
+    const key = `${contentKey}|${prefs.lang}|${email}`;
     if (lastKey !== null && key !== lastKey) untrack(() => fit.relayout());
     lastKey = key;
   });
@@ -375,8 +386,26 @@
               style:--f-pfs={look.pfs}
             >
               <div class="left">
-                <h1 tabindex="-1" {@attach reg('heading')}>{title}</h1>
-                {#if intro && look.intro}<p class="intro">{@render intro(look.introShort)}</p>{/if}
+                <div class="head">
+                  <div class="head-now">
+                    <h1 tabindex="-1" {@attach reg('heading')}>{title}</h1>
+                    {#if intro && look.intro}<p class="intro">{@render intro(look.introShort)}</p>{/if}
+                  </div>
+                  {#if look.two}
+                    {#each heads as h, i (i)}
+                      {@const parts = look.introShort ? h.short : h.long}
+                      <div class="head-ghost" aria-hidden="true">
+                        <div class="ghost-h1" data-text={h.title}></div>
+                        {#if intro && look.intro}
+                          <div class="intro">
+                            <span data-text={parts[0]}></span><b data-text={parts[1]}></b><span data-text={parts[2]}
+                            ></span>
+                          </div>
+                        {/if}
+                      </div>
+                    {/each}
+                  {/if}
+                </div>
                 {#if look.two}
                   <ol
                     class="overview"
@@ -794,9 +823,44 @@
   }
 
   /* A line break in the title (the welcome step: "Willkommen" / "bei Roedy Mail") is kept in every layout */
-  form h1 {
+  form h1,
+  .ghost-h1 {
     font-size: min(var(--f-h1), 13.7cqi);
     white-space: pre-line;
+  }
+
+  /* Heading and intro, and invisibly those of every step in both languages in the same cell (see `heads`) */
+  .head {
+    display: grid;
+  }
+
+  .head-now,
+  .head-ghost {
+    grid-area: 1 / 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .head-ghost {
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .ghost-h1 {
+    font-family: var(--font-serif);
+    line-height: 1.1;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+
+  .head-ghost [data-text]::before {
+    content: attr(data-text);
+  }
+
+  .head-ghost b {
+    font-weight: 800;
+    overflow-wrap: anywhere;
   }
 
   .intro {
