@@ -793,8 +793,10 @@
     text-wrap: balance;
   }
 
+  /* A line break in the title (the welcome step: "Willkommen" / "bei Roedy Mail") is kept in every layout */
   form h1 {
     font-size: min(var(--f-h1), 13.7cqi);
+    white-space: pre-line;
   }
 
   .intro {

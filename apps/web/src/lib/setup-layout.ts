@@ -287,10 +287,10 @@ export function fitTier(w: number, two: boolean): FitTier {
  * on its own when its content still overflows (an error message).
  */
 export const SHARED_FIT: Record<FitTier, { need: readonly number[]; card: readonly number[] }> = {
-  mob: { need: [964, 916, 730, 610, 484], card: [1156, 814, 766, 580, 460] },
-  narrow: { need: [1054, 934, 826, 652, 598, 508, 484], card: [954, 881, 794, 638, 584, 495, 466] },
-  mid: { need: [1072, 904, 772, 658, 604, 514, 484], card: [970, 849, 742, 642, 588, 499, 470] },
-  two: { need: [9999, 754, 658, 574, 526, 484, 484], card: [624, 703, 629, 563, 513, 427, 427] },
+  mob: { need: [964, 916, 730, 640, 484], card: [1156, 814, 766, 580, 490] },
+  narrow: { need: [1054, 934, 826, 688, 628, 508, 484], card: [954, 881, 794, 674, 617, 496, 466] },
+  mid: { need: [1072, 946, 808, 688, 634, 514, 484], card: [970, 893, 782, 678, 621, 500, 470] },
+  two: { need: [9999, 754, 658, 574, 526, 484, 484], card: [611, 703, 629, 563, 513, 427, 427] },
   wide: { need: [868, 754, 658, 574, 526, 484, 484], card: [767, 703, 629, 563, 513, 410, 410] },
 };
 
