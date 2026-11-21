@@ -23,7 +23,7 @@ use super::static_files::{CACHE_IMMUTABLE, CACHE_REVALIDATE, cached, etag_of, pl
 use crate::{
     app::AppState,
     logo::{ICON_SIZE, Logos, PUSH_SIZE, Png},
-    mailer::templates::{Brand, PUSH_ICON_PATH},
+    mailer::templates::{Brand, PUSH_ICON_PATH, Theme},
 };
 
 /// Web manifest; the address is fixed in `app.html`.
@@ -90,6 +90,13 @@ pub async fn manifest(State(state): State<AppState>, headers: HeaderMap) -> Resp
 /// The system replaces `%s` with the whole link; the compose page reads it.
 const MAILTO_HANDLER: &str = "/compose/new?mailto=%s";
 
+///
+/// `theme_color` is the page background, not the accent: Chrome on Android
+/// colours the installed app's navigation bar with it and keeps it from the
+/// install on, so it cannot follow the page's `theme-color` meta. The light
+/// page by default, the dark page for systems in dark mode where the browser
+/// reads it: as the draft standard's top-level `color_scheme_dark` and as
+/// Chromium's earlier `user_preferences.color_scheme_dark`.
 fn manifest_json(brand: &Brand) -> Value {
     let (plate, _) = brand.plate.colors(brand.accent);
     json!({
@@ -101,8 +108,10 @@ fn manifest_json(brand: &Brand) -> Value {
         "scope": "/",
         "display": "standalone",
         "protocol_handlers": [{ "protocol": "mailto", "url": MAILTO_HANDLER }],
-        "theme_color": brand.accent.base,
+        "theme_color": Theme::Light.page(),
         "background_color": plate,
+        "color_scheme_dark": { "theme_color": Theme::Dark.page() },
+        "user_preferences": { "color_scheme_dark": { "theme_color": Theme::Dark.page() } },
         "icons": brand.logos.as_deref().map_or_else(Vec::new, manifest_icons),
     })
 }
@@ -178,6 +187,17 @@ mod tests {
         });
         assert_eq!(manifest["name"], "Roedy Mail");
         assert_eq!(manifest["icons"], json!([]));
+    }
+
+    #[test]
+    fn manifest_colours_the_bars_like_the_page() {
+        let manifest = manifest_json(&Brand::default());
+        assert_eq!(manifest["theme_color"], "#f3eee7");
+        assert_eq!(manifest["color_scheme_dark"]["theme_color"], "#181411");
+        assert_eq!(
+            manifest["user_preferences"]["color_scheme_dark"]["theme_color"],
+            "#181411"
+        );
     }
 
     #[test]

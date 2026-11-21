@@ -89,7 +89,7 @@ The image is stored in the database; older versions are not kept.
 | Web app and sign-in page | Name, logo, color, texts of the sign-in page | `public/config`; uploaded logo under `/branding/image/<id>.<extension>` |
 | System emails | App name, brand color, tile, mail logo as PNG (80 × 80) | `/branding/mail-logo.png?v=<version>` |
 | Push | Icon as PNG (192 × 192); the app name only where the event's text mentions it | `/branding/push-icon.png?v=<version>` |
-| Installed app | Name, brand color, tile, icons as PNG (180, 192 and 512 pixels) | `/manifest.webmanifest`, `/branding/app-icon.png`, `/branding/app-icon-maskable.png`, `/branding/apple-touch-icon.png`; public, a proxy with its own sign-in must let them through like the push icon. Already installed apps only pick up a change at the next check by the browser or the system. |
+| Installed app | Name, tile, icons as PNG (180, 192 and 512 pixels) | `/manifest.webmanifest`, `/branding/app-icon.png`, `/branding/app-icon-maskable.png`, `/branding/apple-touch-icon.png`; public, a proxy with its own sign-in must let them through like the push icon. Already installed apps only pick up a change at the next check by the browser or the system. |
 
 "Slightly tilted" only applies in the web app. The server draws the PNGs itself, on start and after every change, and keeps them in memory. `v` only makes image proxies reload: the routes always deliver the current image, so older emails show the new logo too.
 
