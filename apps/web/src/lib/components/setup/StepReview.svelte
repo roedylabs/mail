@@ -61,7 +61,6 @@
   step={5}
   docTitle={m.setup_doc_title({ step: m.setup_step_review() })}
   title={m.setup_review_title()}
-  fitTitle
   {intro}
   {desk}
   {mob}

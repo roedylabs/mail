@@ -42,6 +42,8 @@ export interface FitTargets {
    * up to date; `true` if one changed, then the step renders once more before the fit measures.
    */
   sync?: () => boolean;
+  /** Level a relayout starts from at width `w`, height `h` and column layout `two` (default 0). */
+  start?: (w: number, h: number, two: boolean) => number;
 }
 
 export class SetupFit {
@@ -102,7 +104,8 @@ export class SetupFit {
     this.w = w;
     this.h = h;
     this.two = !isMobileWidth(w) && this.t.columns && twoCol(w, h, this.two);
-    this.level = 0;
+    // Without a layout (a hidden page, tests) the size says nothing: from level 0.
+    this.level = root?.clientHeight ? (this.t.start?.(w, h, this.two) ?? 0) : 0;
     this.gen += 1;
     if (this.fitting) return;
     this.fitting = true;

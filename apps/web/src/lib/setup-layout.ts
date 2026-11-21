@@ -270,6 +270,60 @@ export const DONE_MOB_LEVELS: readonly MobLevel[] = [
 
 export type Tier = 'mob' | 'mid' | 'wide';
 
+/** Layout tier of the shared level table: mobile, one column (narrow below 700 px), two columns (wide from 1000 px). */
+export type FitTier = 'mob' | 'narrow' | 'mid' | 'two' | 'wide';
+
+export function fitTier(w: number, two: boolean): FitTier {
+  if (isMobileWidth(w)) return 'mob';
+  if (two) return w >= WIDE ? 'wide' : 'two';
+  return w < NARROW_CARD ? 'narrow' : 'mid';
+}
+
+/**
+ * One level for all five steps: per tier the window height each level needs (`need`, px of the page; on mobile of
+ * the page around the panel) and the card's height at that level (`card`, desktop). Both are the largest of the five
+ * steps in the longer language, measured on the real steps at the narrowest width of the tier. Every step starts its
+ * fit at the level the window allows, so heading, sizes and card are the same on every step; a step only goes denser
+ * on its own when its content still overflows (an error message).
+ */
+export const SHARED_FIT: Record<FitTier, { need: readonly number[]; card: readonly number[] }> = {
+  mob: { need: [964, 916, 730, 610, 484], card: [1156, 814, 766, 580, 460] },
+  narrow: { need: [1054, 934, 826, 652, 598, 508, 484], card: [954, 881, 794, 638, 584, 495, 466] },
+  mid: { need: [1072, 904, 772, 658, 604, 514, 484], card: [970, 849, 742, 642, 588, 499, 470] },
+  two: { need: [9999, 754, 658, 574, 526, 484, 484], card: [624, 703, 629, 563, 513, 427, 427] },
+  wide: { need: [868, 754, 658, 574, 526, 484, 484], card: [767, 703, 629, 563, 513, 410, 410] },
+};
+
+/**
+ * Width the heading's column must hold, in em: "bei Roedy Mail" (7.17 em in Young Serif) with a little room. A column
+ * that holds it but not the whole title leaves only the break "Willkommen" / "bei Roedy Mail" (`text-wrap: balance`
+ * prefers it anyway). The heading never grows past 1/TITLE_EM of its column (13.7cqi).
+ */
+export const TITLE_EM = 7.3;
+
+/**
+ * Card width from 1000 px (two columns, left : right = 1 : 1.5): wide enough that the left column holds TITLE_EM at
+ * the level's heading size, at least 980 px; the window still limits it.
+ */
+export function wideCardW(L: DeskLevel): number {
+  const padX = parseFloat(L.pad[0].split(' ')[1] ?? '0');
+  return Math.max(980, Math.ceil(2.5 * TITLE_EM * parseFloat(L.h1[0]) + 2 * padX + parseFloat(L.col)));
+}
+
+/** Level all steps share at width `w`, height `h` and column layout `two`; at most `levels - 1`. */
+export function sharedLevel(w: number, h: number, two: boolean, levels: number): number {
+  const { need } = SHARED_FIT[fitTier(w, two)];
+  const i = need.findIndex((n) => h >= n);
+  return Math.min(levels - 1, i < 0 ? need.length - 1 : i);
+}
+
+/** Desktop card height (px) at `level`: the largest step's, so the card has the same size on every step; `null` on mobile. */
+export function sharedCardH(w: number, two: boolean, level: number): number | null {
+  if (isMobileWidth(w)) return null;
+  const { card } = SHARED_FIT[fitTier(w, two)];
+  return card[Math.min(level, card.length - 1)] ?? null;
+}
+
 /** Resolved values of the shell at the current size and level. */
 export interface Look {
   tier: Tier;
@@ -352,7 +406,7 @@ export function stepLook(
     full,
     rootPad: L.root,
     mainPad: L.main,
-    cardMaxW: two ? '980px' : '640px',
+    cardMaxW: two ? (full ? `${wideCardW(L)}px` : '980px') : '640px',
     cardPad: two ? L.pad[0] : w < NARROW_CARD ? L.pad[2] : L.pad[1],
     h1: two && full ? L.h1[0] : L.h1[1],
     gapL: L.gap,

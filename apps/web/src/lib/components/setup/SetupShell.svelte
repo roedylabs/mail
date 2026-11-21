@@ -46,6 +46,9 @@
     DONE_LEVELS,
     DONE_MOB_LEVELS,
     doneLook,
+    isMobileWidth,
+    sharedCardH,
+    sharedLevel,
     stepLook,
     type DeskLevel,
     type Look,
@@ -66,8 +69,6 @@
     /** Document title of the step ("Setup token · Setup"). */
     docTitle: string;
     title?: string;
-    /** The heading never grows wider than the left column (a long single word such as "Administrator"). */
-    fitTitle?: boolean;
     /** Intro under the heading; `short` at the denser levels. */
     intro?: Snippet<[short: boolean]>;
     /** Height levels of the step (its own values on top of the shared ones). */
@@ -112,7 +113,6 @@
     step,
     docTitle,
     title = '',
-    fitTitle = false,
     intro,
     desk,
     mob,
@@ -153,12 +153,17 @@
       set: (lang) => (fitLang.value = lang),
     },
     sync: () => sync?.() ?? false,
+    // The steps share one level per window size (the done screen fits on its own).
+    start: (w, h, two) => (step === null ? 0 : sharedLevel(w, h, two, (isMobileWidth(w) ? mob : desk)?.length ?? 1)),
   });
 
   const look = $derived(
     step === null ? doneLook(fit.w, fit.level) : stepLook(fit.w, fit.two, fit.level, desk ?? [], mob ?? []),
   );
   const mobile = $derived(look.mobile);
+
+  /** Desktop: the card as high as the largest step at this level (not while held, not on the done screen). */
+  const cardMin = $derived(!mobile && step !== null && cardH === null ? sharedCardH(fit.w, fit.two, fit.level) : null);
   const dark = $derived(ui.dark);
 
   $effect(() => {
@@ -310,6 +315,7 @@
     class="root"
     class:mobile
     data-fitting={fit.fitting ? '' : undefined}
+    data-level={fit.level}
     data-input={input}
     aria-hidden={hidden ? 'true' : undefined}
     inert={hidden}
@@ -336,6 +342,7 @@
           class="card"
           class:held={!mobile && cardH !== null}
           style:height={!mobile && cardH !== null ? `${cardH}px` : undefined}
+          style:min-height={cardMin !== null ? `${cardMin}px` : undefined}
           style:max-width={look.cardMaxW}
           style:padding={look.cardPad}
           {@attach reg('card')}
@@ -356,7 +363,6 @@
               novalidate
               class:two={look.two}
               class:btn-left={look.btnLeft}
-              class:fit-title={fitTitle}
               class:held={!mobile && cardH !== null}
               style:grid-template-columns={look.cols}
               style:column-gap={look.colGap}
@@ -712,8 +718,15 @@
     animation: suPop 380ms cubic-bezier(0.2, 1.2, 0.3, 1);
   }
 
+  /* The form fills the card (its height is the largest step's): the fields take the room, the actions sit at its bottom */
+  .card > form {
+    flex: 1 0 auto;
+    grid-template-rows: auto 1fr auto;
+  }
+
   form.two {
     grid-template-areas: 'left right' '. actions';
+    grid-template-rows: 1fr auto;
   }
 
   /* The two densest two-column levels: the action row under the step overview; in the DOM it still follows the fields */
@@ -764,7 +777,8 @@
     flex-direction: column;
   }
 
-  .fit-title .left {
+  /* The heading never wider than its column: "bei Roedy Mail" (TITLE_EM, setup-layout.ts) stays on one line; the same rule on every step */
+  form .left {
     container-type: inline-size;
   }
 
@@ -779,8 +793,8 @@
     text-wrap: balance;
   }
 
-  .fit-title h1 {
-    font-size: min(var(--f-h1), 14.6cqi);
+  form h1 {
+    font-size: min(var(--f-h1), 13.7cqi);
   }
 
   .intro {

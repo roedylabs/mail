@@ -995,7 +995,7 @@
   "setup_net_checking": "Checking the connection …",
   "setup_net_next": "Trying again in {time}",
   "setup_next": "Continue",
-  "setup_welcome_title": "Welcome to {app}",
+  "setup_welcome_title": "Welcome to\u00a0{app}",
   "setup_welcome_intro": "{app} is set up in a few steps. First, choose your language and appearance. This becomes your default, and you can change it later in Settings.",
   "setup_welcome_intro_short": "Choose your language and appearance. You can change both later.",
   "setup_start": "Get started",
