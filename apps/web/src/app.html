@@ -4,8 +4,9 @@
     <meta charset="utf-8" />
     <!--
       resizes-content: the on-screen keyboard shrinks the layout (and 100dvh) instead of only
-      covering it, so full-height pages keep their bottom bar above the keyboard. viewport-fit=cover: the page
-      draws behind the navigation bar (edge to edge) and colours it; layouts keep clear of it via --sab (app.css).
+      covering it, so full-height pages keep their bottom bar above the keyboard. viewport-fit=cover: in a browser tab the page
+      draws behind the navigation bar (edge to edge) and colours it; layouts keep clear of it via --sab (app.css). An
+      installed app gets no edge to edge: Chrome draws that bar itself (see the manifest in branding.rs).
     -->
     <meta
       name="viewport"
