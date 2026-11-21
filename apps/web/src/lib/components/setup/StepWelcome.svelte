@@ -439,7 +439,7 @@
 <SetupShell
   step={1}
   docTitle={m.setup_doc_title({ step: m.setup_step_prefs() })}
-  title={m.setup_welcome_title()}
+  title={m.setup_welcome_title({ app: session.appName })}
   {intro}
   {desk}
   {mob}
