@@ -271,6 +271,7 @@ async fn manifest_comes_from_the_standard_branding() {
             "protocol_handlers": [{ "protocol": "mailto", "url": "/compose/new?mailto=%s" }],
             "theme_color": "#f3eee7",
             "background_color": "#f5a06e",
+            "color_scheme_dark": { "theme_color": "#181411" },
             "user_preferences": { "color_scheme_dark": { "theme_color": "#181411" } },
             "icons": [
                 {
