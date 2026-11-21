@@ -10,8 +10,17 @@
  * relayout reads the page's current size. Otherwise a level found on an
  * earlier size (a window that grew, a page loaded hidden) stayed until the
  * next relayout, and changing the language suddenly resized the card.
+ *
+ * Both languages show the same texts at the same size: each fit first runs in
+ * the other language, then in the chosen one from the level the other one
+ * reached, so the level is the denser of the two and switching the language
+ * never changes it. Only the texts follow the measuring language (`lang`);
+ * every pass ends before the browser paints. While fitting nothing animates
+ * (`fitting`, see the shell), so no size still easing from the previous level
+ * is measured.
  */
 import { tick } from 'svelte';
+import type { Lang } from '#lib/locale.ts';
 import { isMobileWidth, twoCol, WIDE } from '#lib/setup-layout.ts';
 
 export interface FitTargets {
@@ -23,6 +32,16 @@ export interface FitTargets {
   levels: (mobile: boolean) => number;
   /** Two columns possible at all (not on the done screen). */
   columns: boolean;
+  /**
+   * Language the texts render in while measuring: `other()` is the language not chosen, `set` switches the texts
+   * to it (`null`: back to the chosen one). Without it the fit measures the chosen language only.
+   */
+  lang?: { other: () => Lang; set: (lang: Lang | null) => void };
+  /**
+   * Runs before each measurement: brings values a step measures from the layout (such as the columns of a grid)
+   * up to date; `true` if one changed, then the step renders once more before the fit measures.
+   */
+  sync?: () => boolean;
 }
 
 export class SetupFit {
@@ -31,7 +50,10 @@ export class SetupFit {
   two = $state(false);
   level = $state(0);
   mobile = $derived(isMobileWidth(this.w));
-  private fitting = false;
+  /** A fit is running: transitions are off (the shell's `data-fitting`). */
+  fitting = $state(false);
+  /** Counts relayouts: a running fit starts over when it changes. */
+  private gen = 0;
   private ready = false;
   /** Size of the last refit decision: small changes are measured against it, not against the previous one. */
   private checked = { w: 0, h: 0 };
@@ -81,6 +103,7 @@ export class SetupFit {
     this.h = h;
     this.two = !isMobileWidth(w) && this.t.columns && twoCol(w, h, this.two);
     this.level = 0;
+    this.gen += 1;
     if (this.fitting) return;
     this.fitting = true;
     void this.run();
@@ -123,15 +146,34 @@ export class SetupFit {
   }
 
   private async run(): Promise<void> {
+    // Without a layout (a hidden page, tests) there is nothing to measure in the other language.
+    const lang = this.t.root()?.clientHeight ? this.t.lang : undefined;
     try {
       for (;;) {
-        await tick();
-        if (!this.overflows()) break;
-        if (this.level >= this.t.levels(this.mobile) - 1) break;
-        this.level += 1;
+        const gen = this.gen;
+        if (lang) {
+          lang.set(lang.other());
+          await this.climb(gen);
+          lang.set(null);
+          if (gen !== this.gen) continue;
+        }
+        await this.climb(gen);
+        if (gen === this.gen) break;
       }
     } finally {
+      lang?.set(null);
       this.fitting = false;
+    }
+  }
+
+  /** Steps down from the current level until nothing overflows (or the densest level); stops early on a relayout. */
+  private async climb(gen: number): Promise<void> {
+    for (;;) {
+      await tick();
+      if (this.t.sync?.()) await tick();
+      if (gen !== this.gen || !this.overflows()) return;
+      if (this.level >= this.t.levels(this.mobile) - 1) return;
+      this.level += 1;
     }
   }
 

@@ -361,5 +361,11 @@ function conflictOf(error: unknown): StoredSettings | null {
 
 export const prefs = new Prefs();
 
+/**
+ * Language the texts render in for one pass of the setup's height fit (the language not chosen), otherwise `null`.
+ * Only the texts follow it; `prefs.lang` and everything derived from it stay.
+ */
+export const fitLang = $state<{ value: Lang | null }>({ value: null });
+
 // UI language from the settings; via `$state` templates and `$derived` follow a change.
-overwriteGetLocale(() => prefs.lang);
+overwriteGetLocale(() => fitLang.value ?? prefs.lang);
