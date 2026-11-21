@@ -181,4 +181,24 @@ describe('SetupFit', () => {
     expect(await fitIn('en')).toEqual({ level: 4, lang: 'en', shown: ['de', 'en', 'en'] });
     expect(await fitIn('de')).toEqual({ level: 4, lang: 'de', shown: ['en', 'de', 'de'] });
   });
+
+  it('starts at the level the steps share and only goes denser from there', async () => {
+    const { root, fit } = page();
+    const shared = new SetupFit({
+      root: () => root as unknown as HTMLElement,
+      card: () => undefined,
+      levels: () => 7,
+      columns: true,
+      start: () => 3,
+    });
+    void fit;
+    shared.relayout(1280, 800);
+    await settle();
+    expect(shared.level).toBe(3);
+    // Content that overflows even there (an error message): denser on its own.
+    root.content = 900;
+    shared.relayout(1280, 800);
+    await settle();
+    expect(shared.level).toBe(6);
+  });
 });

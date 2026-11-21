@@ -995,7 +995,7 @@
   "setup_net_checking": "Verbindung wird geprüft …",
   "setup_net_next": "Neuer Versuch in {time}",
   "setup_next": "Weiter",
-  "setup_welcome_title": "Willkommen bei {app}",
+  "setup_welcome_title": "Willkommen bei\u00a0{app}",
   "setup_welcome_intro": "In wenigen Schritten ist {app} eingerichtet. Wählen Sie zuerst Sprache und Design. Das wird Ihr Standard und lässt sich später in den Einstellungen ändern.",
   "setup_welcome_intro_short": "Wählen Sie Sprache und Design. Beides lässt sich später ändern.",
   "setup_start": "Los geht’s",

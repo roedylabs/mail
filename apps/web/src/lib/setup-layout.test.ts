@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { DESK_LEVELS, MOB_LEVELS, doneLook, stepLook, twoCol } from './setup-layout.ts';
+import {
+  DESK_LEVELS,
+  MOB_LEVELS,
+  SHARED_FIT,
+  doneLook,
+  fitTier,
+  sharedCardH,
+  sharedLevel,
+  stepLook,
+  twoCol,
+} from './setup-layout.ts';
 
 const look = (w: number, two: boolean, level = 0) => stepLook(w, two, level, DESK_LEVELS, MOB_LEVELS);
 
@@ -57,13 +67,16 @@ describe('stepLook', () => {
     ]);
     expect(look(800, false).cardPad).toBe('40px 40px 36px');
     const wide = look(1280, true);
+    // Wide enough that the left column holds "bei Roedy Mail" at the 54 px heading; from level 2 the 980 px suffice.
     expect([wide.tier, wide.cardMaxW, wide.h1, wide.colGap, wide.cols]).toEqual([
       'wide',
-      '980px',
+      '1138px',
       '54px',
       '56px',
       'minmax(0, 1fr) minmax(0, 1.5fr)',
     ]);
+    expect(look(1280, true, 1).cardMaxW).toBe('1008px');
+    expect(look(1280, true, 2).cardMaxW).toBe('980px');
     const low = look(900, true);
     expect([low.h1, low.colGap, low.cols]).toEqual(['44px', '32px', 'minmax(0, 1fr) minmax(0, 1.8fr)']);
   });
@@ -86,5 +99,38 @@ describe('stepLook', () => {
     const done = doneLook(1280, 0);
     expect([done.two, done.cardMaxW, done.h1]).toEqual([false, '560px', '44px']);
     expect(doneLook(390, 0).tier).toBe('mob');
+  });
+});
+
+describe('shared setup level', () => {
+  it('needs less room at every denser level', () => {
+    for (const { need } of Object.values(SHARED_FIT))
+      for (let i = 1; i < need.length; i++) expect(need[i]).toBeLessThanOrEqual(need[i - 1]!);
+  });
+
+  it('picks the roomiest level the window allows, the densest when none fits', () => {
+    const { need } = SHARED_FIT.wide;
+    expect(sharedLevel(1280, need[0]!, true, 7)).toBe(0);
+    expect(sharedLevel(1280, need[0]! - 1, true, 7)).toBe(1);
+    expect(sharedLevel(1280, 300, true, 7)).toBe(need.length - 1);
+  });
+
+  it('never goes past the levels a step has', () => {
+    expect(sharedLevel(393, 300, false, 4)).toBe(3);
+  });
+
+  it('maps widths to tiers', () => {
+    expect([
+      fitTier(393, false),
+      fitTier(600, false),
+      fitTier(800, false),
+      fitTier(900, true),
+      fitTier(1280, true),
+    ]).toEqual(['mob', 'narrow', 'mid', 'two', 'wide']);
+  });
+
+  it('gives the desktop card its height, none on mobile', () => {
+    expect(sharedCardH(1280, true, 0)).toBe(SHARED_FIT.wide.card[0]);
+    expect(sharedCardH(393, false, 0)).toBeNull();
   });
 });
