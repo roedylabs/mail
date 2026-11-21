@@ -187,7 +187,8 @@
   // Content of another height (language, messages): from level 0 again.
   let lastKey: string | null = null;
   $effect(() => {
-    const key = `${contentKey}|${prefs.lang}`;
+    // The email changes the hidden password intro (`heads`), which may change the space above the overview.
+    const key = `${contentKey}|${prefs.lang}|${email}`;
     if (lastKey !== null && key !== lastKey) untrack(() => fit.relayout());
     lastKey = key;
   });
