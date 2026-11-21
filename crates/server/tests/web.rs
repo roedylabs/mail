@@ -269,8 +269,9 @@ async fn manifest_comes_from_the_standard_branding() {
             "scope": "/",
             "display": "standalone",
             "protocol_handlers": [{ "protocol": "mailto", "url": "/compose/new?mailto=%s" }],
-            "theme_color": "#f5a06e",
+            "theme_color": "#f3eee7",
             "background_color": "#f5a06e",
+            "user_preferences": { "color_scheme_dark": { "theme_color": "#181411" } },
             "icons": [
                 {
                     "src": format!("{PUSH_ICON_PATH}?v={}", logos.push.version),
