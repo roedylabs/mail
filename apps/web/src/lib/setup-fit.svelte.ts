@@ -11,6 +11,10 @@
  * earlier size (a window that grew, a page loaded hidden) stayed until the
  * next relayout, and changing the language suddenly resized the card.
  *
+ * One exception: on mobile, while a text field has the focus and the page is
+ * lower than at the last fit, the on-screen keyboard is open. The level stays
+ * and the panel scrolls; a relayout meanwhile waits until the keyboard closes.
+ *
  * Both languages show the same texts at the same size: each fit first runs in
  * the other language, then in the chosen one from the level the other one
  * reached, so the level is the denser of the two and switching the language
@@ -42,6 +46,11 @@ export interface FitTargets {
    * up to date; `true` if one changed, then the step renders once more before the fit measures.
    */
   sync?: () => boolean;
+  /**
+   * An on-screen keyboard may be open (a text field has the focus). On mobile a change of the height alone then
+   * keeps the level: the keyboard only covers part of the page for a while, the panel scrolls instead.
+   */
+  keyboard?: () => boolean;
   /** Level a relayout starts from at width `w`, height `h` and column layout `two` (default 0). */
   start?: (w: number, h: number, two: boolean) => number;
 }
@@ -62,6 +71,8 @@ export class SetupFit {
   /** Held (a step's inline editor is open): the level stays; a new size or content refits on release. */
   private held = false;
   private pending: { w: number; h: number } | null = null;
+  /** A relayout waits for the on-screen keyboard to close. */
+  private deferred = false;
   private readonly t: FitTargets;
 
   constructor(targets: FitTargets) {
@@ -78,6 +89,16 @@ export class SetupFit {
       isMobileWidth(w) === this.mobile &&
       w >= WIDE === this.w >= WIDE &&
       (isMobileWidth(w) || !this.t.columns || twoCol(w, h, this.two) === this.two);
+    if (this.keyboardOpen(w, h)) {
+      // The on-screen keyboard covers the page for a while: the level stays, the panel scrolls.
+      this.w = w;
+      this.h = h;
+      return;
+    }
+    if (this.deferred) {
+      this.relayout(w, h);
+      return;
+    }
     if (this.ready && same && Math.abs(w - this.checked.w) <= 4 && Math.abs(h - this.checked.h) <= 4) {
       // Too small to refit, but the size stays current.
       this.w = w;
@@ -99,6 +120,14 @@ export class SetupFit {
       this.pending = { w, h };
       return;
     }
+    if (this.keyboardOpen(w, h)) {
+      // Fitted once the keyboard closes (the next size change).
+      this.deferred = true;
+      this.w = w;
+      this.h = h;
+      return;
+    }
+    this.deferred = false;
     this.ready = true;
     this.checked = { w, h };
     this.w = w;
@@ -178,6 +207,21 @@ export class SetupFit {
       if (this.level >= this.t.levels(this.mobile) - 1) return;
       this.level += 1;
     }
+  }
+
+  /**
+   * Mobile, a text field has the focus and the page is lower than at the last fit, as wide: the on-screen keyboard
+   * is open. It only covers the page for a while, so the level stays (the fit would go dense for nothing).
+   */
+  private keyboardOpen(w: number, h: number): boolean {
+    return (
+      this.ready &&
+      this.mobile &&
+      isMobileWidth(w) &&
+      Math.abs(w - this.checked.w) <= 4 &&
+      h < this.checked.h - 4 &&
+      !!this.t.keyboard?.()
+    );
   }
 
   private scroller(): HTMLElement | undefined {
