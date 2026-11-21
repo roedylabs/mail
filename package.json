@@ -1,6 +1,6 @@
 {
   "name": "roedy-mail",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "private": true,
   "description": "Lightweight JMAP webmailer for Stalwart",
   "license": "AGPL-3.0-only",
