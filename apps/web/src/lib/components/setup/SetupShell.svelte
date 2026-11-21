@@ -144,6 +144,14 @@
   });
   let form: HTMLFormElement | undefined = $state();
 
+  /** A text field of the page has the focus: on a phone its on-screen keyboard is open (or may open). */
+  const TYPING =
+    'input:not([type="checkbox"],[type="radio"],[type="button"],[type="submit"]),textarea,[contenteditable]';
+  function typing(): boolean {
+    const el = typeof document !== 'undefined' ? document.activeElement : null;
+    return !!el && !!root?.contains(el) && el.matches(TYPING);
+  }
+
   const fit = new SetupFit({
     root: () => root,
     card: () => card,
@@ -157,6 +165,7 @@
       set: (lang) => (fitLang.value = lang),
     },
     sync: () => sync?.() ?? false,
+    keyboard: typing,
     // The steps share one level per window size (the done screen fits on its own).
     start: (w, h, two) => (step === null ? 0 : sharedLevel(w, h, two, (isMobileWidth(w) ? mob : desk)?.length ?? 1)),
   });
@@ -184,6 +193,34 @@
     const on = frozen;
     untrack(() => fit.hold(on));
   });
+  /**
+   * Mobile: the focused field in view inside the panel as the on-screen keyboard opens or the focus moves; at an
+   * edge it moves to a third of the panel's height.
+   */
+  function reveal() {
+    const el = document.activeElement;
+    if (!mobile || !card || !(el instanceof HTMLElement) || !card.contains(el) || !el.matches(TYPING)) return;
+    const r = el.getBoundingClientRect();
+    const cr = card.getBoundingClientRect();
+    // Without a layout (a hidden page, tests) there is nothing to reveal.
+    if (!cr.height || (r.top >= cr.top + 12 && r.bottom <= cr.bottom - 12)) return;
+    const top = card.scrollTop + (r.top - cr.top) - Math.max(16, (cr.height - r.height) / 3);
+    card.scrollTo({ top, behavior: prefs.motion ? 'smooth' : 'auto' });
+  }
+  $effect(() => {
+    void fit.h;
+    if (!mobile) return;
+    const id = requestAnimationFrame(reveal);
+    return () => cancelAnimationFrame(id);
+  });
+  let revealT: ReturnType<typeof setTimeout> | undefined;
+  function onFocusIn() {
+    if (!mobile) return;
+    clearTimeout(revealT);
+    revealT = setTimeout(reveal, 60);
+  }
+  $effect(() => () => clearTimeout(revealT));
+
   // Content of another height (language, messages): from level 0 again.
   let lastKey: string | null = null;
   $effect(() => {
@@ -320,7 +357,7 @@
   {/if}
 {/snippet}
 
-<div class="stage" style={errorTones(dark)}>
+<div class="stage" class:mobile style={errorTones(dark)}>
   <div
     bind:this={root}
     class="root"
@@ -334,6 +371,7 @@
     onpointerdown={onPointer}
     onpointerover={onPointer}
     onkeydown={onKey}
+    onfocusin={onFocusIn}
     style:padding={look.rootPad}
     style:--switch="{switchMs}ms {FOLD_EASE}"
     style:--sw-ms="{switchMs}ms"
@@ -524,6 +562,12 @@
     overflow: clip;
     background: var(--cnv);
     transition: background-color 300ms;
+  }
+
+  /* Mobile: never taller than the window, also while the on-screen keyboard shrinks it (resizes-content): top bar and
+     bottom bar stay on screen and only the panel scrolls */
+  .stage.mobile {
+    min-height: 0;
   }
 
   .root {

@@ -201,4 +201,50 @@ describe('SetupFit', () => {
     await settle();
     expect(shared.level).toBe(6);
   });
+
+  it('keeps the level on mobile while the on-screen keyboard is open and refits once it closes', async () => {
+    // Mobile: the panel scrolls; its content is 600 px at level 0 and 100 px less per level.
+    const root = { clientWidth: 393, clientHeight: 800 };
+    const card = {
+      get scrollHeight() {
+        return Math.max(600 - fit.level * 100, this.clientHeight);
+      },
+      clientHeight: 620,
+    };
+    let typing = false;
+    const fit = new SetupFit({
+      root: () => root as unknown as HTMLElement,
+      card: () => card as unknown as HTMLElement,
+      levels: () => 5,
+      columns: true,
+      keyboard: () => typing,
+    });
+    fit.relayout(393, 800);
+    await settle();
+    expect(fit.level).toBe(0);
+    // A field gets the focus, the keyboard takes 380 px: the level stays, the panel scrolls.
+    typing = true;
+    root.clientHeight = 420;
+    card.clientHeight = 240;
+    fit.resize(393, 420);
+    await settle();
+    expect([fit.h, fit.level]).toEqual([420, 0]);
+    // Content changes meanwhile (typing): its relayout waits for the keyboard.
+    fit.relayout();
+    await settle();
+    expect(fit.level).toBe(0);
+    // The keyboard closes (the field keeps the focus): the waiting relayout runs on the full height.
+    root.clientHeight = 800;
+    card.clientHeight = 620;
+    fit.resize(393, 800);
+    await settle();
+    expect([fit.h, fit.level]).toEqual([800, 0]);
+    // Without a focused field a lower page refits as always.
+    typing = false;
+    root.clientHeight = 420;
+    card.clientHeight = 240;
+    fit.resize(393, 420);
+    await settle();
+    expect(fit.level).toBe(4);
+  });
 });
