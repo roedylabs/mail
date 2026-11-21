@@ -77,6 +77,34 @@
   }
   const copyLabel = $derived(copied.key === 'cmd' ? m.setup_copied() : m.setup_copy());
 
+  /** Copy shows only its icon while its label would cut off the shell name in the title bar. */
+  let copyIco = $state(false);
+  /** Border, padding, icon and gap of the labelled Copy button (1 + 10 + 15 + 6 + 12 + 1). */
+  const COPY_CHROME = 45;
+  /**
+   * Measured from natural widths only (the title, and the wider of "Copy" and "Copied" in a hidden
+   * sizer), so the result does not depend on the current mode and stays put while "Copied" shows.
+   */
+  function fitCopy(head: HTMLElement) {
+    if (typeof ResizeObserver === 'undefined') return;
+    const part = (c: string) => head.querySelector<HTMLElement>(`.${c}`)!;
+    const title = part('term-title');
+    const name = part('term-name');
+    const shell = part('term-shell');
+    const btn = part('term-copy');
+    const sizer = part('copy-sizer');
+    // Layout widths in whole pixels; 1 px of slack goes to the icon, so the label never cuts off the shell name.
+    const measure = () => {
+      const need = name.offsetWidth + 8 + shell.scrollWidth;
+      const full = sizer.offsetWidth + COPY_CHROME;
+      copyIco = need > title.clientWidth + btn.offsetWidth - full - 1;
+    };
+    const ro = new ResizeObserver(measure);
+    for (const el of [head, name, sizer]) ro.observe(el);
+    void document.fonts?.ready.then(measure);
+    return () => ro.disconnect();
+  }
+
   let tokFocus = $state(false);
   const tokRaw = $derived(flow.token.replace(/-/g, ''));
   const te = $derived(flow.tokErr);
@@ -138,7 +166,7 @@
         style:--t-prog={ui.dark ? progColor : null}
         style:--sage-deep={SAGE_DEEP}
       >
-        <div class="term-head">
+        <div class="term-head" {@attach fitCopy}>
           <span class="term-icon" aria-hidden="true"><Icon name="ti-terminal-2" /></span>
           <span class="term-title">
             <span class="term-name">{m.setup_terminal()}</span>
@@ -148,11 +176,15 @@
             type="button"
             class="term-copy"
             class:done={copied.key === 'cmd'}
+            class:ico={copyIco}
             aria-label={`${copyLabel}: ${LOG_CMD}`}
             onclick={() => void copy()}
           >
             <Icon name={copied.key === 'cmd' ? 'ti-check' : 'ti-copy'} />
-            <span>{copyLabel}</span>
+            {#if !copyIco}<span>{copyLabel}</span>{/if}
+            <span class="copy-sizer" aria-hidden="true"
+              ><span>{m.setup_copy()}</span><span>{m.setup_copied()}</span></span
+            >
           </button>
         </div>
         <div class="term-body">
@@ -379,6 +411,28 @@
       color 220ms;
   }
 
+  /* Icon only: a 32 px circle */
+  .term-copy.ico {
+    width: 32px;
+    padding: 0;
+    justify-content: center;
+  }
+
+  /* Invisible, the wider of both labels: the width the labelled button needs */
+  .copy-sizer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: grid;
+    white-space: nowrap;
+    visibility: hidden;
+    pointer-events: none;
+  }
+
+  .copy-sizer span {
+    grid-area: 1 / 1;
+  }
+
   .term-copy.done {
     color: var(--t-word);
   }
@@ -393,6 +447,10 @@
     position: absolute;
     inset: -6px -4px;
     border-radius: 9999px;
+  }
+
+  .term-copy.ico::after {
+    inset: -6px;
   }
 
   :global([data-input='mouse']) .term-copy:hover,
