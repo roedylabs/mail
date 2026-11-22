@@ -654,10 +654,11 @@ describe('Step 5: authenticator app', () => {
 
   it('sends one key request at a time, keeps one per email and only the answer of the last one', async () => {
     let first: (a: { body: unknown }) => void = () => {};
+    let second: (a: { body: unknown }) => void = () => {};
     const { calls } = mockApi({
       'POST setup/totp': [
         () => new Promise((resolve) => (first = resolve)),
-        { body: { secret: 'B'.repeat(32), uri: URI } },
+        () => new Promise((resolve) => (second = resolve)),
       ],
     });
     const { flow } = intoMfa();
@@ -679,6 +680,10 @@ describe('Step 5: authenticator app', () => {
     first({ body: { secret: SECRET, uri: URI } });
     await vi.waitFor(() => expect(calls).toHaveLength(2));
     expect(calls[1]?.body).toEqual({ email: 'ben@example.com' });
+    // Anna's answer came and was dropped: no key until Ben's.
+    await Promise.resolve();
+    expect([flow.key, flow.keyState]).toEqual([null, 'loading']);
+    second({ body: { secret: 'B'.repeat(32), uri: URI } });
     await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
     expect(flow.keyNow?.secret).toBe('B'.repeat(32));
     expect(flow.key?.email).toBe('ben@example.com');
