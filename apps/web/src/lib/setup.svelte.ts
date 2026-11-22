@@ -75,6 +75,11 @@ export const FIRST_STEP: Step = 1;
  */
 const PENDING: readonly Step[] = [6];
 
+/** `step` is not shown yet (see `PENDING`). */
+export function isPending(step: Step): boolean {
+  return PENDING.includes(step);
+}
+
 /** The step after `step` the wizard shows. */
 export function stepAfter(step: Step): Step {
   let n = step + 1;
@@ -370,6 +375,11 @@ export interface SetupHooks {
   focus?: (field: Field) => void;
   /** Step changed: focus the field or heading (`null`: the focus follows from `fail`). */
   entered?: (step: Step, focus: Focus | null) => void;
+  /**
+   * The same step changed its state (step 5: the key arrived or failed, the lock ended): focus as on entering it, but
+   * only while no control has the focus (not after a Tab to Back meanwhile).
+   */
+  refocus?: (focus: Focus) => void;
   /** Error without a text of its own: error toast (`ui.toasts.error`). */
   error?: (text: string) => void;
   /** A request got no answer: "No connection". */
@@ -455,6 +465,8 @@ export class SetupFlow {
   private doneTimer: ReturnType<typeof setTimeout> | undefined;
   /** Requests of `setup/totp`: only the answer of the last one counts. */
   private keyReq = 0;
+  /** The running `setup/totp`, settled either way: the next request waits for it. */
+  private keyChain: Promise<unknown> = Promise.resolve();
 
   readonly hooks: SetupHooks;
 
@@ -592,8 +604,9 @@ export class SetupFlow {
     this.loading = false;
     this.err = {};
     writeSession('step', String(step));
-    // Step 5 without its key yet: the heading until the key is there (the code field is disabled meanwhile).
+    // Step 5 without its key yet or still locked: the heading until the code field is enabled.
     if (step === 5 && !this.enterMfa() && focus === 'otp') focus = 'heading';
+    if (step === 5 && focus === 'otp' && this.otpOff) focus = 'heading';
     this.hooks.entered?.(step, focus);
   }
 
@@ -699,23 +712,33 @@ export class SetupFlow {
    * `setup/totp` for the current email. The key arrives: focus as on entering the step. A server error: "Key not
    * created" with "Try again"; no answer: "No connection", then the step asks again by itself (`online`). Answers
    * after leaving the step are kept (a key) or dropped (an error: entering again asks again).
+   *
+   * One request at a time: each one replaces the key the server keeps, and two at once could be stored in either
+   * order. A request waits for the one before it and is not sent at all once a newer one is waiting; only the answer
+   * of the last request counts.
    */
   private async requestKey(): Promise<void> {
     const email = this.email.trim();
     const req = ++this.keyReq;
     this.keyState = 'loading';
     this.keyEmail = email;
+    const sent = this.keyChain.then(() =>
+      req === this.keyReq
+        ? api<{ secret: string; uri: string }>('POST', 'setup/totp', { email }, this.withToken())
+        : null,
+    );
+    this.keyChain = sent.catch(() => undefined);
     try {
-      const res = await api<{ secret: string; uri: string }>('POST', 'setup/totp', { email }, this.withToken());
-      if (req !== this.keyReq) return;
+      const res = await sent;
+      if (req !== this.keyReq || !res) return;
       this.key = { email, secret: res.secret, uri: res.uri };
       this.keyState = 'idle';
-      if (this.step === 5) this.hooks.entered?.(5, 'otp');
+      if (this.step === 5) this.hooks.refocus?.(this.otpOff ? 'heading' : 'otp');
     } catch (error) {
       if (req !== this.keyReq) return;
       this.keyState = error instanceof NetworkError ? 'offline' : 'failed';
       if (this.step !== 5) return;
-      await this.rejected(error, () => this.hooks.entered?.(5, 'retry'));
+      await this.rejected(error, () => this.hooks.refocus?.('retry'));
     }
   }
 
@@ -805,7 +828,8 @@ export class SetupFlow {
    * "Finish setup": `setup/complete` with the administrator and the choices
    * of step 1. `201` → the done screen, then the sign-in; no answer → "No
    * connection"; `setup_done` → reload (sign-in); a wrong or locked token →
-   * the token step; any other answer → the server error in place of the note
+   * the token step; no confirmed key for the email (`totp_required`) → step 5
+   * with a new key; any other answer → the server error in place of the note
    * (with the shake), until the next "Finish setup".
    */
   async finish(): Promise<void> {
@@ -832,6 +856,13 @@ export class SetupFlow {
       this.doneTimer = setTimeout(() => void this.hooks.signedIn?.(), DONE_MS);
     } catch (error) {
       this.loading = false;
+      if (isApiError(error, 422, 'totp_required')) {
+        // The key the code confirmed is gone (another tab asked for a new one): back to step 5 with a new key.
+        this.key = null;
+        this.codes = [];
+        this.go(5);
+        return;
+      }
       await this.rejected(error, () => {
         this.finishErr = true;
         this.hooks.fail?.();
@@ -863,7 +894,7 @@ export class SetupFlow {
   /** A lock has expired: release the field (focus as on entering its step). */
   private freed(kind: 'token' | 'code'): void {
     if (kind === 'code') {
-      if (this.step === 5 && !this.otpOff) this.hooks.entered?.(5, 'otp');
+      if (this.step === 5 && !this.otpOff) this.hooks.refocus?.('otp');
       return;
     }
     this.tokErr = null;

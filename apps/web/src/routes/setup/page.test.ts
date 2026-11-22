@@ -635,6 +635,18 @@ describe('Step 5: authenticator app', () => {
     expect(view.container.querySelector('.auth')).not.toHaveAttribute('aria-busy');
   });
 
+  it('leaves the focus on Back when the key arrives after a Tab there', async () => {
+    let answer: (a: { body: unknown }) => void = () => {};
+    const view = await atMfa({ 'POST setup/totp': [() => new Promise((resolve) => (answer = resolve))] });
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
+    const back = view.getByRole('button', { name: 'Back' });
+    back.focus();
+    answer(KEY);
+    await vi.waitFor(() => expect(view.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible());
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(back).toHaveFocus();
+  });
+
   it('shows "Something went wrong." with "Try again" when the key was not created', async () => {
     const view = await atMfa({ 'POST setup/totp': [{ status: 500, body: {} }, KEY] });
     const alert = await view.findByRole('alert');

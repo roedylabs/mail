@@ -28,6 +28,8 @@
   import { ui } from '#lib/state/ui.svelte.ts';
 
   const targets = new SetupTargets();
+  /** Controls a user may have moved to while a step waits (see `refocus`). */
+  const CONTROLS = 'a[href],button,input,select,textarea,[role="button"],[role="radio"],[role="alertdialog"]';
   /** Pending focus timers of entered steps (see `entered`); cleared when the page goes. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping only, no state
   const enterTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -43,25 +45,33 @@
     focus: (field) => focus(field, false),
     entered: (_step, target) => {
       if (!target) return;
-      // The latest call wins (step 5: the heading first, the code field once the key is there).
-      for (const timer of enterTimers) clearTimeout(timer);
-      enterTimers.clear();
       // Only after the step has switched; if someone has chosen a field of the
       // card themselves in the meantime (fast typing, autofill), the focus stays
       // there instead of jumping in the middle of the input.
       const before = document.activeElement;
-      const timer = setTimeout(() => {
-        enterTimers.delete(timer);
-        const now = document.activeElement;
-        if (now === before || !targets.get('card')?.contains(now)) focus(target);
-      }, 40);
-      enterTimers.add(timer);
+      focusLater(target, (now) => now === before || !targets.get('card')?.contains(now));
     },
+    // Same step: only while no control has the focus (the heading, the page; not after a Tab to Back meanwhile).
+    refocus: (target) => focusLater(target, (now) => !now?.closest(CONTROLS)),
     error: (text) => ui.toasts.error(text),
     offline: () => net.show(),
     reload: () => session.load(),
     signedIn: () => signIn(),
   });
+
+  /**
+   * Focuses `target` 40 ms from now if `may` still allows it with the element that has the focus then. The latest
+   * request wins (step 5: the heading on entering, the code field once the key is there).
+   */
+  function focusLater(target: Focus, may: (now: Element | null) => boolean) {
+    for (const timer of enterTimers) clearTimeout(timer);
+    enterTimers.clear();
+    const timer = setTimeout(() => {
+      enterTimers.delete(timer);
+      if (may(document.activeElement)) focus(target);
+    }, 40);
+    enterTimers.add(timer);
+  }
 
   /**
    * Entering a step (`entering`): desktop the step's target without
