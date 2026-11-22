@@ -780,6 +780,9 @@ export class SetupFlow {
         this.otpErr = 'invalid';
         this.hooks.fail?.('otp');
       } else if (isApiError(error, 429)) {
+        // The code lock. The token lockout answers with the same body; if that was the cause, the next check after
+        // the countdown passes the token check again, and an `invalid_token` then goes through `rejected` as on
+        // every step.
         this.otp = '';
         this.locks.start('code', retryAfter(error, CODE_LOCK_S));
         this.hooks.fail?.();
