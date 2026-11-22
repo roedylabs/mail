@@ -5,8 +5,9 @@
   groups of four with "Copy key"; below it the code in six boxes (one
   invisible input on top: digits only, pasting "123 456" works). The sixth
   digit confirms by itself (`setup/totp/verify`); Confirm is never greyed out
-  for an incomplete code ("Please enter all 6 digits."). Between the box and
-  the code: a wrong code, the lock with its countdown, or the server error.
+  for an incomplete code ("Please enter all 6 digits."). Under the code, as
+  on the setup token step: a wrong code, the lock with its countdown, or the
+  server error.
   While the key is being created the box shows placeholders and the field is
   locked; a key that could not be created shows a message with "Try again".
   Key, code and recovery codes live in the wizard's memory only.
@@ -54,7 +55,7 @@
     });
   });
   const err = $derived(flow.otpErr);
-  /** The message between the box and the code: a wrong code, the server error or the lock. */
+  /** The message under the code: a wrong code, the server error or the lock. */
   const note = $derived(flow.codeLocked ? 'locked' : err === 'invalid' || err === 'server' ? err : null);
   const left = $derived(flow.codeLeft);
   const lockPct = $derived(`${Math.round(Math.min(1, left / CODE_LOCK_S) * 100)}%`);
@@ -149,38 +150,6 @@
       </div>
     {/if}
 
-    {#if note}
-      <div class="msg err note" id="su-code-alert" role="alert">
-        <div class="msg-row">
-          <span class="msg-icon" aria-hidden="true">
-            <Icon name={note === 'locked' ? 'ti-lock' : note === 'server' ? 'ti-server-off' : 'ti-shield-x'} />
-          </span>
-          <div class="msg-text">
-            <strong>
-              {note === 'locked'
-                ? m.login_code_locked_title()
-                : note === 'server'
-                  ? m.setup_token_server_title()
-                  : m.invite_code_bad_title()}
-            </strong>
-            <span>
-              {note === 'locked'
-                ? m.limit_text({ wait: waitText(Math.max(1, left)) })
-                : note === 'server'
-                  ? m.setup_mfa_code_error()
-                  : m.invite_code_bad_text()}
-            </span>
-          </div>
-        </div>
-        {#if note === 'locked'}
-          <div class="msg-extra lock" aria-hidden="true">
-            <div class="lock-bar"><span style:width={lockPct}></span></div>
-            <span class="time">{clockText(left)}</span>
-          </div>
-        {/if}
-      </div>
-    {/if}
-
     <div class="code">
       <label for="su-otp">{m.invite_otp_label()}</label>
       <div class="code-ctl">
@@ -215,6 +184,37 @@
           readonly={flow.loading}
         />
       </div>
+      {#if note}
+        <div class="msg err note" id="su-code-alert" role="alert">
+          <div class="msg-row">
+            <span class="msg-icon" aria-hidden="true">
+              <Icon name={note === 'locked' ? 'ti-lock' : note === 'server' ? 'ti-server-off' : 'ti-shield-x'} />
+            </span>
+            <div class="msg-text">
+              <strong>
+                {note === 'locked'
+                  ? m.login_code_locked_title()
+                  : note === 'server'
+                    ? m.setup_token_server_title()
+                    : m.invite_code_bad_title()}
+              </strong>
+              <span>
+                {note === 'locked'
+                  ? m.limit_text({ wait: waitText(Math.max(1, left)) })
+                  : note === 'server'
+                    ? m.setup_mfa_code_error()
+                    : m.invite_code_bad_text()}
+              </span>
+            </div>
+          </div>
+          {#if note === 'locked'}
+            <div class="msg-extra lock" aria-hidden="true">
+              <div class="lock-bar"><span style:width={lockPct}></span></div>
+              <span class="time">{clockText(left)}</span>
+            </div>
+          {/if}
+        </div>
+      {/if}
       {#if err === 'short'}
         <div class="short" id="su-otp-err" role="alert">
           <span class="short-icon" aria-hidden="true"><Icon name="ti-shield-x" /></span><span
@@ -361,8 +361,9 @@
     animation: suPop 340ms cubic-bezier(0.2, 1.2, 0.3, 1);
   }
 
+  /* Under the code boxes, as on the setup token step */
   .msg.note {
-    margin-top: var(--f-gap-m);
+    margin-top: 4px;
     padding-bottom: 12px;
   }
 
