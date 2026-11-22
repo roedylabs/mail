@@ -1,7 +1,8 @@
 <!--
   Step 7: "All set?". A summary with one row per step with input (language
-  and appearance, administrator, password – never shown), each with a tilted
-  accent tile and "Change" (a pencil button on narrow screens), then a note
+  and appearance, administrator, password – never shown, multi-factor
+  authentication), each with a tilted accent tile and "Change" (a pencil
+  button on narrow screens), then a note
   on what comes next. "Finish setup" is always ready and sends
   `setup/complete` (`SetupFlow.finish`); while it runs the rows dim and
   Back and "Change" are locked. A server error takes the note's place (same

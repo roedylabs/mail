@@ -551,12 +551,13 @@ describe('Setup page', () => {
       'Language and appearance System · Dark · Sage',
       'AB Administrator Anna Becker anna@example.com',
       'Password •••••••••• Set',
+      'Multi-factor authentication Authenticator app Set up, 10 recovery codes',
     ]);
     expect(summary).not.toHaveTextContent('Safe-enough1');
     expect(view.getByText('Next, connect the mail server.')).toBeInTheDocument();
     // No field in the summary: the focus moves to its heading.
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
-    // Focus order: Change × 3, Back, Finish setup.
+    // Focus order: Change × 4, Back, Finish setup.
     const order = [...view.container.querySelectorAll<HTMLElement>('button:not([tabindex="-1"])')].map(
       (b) => b.getAttribute('aria-label') ?? b.textContent?.trim(),
     );
@@ -564,6 +565,7 @@ describe('Setup page', () => {
       'Change Language and appearance',
       'Change Administrator',
       'Change Password',
+      'Change Multi-factor authentication',
       'Back',
       'Finish setup',
     ]);
@@ -601,7 +603,7 @@ describe('Setup page', () => {
       within(chips)
         .getAllByRole('listitem')
         .map((li) => li.textContent?.trim()),
-    ).toEqual(['Administrator created', 'Setup token revoked']);
+    ).toEqual(['Administrator created', 'Multi-factor on', 'Setup token revoked']);
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
     const complete = calls.find((c) => c.path === 'setup/complete');
     expect(complete?.headers['X-Setup-Token']).toBe('ABCD-EFGH-JKLM');
@@ -974,6 +976,27 @@ describe('Step 7: review', () => {
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
   });
 
+  it('leads "Change" on multi-factor authentication to step 5 with the same key, then on through step 6', async () => {
+    const view = await atReview();
+    const { calls } = mockApi({ 'POST setup/totp/verify': [VERIFIED] });
+    const change = view.getByRole('button', { name: 'Change Multi-factor authentication' });
+    expect(change).toHaveAttribute('title', 'Change Multi-factor authentication');
+    await fireEvent.click(change);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(MFA_TITLE);
+    expect(view.getByRole('img', { name: 'Step 5 of 7' })).toBeInTheDocument();
+    // The same QR code and key, an empty code field with the focus.
+    expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    expect(view.getByLabelText('Verification code')).toHaveValue('');
+    await vi.waitFor(() => expect(view.getByLabelText('Verification code')).toHaveFocus());
+    await type('Verification code', '654321');
+    // Step 6: the same codes, the box as left.
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Recovery codes'));
+    expect(view.getByRole('checkbox', { name: SAVED })).toHaveAttribute('aria-checked', 'true');
+    await next();
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?'));
+    expect(calls.map((c) => c.path)).toEqual(['setup/totp/verify']);
+  });
+
   it('reloads to the sign-in when the setup was finished meanwhile', async () => {
     const view = await atReview();
     mockApi({
@@ -1118,7 +1141,12 @@ describe('Step 7: review', () => {
     sessionStorage.setItem('roedy-setup-lang', 'de');
     sessionStorage.setItem('roedy-setup-accent', 'custom');
     sessionStorage.setItem('roedy-setup-accentHex', '#4a7bd0');
-    mockApi({ 'POST setup/token': [{ body: {} }], 'POST setup/totp': [KEY], 'POST setup/totp/verify': [VERIFIED] });
+    mockApi({
+      'POST setup/token': [{ body: {} }],
+      'POST setup/totp': [KEY],
+      'POST setup/totp/verify': [VERIFIED],
+      'POST setup/complete': [{ status: 201, body: {} }],
+    });
     atToken();
     const view = render(Page);
     await vi.waitFor(() => expect(view.getByLabelText('Setup-Token')).toHaveFocus());
@@ -1144,6 +1172,19 @@ describe('Step 7: review', () => {
     expect(change).toHaveAttribute('title', 'Sprache und Design ändern');
     expect(change).not.toHaveTextContent('Ändern');
     expect(view.getByText('Festgelegt')).toBeInTheDocument();
+    expect(view.getByText('Authenticator-App')).toBeInTheDocument();
+    expect(view.getByText('Eingerichtet, 10 Wiederherstellungscodes')).toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'Multi-Faktor-Authentifizierung ändern' })).toHaveAttribute(
+      'title',
+      'Multi-Faktor-Authentifizierung ändern',
+    );
+    await next('Einrichtung abschließen');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Willkommen, Anna'));
+    expect(
+      within(view.getByRole('list', { name: 'Erledigt' }))
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.trim()),
+    ).toEqual(['Administrator angelegt', 'Multi-Faktor aktiv', 'Setup-Token entwertet']);
   });
 });
 

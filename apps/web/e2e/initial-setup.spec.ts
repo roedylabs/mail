@@ -1,9 +1,10 @@
-// First flow: setup through its steps (a wrong token up to the lock, then the
-// right one; the authenticator app with a wrong and the right code; the
-// recovery codes, which "Finish setup" cannot skip; a second
-// tab that goes on too late gets the sign-in), the done
+// First flow: setup through its seven steps (a wrong token up to the lock, then
+// the right one; the authenticator app with a wrong and the right code; the
+// recovery codes, which "Finish setup" cannot skip; the review with "Change";
+// a second tab that goes on too late gets the sign-in), the done
 // screen opens Administration › Mail servers; then mail server (OAuth client via DCR) and
-// system mails via the administration API → invitations to two addresses,
+// system mails via the administration API → the administrator signs in again
+// with a code from the setup's app → invitations to two addresses,
 // links from the system mails →
 // accept both (with mandatory MFA) → connect an account via the mail server's
 // sign-in page and /oauth/callback. The tests build on each other (serial) and
@@ -26,7 +27,10 @@ import { connectAccount, connectServer } from './setup.ts';
 
 test.describe.configure({ mode: 'serial' });
 
-const admin: { name: string; password: string; state?: Session } = { name: 'Alex Admin', password: password() };
+const admin: { name: string; password: string; secret?: string; state?: Session } = {
+  name: 'Alex Admin',
+  password: password(),
+};
 /**
  * Invitees: the address of the Stalwart user and a sub-address of it (`tag`);
  * link from the mail and session from the previous tests.
@@ -59,6 +63,27 @@ async function step(page: Page, heading: string | RegExp, first?: string): Promi
 
 /** Heading of the authenticator app step (with its soft hyphen). */
 const MFA = /^Multi-factor authen\u00ad?tication$/;
+
+/** Time step of a TOTP code in ms. */
+const TOTP_STEP = 30_000;
+/** Time step of the last code the administrator's app got accepted (setup or sign-in). */
+let adminStep = 0;
+
+/**
+ * Next code of the administrator's app. Every code is valid once: its time step must be newer than the last accepted
+ * one. The server accepts one step before and after the current one, so this takes the step before while enough of
+ * the current one is left for the request, and waits for a code two steps ahead until it is one ahead.
+ */
+async function nextCode(secret: string): Promise<string> {
+  const t = Date.now();
+  const now = Math.floor(t / TOTP_STEP);
+  const at = Math.max(t % TOTP_STEP < TOTP_STEP - 5_000 ? now - 1 : now, adminStep + 1);
+  // Valid from step `at - 1` on, with a second's margin for the server's clock.
+  const wait = (at - 1) * TOTP_STEP + 1_000 - Date.now();
+  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+  adminStep = at;
+  return totp(secret, at * TOTP_STEP);
+}
 
 /** The key of the authenticator app step, without the spaces between its groups. */
 async function keyOf(page: Page): Promise<string> {
@@ -253,7 +278,7 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   await next(page).click();
   await step(page, MFA, 'Verification code');
   expect(await keyOf(page)).toBe(secret);
-  await code.fill(totp(secret));
+  await code.fill(await nextCode(secret));
 
   // 6 Recovery codes: the ten codes of the confirmed code, in memory only; reading them comes first (the heading)
   await step(page, 'Recovery codes');
@@ -313,13 +338,19 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
     /Language and appearance\s*System · Dark · Custom #1E3A8A/,
     new RegExp(`Administrator\\s*${admin.name}\\s*${stalwart.admin.email.replace(/[.+]/g, '\\$&')}`),
     /Password\s*••••••••••\s*Set/,
+    /Multi-factor authentication\s*Authenticator app\s*Set up, 10 recovery codes/,
   ]);
   await expect(summary).not.toContainText(admin.password);
   await expect(page.getByText('Next, connect the mail server.')).toBeVisible();
-  // Focus order: Change × 3 → Back → Finish setup.
+  // Focus order: Change × 4 → Back → Finish setup.
   const change = (label: string) => page.getByRole('button', { name: `Change ${label}` });
   await change('Language and appearance').focus();
-  for (const to of [change('Administrator'), change('Password'), page.getByRole('button', { name: 'Back' })]) {
+  for (const to of [
+    change('Administrator'),
+    change('Password'),
+    change('Multi-factor authentication'),
+    page.getByRole('button', { name: 'Back' }),
+  ]) {
     await page.keyboard.press('Tab');
     await expect(to).toBeFocused();
   }
@@ -347,13 +378,25 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   // The same key again; the code must be newer than the confirmed one (the next one of the app).
   await step(page, MFA, 'Verification code');
   expect(await keyOf(page)).toBe(secret);
-  await code.fill(totp(secret, Date.now() + 30_000));
+  await code.fill(await nextCode(secret));
   // The same codes, the box still ticked.
   await step(page, 'Recovery codes');
   await expect(codeItems).toHaveText(recovery.map((c, i) => new RegExp(`^${String(i + 1)}\\s*${c}$`)));
   await expect(saved).toHaveAttribute('aria-checked', 'true');
   await next(page).click();
   await step(page, 'All set?');
+  // "Change" on multi-factor authentication: step 5 with the same key and an empty code field, then on through step 6.
+  await change('Multi-factor authentication').click();
+  await step(page, MFA, 'Verification code');
+  expect(await keyOf(page)).toBe(secret);
+  await expect(code).toHaveValue('');
+  await code.fill(await nextCode(secret));
+  await step(page, 'Recovery codes');
+  await expect(codeItems).toHaveText(recovery.map((c, i) => new RegExp(`^${String(i + 1)}\\s*${c}$`)));
+  await expect(saved).toHaveAttribute('aria-checked', 'true');
+  await next(page).click();
+  await step(page, 'All set?');
+  admin.secret = secret;
 
   // A second tab gets to the password as well, but goes on too late (below): its authenticator app would replace this
   // tab's key, so it waits before that step.
@@ -379,6 +422,7 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   await expect(page).toHaveTitle('Done · Setup');
   await expect(page.getByRole('list', { name: 'Done' }).getByRole('listitem')).toHaveText([
     'Administrator created',
+    'Multi-factor on',
     'Setup token revoked',
   ]);
   await expect(page.getByText('Signing you in …')).toBeVisible();
@@ -400,6 +444,23 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
 
   await connectServer(context, instance, stalwart);
   admin.state = await context.storageState();
+  await context.close();
+});
+
+test('administrator signs in again with a code from the setup', async ({ browser, instance, stalwart }) => {
+  const context = await browser.newContext();
+  const page = await newPage(context);
+  await page.goto(`${instance.url}/login`);
+  await settled(page);
+  await page.getByLabel('Email or username').fill(stalwart.admin.email);
+  await page.getByLabel('Password', { exact: true }).fill(admin.password);
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+  // The setup's authenticator app asks for its code; the sixth digit confirms by itself.
+  await expect(page.getByRole('heading', { name: 'Multi-factor authentication' })).toBeVisible();
+  await page.getByLabel('Verification code').fill(await nextCode(need(admin.secret, 'key of the setup')));
+  await expect(page).toHaveURL(/\/no-account$/);
+  await settled(page);
+  await expect(page.getByRole('button', { name: 'Add email account' })).toBeVisible();
   await context.close();
 });
 

@@ -37,6 +37,7 @@
 
   const done: { icon: IconName; label: () => string }[] = [
     { icon: 'ti-user-shield', label: m.setup_done_admin },
+    { icon: 'ti-shield-check', label: m.setup_done_mfa },
     { icon: 'ti-key', label: m.setup_done_token },
   ];
 
