@@ -3,6 +3,8 @@ import {
   DESK_LEVELS,
   MOB_LEVELS,
   SHARED_FIT,
+  codesCols,
+  codesRoom,
   doneLook,
   fitTier,
   sharedCardH,
@@ -93,6 +95,27 @@ describe('stepLook', () => {
     expect(look(1280, true, 99).ctl).toBe('44px');
     expect(look(390, false, 9).intro).toBe(false);
     expect(look(390, false, 2).introShort).toBe(true);
+  });
+
+  it('has room for three columns of recovery codes in the wider cards only', () => {
+    // One column from 700 px, two columns from 1000 px (not in the low window from 800 px), never on mobile.
+    expect([640, 699, 700, 999].map((w) => codesRoom(look(w, false, 6)))).toEqual([false, false, true, true]);
+    expect([codesRoom(look(900, true, 6)), codesRoom(look(1000, true, 6))]).toEqual([false, true]);
+    expect(codesRoom(look(390, false, 3))).toBe(false);
+  });
+
+  it('puts the recovery codes in one column only where two would cut them', () => {
+    // A code row at mobile level 3 (13.5 px) needs 132 px, at level 0 (14.5 px) 138 px; card padding and gap per level.
+    const at = (w: number, level: number, row: number, pad: number, gap: number) =>
+      codesCols(look(w, false, level), false, row, pad, gap);
+    // The reference phone and 360 px: two columns at the levels their heights get.
+    expect([at(393, 2, 132, 10, 5), at(393, 0, 138, 12, 6), at(360, 2, 132, 10, 5)]).toEqual([2, 2, 2]);
+    // 320 px (reflow): one column at every level.
+    expect([at(320, 3, 132, 8, 4), at(320, 0, 138, 12, 6)]).toEqual([1, 1]);
+    // Desktop: two, or three at the densest level where there is room.
+    expect(codesCols(look(640, false, 6), true, 132, 8, 4)).toBe(2);
+    expect(codesCols(look(1000, true, 6), true, 132, 8, 4)).toBe(3);
+    expect(codesCols(look(1000, true, 5), false, 132, 8, 5)).toBe(2);
   });
 
   it('has one column on the done screen', () => {

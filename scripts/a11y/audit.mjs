@@ -83,7 +83,7 @@ const SETUP_VALUES = {
  * checked state (setup step, error, open editor).
  */
 const ROUTES = [
-  ...[1, 2, 3, 4, 5].map((n) => ({
+  ...[1, 2, 3, 4, 5, 6].map((n) => ({
     id: `/setup (step ${n})`,
     path: '/setup',
     opts: { setup: true },
@@ -562,7 +562,10 @@ async function loginError(page) {
   await settle(page, 700);
 }
 
-/** Setup up to step `n`: fill visible empty fields with test values, "Continue". */
+/**
+ * Setup up to step `n`: fill visible empty fields with test values, tick the recovery codes' checkbox, "Continue".
+ * The code step confirms by itself with the sixth digit: no click there, which could hit the next step's primary.
+ */
 async function setupStep(page, n) {
   const stepOf = () =>
     page.evaluate(() => {
@@ -585,9 +588,11 @@ async function setupStep(page, n) {
       );
       throw new Error(`setup: step ${n} not reached (stays at ${at}; ${errs.join('; ')})`);
     }
+    const auto = (await page.locator('#su-otp').count()) > 0;
+    // The token and the code from the app are invisible inputs over their boxes.
     const fields = await page.evaluate(() =>
       [...document.querySelectorAll('input')]
-        .filter((i) => i.id && (window.__a11y.vis(i) || i.id === 'su-token'))
+        .filter((i) => i.id && (window.__a11y.vis(i) || i.id === 'su-token' || i.id === 'su-otp'))
         .map((i) => ({ id: i.id, type: i.type, value: i.value })),
     );
     for (const f of fields) {
@@ -604,8 +609,10 @@ async function setupStep(page, n) {
         .fill(value)
         .catch(() => {});
     }
+    const box = page.locator('button[role=checkbox][aria-checked=false]').filter({ visible: true });
+    if (await box.count()) await box.first().click();
     const primary = page.locator('button.primary').filter({ visible: true });
-    if (await primary.count()) await primary.last().click();
+    if (!auto && (await primary.count())) await primary.last().click();
     await settle(page, 900);
   }
   throw new Error(`setup: step ${n} not reached`);

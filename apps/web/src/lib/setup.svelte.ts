@@ -68,39 +68,14 @@ export type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 /** First step the wizard shows: language and appearance. */
 export const FIRST_STEP: Step = 1;
 
-/**
- * Steps the wizard does not show yet: the recovery codes (step 6) come in a
- * change of their own. Until then a confirmed code on step 5 goes on to the
- * review, and Back on the review returns to step 5.
- */
-const PENDING: readonly Step[] = [6];
-
-/** `step` is not shown yet (see `PENDING`). */
-export function isPending(step: Step): boolean {
-  return PENDING.includes(step);
-}
-
-/** The step after `step` the wizard shows. */
-export function stepAfter(step: Step): Step {
-  let n = step + 1;
-  while (PENDING.includes(n as Step)) n++;
-  return Math.min(n, STEPS) as Step;
-}
-
-/** The step before `step` the wizard shows. */
-export function stepBefore(step: Step): Step {
-  let n = step - 1;
-  while (PENDING.includes(n as Step)) n--;
-  return Math.max(n, FIRST_STEP) as Step;
-}
-
 export type Field = 'token' | 'name' | 'email' | 'pw' | 'pw2';
 /**
  * Where focus goes when a step opens: a field, the code field of the
- * authenticator app (`otp`), its "Try again" (`retry`), the selected language
- * card (`lang`, step 1) or the step heading.
+ * authenticator app (`otp`), its "Try again" (`retry`), the checkbox of the
+ * recovery codes (`saved`, when it is not ticked), the selected language card
+ * (`lang`, step 1) or the step heading.
  */
-export type Focus = Field | 'otp' | 'retry' | 'lang' | 'heading';
+export type Focus = Field | 'otp' | 'retry' | 'saved' | 'lang' | 'heading';
 
 // ---- Session of this browser tab ----
 
@@ -369,8 +344,8 @@ export function choicesSummary(c: SetupChoices): string {
 }
 
 export interface SetupHooks {
-  /** Input rejected: shake the card, focus the field (step 5: its code field). */
-  fail?: (field?: Field | 'otp') => void;
+  /** Input rejected: shake the card, focus the field (step 5: its code field; step 6: the checkbox). */
+  fail?: (field?: Field | 'otp' | 'saved') => void;
   /** Incomplete step: focus the field, no message. */
   focus?: (field: Field) => void;
   /** Step changed: focus the field or heading (`null`: the focus follows from `fail`). */
@@ -453,6 +428,12 @@ export class SetupFlow {
   otpErr = $state<OtpError | null>(null);
   /** The ten recovery codes of the confirmed key (step 6). */
   codes = $state<string[]>([]);
+
+  // Step 6 (memory only, like the codes)
+  /** "I’ve saved the codes in a safe place" is ticked; it belongs to `codes` and goes with them. */
+  saved = $state(false);
+  /** Continue with the box unticked: the error under it until it is ticked. */
+  savedErr = $state(false);
 
   // Steps 3 and 4
   name = $state('');
@@ -587,7 +568,7 @@ export class SetupFlow {
 
   /** "Back" keeps everything entered; not while a request is running. */
   back(): void {
-    if (this.canBack && !this.loading) this.go(stepBefore(this.step));
+    if (this.canBack && !this.loading) this.go((this.step - 1) as Step);
   }
 
   /**
@@ -603,6 +584,7 @@ export class SetupFlow {
     this.step = step;
     this.loading = false;
     this.err = {};
+    this.savedErr = false;
     writeSession('step', String(step));
     // Step 5 without its key yet or still locked: the heading until the code field is enabled.
     if (step === 5 && !this.enterMfa() && focus === 'otp') focus = 'heading';
@@ -692,18 +674,15 @@ export class SetupFlow {
 
   /**
    * Entering step 5: an empty code field and the key for the current email. A key for another email (changed on step
-   * 3 meanwhile) is dropped with its recovery codes; a new one is requested unless it is already on its way. `true`
-   * if the key is there.
+   * 3 meanwhile) is dropped with its recovery codes and the ticked box of step 6; a new one is requested unless it is
+   * already on its way. `true` if the key is there.
    */
   private enterMfa(): boolean {
     this.otp = '';
     this.otpErr = null;
     if (this.keyNow) return true;
     const email = this.email.trim();
-    if (this.key) {
-      this.key = null;
-      this.codes = [];
-    }
+    if (this.key) this.dropKey();
     if (this.keyState !== 'loading' || this.keyEmail !== email) void this.requestKey();
     return false;
   }
@@ -792,8 +771,10 @@ export class SetupFlow {
       if (this.step !== 5) return;
       this.loading = false;
       if (key !== this.keyReq) return;
+      // The same key brings the same codes again (the box stays as it was); other codes are a box to tick anew.
+      if (res.recovery_codes.join('\n') !== this.codes.join('\n')) this.saved = false;
       this.codes = res.recovery_codes;
-      this.go(stepAfter(5));
+      this.go(6);
     } catch (error) {
       if (this.step !== 5) return;
       this.loading = false;
@@ -811,8 +792,7 @@ export class SetupFlow {
         this.hooks.fail?.();
       } else if (isApiError(error, 422, 'totp_required')) {
         // The server has no key any more: a new one to scan.
-        this.key = null;
-        this.codes = [];
+        this.dropKey();
         this.otp = '';
         void this.requestKey();
       } else {
@@ -824,6 +804,30 @@ export class SetupFlow {
     }
   }
 
+  // ---- Step 6: recovery codes ----
+
+  /** The checkbox "I’ve saved the codes in a safe place"; either way it clears the error. */
+  toggleSaved(): void {
+    if (this.step !== 6) return;
+    this.saved = !this.saved;
+    this.savedErr = false;
+  }
+
+  /**
+   * "Continue" on step 6 (Enter too; never greyed out): sends nothing, the codes came with the confirmed code on step
+   * 5 and become valid with "Finish setup". Unticked → the error under the checkbox, the shake and the focus on it;
+   * ticked → the review.
+   */
+  submitCodes(): void {
+    if (this.step !== 6) return;
+    if (!this.saved) {
+      this.savedErr = true;
+      this.hooks.fail?.('saved');
+      return;
+    }
+    this.go(7);
+  }
+
   /**
    * "Finish setup": `setup/complete` with the administrator and the choices
    * of step 1. `201` → the done screen, then the sign-in; no answer → "No
@@ -831,9 +835,21 @@ export class SetupFlow {
    * the token step; no confirmed key for the email (`totp_required`) → step 5
    * with a new key; any other answer → the server error in place of the note
    * (with the shake), until the next "Finish setup".
+   *
+   * Never without step 6: without recovery codes nothing is sent and step 5
+   * opens, without the ticked box step 6 with its error.
    */
   async finish(): Promise<void> {
     if (this.loading) return;
+    if (!this.codes.length) {
+      this.go(5);
+      return;
+    }
+    if (!this.saved) {
+      this.go(6, null);
+      this.submitCodes();
+      return;
+    }
     this.loading = true;
     this.finishErr = false;
     const body = {
@@ -850,16 +866,14 @@ export class SetupFlow {
       // Token, password, key and recovery codes are no longer needed.
       this.pw = this.pw2 = this.token = this.otp = '';
       this.tokOk = false;
-      this.key = null;
-      this.codes = [];
+      this.dropKey();
       this.hooks.entered?.(this.step, 'heading');
       this.doneTimer = setTimeout(() => void this.hooks.signedIn?.(), DONE_MS);
     } catch (error) {
       this.loading = false;
       if (isApiError(error, 422, 'totp_required')) {
         // The key the code confirmed is gone (another tab asked for a new one): back to step 5 with a new key.
-        this.key = null;
-        this.codes = [];
+        this.dropKey();
         this.go(5);
         return;
       }
@@ -878,6 +892,14 @@ export class SetupFlow {
   }
 
   // ---- internal ----
+
+  /** Drops the key with its recovery codes and the ticked box (a new key brings new codes to save). */
+  private dropKey(): void {
+    this.key = null;
+    this.codes = [];
+    this.saved = false;
+    this.savedErr = false;
+  }
 
   private withToken() {
     return { headers: { 'X-Setup-Token': this.token } };

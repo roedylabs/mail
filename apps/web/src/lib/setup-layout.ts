@@ -326,6 +326,8 @@ export function sharedCardH(w: number, two: boolean, level: number): number | nu
 
 /** Resolved values of the shell at the current size and level. */
 export interface Look {
+  /** Width of the page the values are for (px). */
+  w: number;
   tier: Tier;
   mobile: boolean;
   two: boolean;
@@ -368,6 +370,7 @@ export function stepLook(
   if (isMobileWidth(w)) {
     const W = mob[Math.min(level, mob.length - 1)]!;
     return {
+      w,
       tier: 'mob',
       mobile: true,
       two: false,
@@ -400,6 +403,7 @@ export function stepLook(
   const full = w >= WIDE;
   const colGap = two ? (full ? L.col : '32px') : '0';
   return {
+    w,
     tier: two ? 'wide' : 'mid',
     mobile: false,
     two,
@@ -428,6 +432,33 @@ export function stepLook(
   };
 }
 
+/**
+ * The recovery codes (step 6) have room for three columns: on desktop in the one-column card from 700 px, or in the
+ * full two-column card from 1000 px (the step asks for them at its densest level only).
+ */
+export function codesRoom(look: Look): boolean {
+  if (look.mobile) return false;
+  return look.two ? look.full : look.w >= NARROW_CARD;
+}
+
+/** Side padding (px) of a CSS padding shorthand: "28px 22px 26px" → 22. */
+function sidePad(pad: string): number {
+  const parts = pad.trim().split(/\s+/);
+  return parseFloat(parts[1] ?? parts[0] ?? '0') || 0;
+}
+
+/**
+ * Columns of the recovery codes (step 6): three where the level asks for them and there is room (`codesRoom`),
+ * otherwise two; one on a phone narrower than the layouts of the design (such as 320 px) where two columns would cut
+ * the codes. `row` is the width (px) one row needs to show its code in full, `pad` and `gap` those of the codes card.
+ */
+export function codesCols(look: Look, cols3: boolean, row: number, pad: number, gap: number): 1 | 2 | 3 {
+  if (cols3 && codesRoom(look)) return 3;
+  if (!look.mobile) return 2;
+  const inner = look.w - 2 * sidePad(look.mainPad) - 2 * sidePad(look.cardPad) - 2 * pad;
+  return (inner - gap) / 2 >= row ? 2 : 1;
+}
+
 /** Values of the done screen: one column in a card of up to 560 px. */
 export function doneLook(
   w: number,
@@ -438,6 +469,7 @@ export function doneLook(
   if (isMobileWidth(w)) return stepLook(w, false, level, [], mob);
   const L = desk[Math.min(level, desk.length - 1)]!;
   return {
+    w,
     tier: 'mid',
     mobile: false,
     two: false,

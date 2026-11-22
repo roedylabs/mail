@@ -12,6 +12,7 @@
   import NoConnection from '#lib/components/setup/NoConnection.svelte';
   import SetupDone from '#lib/components/setup/SetupDone.svelte';
   import StepAdmin from '#lib/components/setup/StepAdmin.svelte';
+  import StepCodes from '#lib/components/setup/StepCodes.svelte';
   import StepMfa from '#lib/components/setup/StepMfa.svelte';
   import StepPassword from '#lib/components/setup/StepPassword.svelte';
   import StepReview from '#lib/components/setup/StepReview.svelte';
@@ -214,6 +215,8 @@
   <StepPassword {flow} {targets} hidden={net.open} />
 {:else if flow.step === 5}
   <StepMfa {flow} {targets} hidden={net.open} />
+{:else if flow.step === 6}
+  <StepCodes {flow} {targets} hidden={net.open} />
 {:else if flow.step === 7}
   <StepReview {flow} {targets} hidden={net.open} />
 {/if}

@@ -1099,6 +1099,7 @@
   "setup_codes_title": "Wieder\u00adherstellungs\u00adcodes",
   "setup_codes_intro": "Mit diesen Codes melden Sie sich an, wenn Sie keinen Zugriff auf Ihre Authenticator-App haben. Jeder Code kann nur einmal verwendet werden.",
   "setup_codes_intro_short": "Jeder Code meldet Sie einmal ohne Authenticator-App an.",
+  "setup_codes_copy_label": "Kopieren: Wiederherstellungscodes",
   "setup_sys_no_identity": "Das Konto hat keine Identität zum Senden. Legen Sie in Stalwart eine Identität für dieses Konto an.",
   "setup_review_title": "Alles bereit?",
   "setup_review_intro": "Prüfen Sie die Angaben. Nach dem Abschluss ist der Setup-Token ungültig.",

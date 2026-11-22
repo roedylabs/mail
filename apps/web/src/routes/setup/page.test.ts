@@ -44,6 +44,8 @@ const KEY = { body: { secret: SECRET, uri: URI } };
 const VERIFIED = { body: { recovery_codes: CODES } };
 /** Heading of step 5, with its soft hyphen. */
 const MFA_TITLE = 'Multi-factor authen\u00adtication';
+/** The checkbox of step 6. */
+const SAVED = 'I’ve saved the codes in a safe place';
 
 /** Opens the wizard at the administrator step (via the token step); `routes` answer the later requests. */
 async function atAdmin(routes: Routes = {}) {
@@ -81,12 +83,22 @@ async function atMfa(routes: Routes = {}) {
   return view;
 }
 
-/** Opens the wizard at the review step (via the steps before it, the code confirmed). */
-async function atReview() {
+/** Opens the wizard at the recovery codes (via the steps before them, the code confirmed). */
+async function atCodes() {
   const view = await atMfa({ 'POST setup/totp/verify': [VERIFIED] });
   // Enabled once the key is there (the focus is checked without fake timers, which also hold back Svelte's updates).
   await vi.waitFor(() => expect(view.getByLabelText('Verification code')).toBeEnabled());
   await type('Verification code', '123456');
+  await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Recovery codes'));
+  await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
+  return view;
+}
+
+/** Opens the wizard at the review step (via the steps before it, the code confirmed, the codes saved). */
+async function atReview() {
+  const view = await atCodes();
+  await fireEvent.click(view.getByRole('checkbox', { name: SAVED }));
+  await next();
   await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
   expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
   return view;
@@ -499,11 +511,37 @@ describe('Setup page', () => {
     expect(totp?.body).toEqual({ email: 'anna@example.com' });
     expect(totp?.headers['X-Setup-Token']).toBe('ABCD-EFGH-JKLM');
     await type('Verification code', '123 456');
-    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?'));
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Recovery codes'));
     expect(calls.find((c) => c.path === 'setup/totp/verify')?.body).toEqual({ code: '123456' });
 
-    // 7: summary and completion (step 6 comes with the recovery codes)
-    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
+    // 6: recovery codes from the confirmed code (no request of its own); reading them comes first, so the heading
+    expect(view.getByRole('img', { name: 'Step 6 of 7' })).toBeInTheDocument();
+    expect(ui.setupTitle).toBe('Recovery codes · Setup');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
+    const codes = view.getByRole('list', { name: 'Recovery codes' });
+    expect(
+      within(codes)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.replace(/\s+/g, ' ').trim()),
+    ).toEqual(CODES.map((c, i) => `${String(i + 1)} ${c}`));
+    // Unticked: Continue (never greyed out) shows the error, shakes and moves to the checkbox.
+    const saved = view.getByRole('checkbox', { name: SAVED });
+    expect(saved).toHaveAttribute('aria-checked', 'false');
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'false');
+    await next();
+    expect(view.getByRole('alert')).toHaveTextContent('Confirm that you’ve saved the codes.');
+    await vi.waitFor(() => expect(saved).toHaveFocus());
+    expect(saved).toHaveAttribute('aria-invalid', 'true');
+    expect(saved).toHaveAttribute('aria-describedby', 'su-saved-err');
+    // Ticking clears the error; then Continue opens the review.
+    await fireEvent.click(saved);
+    expect(saved).toHaveAttribute('aria-checked', 'true');
+    expect(saved).toHaveAttribute('aria-invalid', 'false');
+    expect(view.queryByRole('alert')).toBeNull();
+    await next();
+
+    // 7: summary and completion
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?'));
     expect(view.getByRole('img', { name: 'Step 7 of 7' })).toBeInTheDocument();
     expect(ui.setupTitle).toBe('Review · Setup');
     const summary = view.getByRole('list', { name: 'Your details' });
@@ -546,6 +584,10 @@ describe('Setup page', () => {
     expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
     expect(view.getByLabelText('Verification code')).toHaveValue('');
     await type('Verification code', '654321');
+    // Step 6 again: the same codes, the box still ticked.
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Recovery codes'));
+    expect(view.getByRole('checkbox', { name: SAVED })).toHaveAttribute('aria-checked', 'true');
+    await next();
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?'));
     expect(calls.filter((c) => c.path === 'setup/totp')).toHaveLength(1);
     // Enter on the heading finishes.
@@ -776,6 +818,130 @@ describe('Step 5: authenticator app', () => {
   });
 });
 
+describe('Step 6: recovery codes', () => {
+  /** The heading of the step. */
+  const heading = () => screen.getByRole('heading', { level: 1 });
+
+  it('shows the ten codes; Copy copies them one per line, Download saves them as a file', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    // jsdom knows no blob URLs and would navigate when clicking the link.
+    const blobs: Blob[] = [];
+    Object.assign(URL, {
+      createObjectURL: vi.fn((blob: Blob) => {
+        blobs.push(blob);
+        return 'blob:codes';
+      }),
+      revokeObjectURL: vi.fn(),
+    });
+    const names: string[] = [];
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) {
+      names.push(this.download);
+    });
+    const view = await atCodes();
+    expect(heading()).toHaveTextContent('Recovery codes');
+    expect(
+      view.getByText(
+        'Use these codes to sign in if you can’t access your authenticator app. Each code can only be used once.',
+      ),
+    ).toBeInTheDocument();
+    const list = view.getByRole('list', { name: 'Recovery codes' });
+    expect(list.tagName).toBe('OL');
+    expect(within(list).getAllByRole('listitem')).toHaveLength(10);
+    // The numbers are not read out.
+    expect(list.querySelector('li span')).toHaveAttribute('aria-hidden', 'true');
+    // Focus order: Copy → Download → checkbox → Back → Continue.
+    const order = [...view.container.querySelectorAll<HTMLElement>('button, input:not([hidden])')]
+      .filter((el) => el.tabIndex >= 0)
+      .map((el) => el.getAttribute('aria-label') || el.textContent?.trim());
+    expect(order).toEqual(['Copy: Recovery codes', 'Download', SAVED, 'Back', 'Continue']);
+
+    await fireEvent.click(view.getByRole('button', { name: 'Copy: Recovery codes' }));
+    expect(writeText).toHaveBeenCalledWith(CODES.join('\n'));
+    const copied = await view.findByRole('button', { name: 'Copied' });
+    expect(copied).toHaveTextContent('Copied');
+
+    await fireEvent.click(view.getByRole('button', { name: 'Download' }));
+    expect(names).toEqual(['recovery-codes.txt']);
+    expect(await blobs[0]?.text()).toBe(`Roedy Mail – Recovery codes\nanna@example.com\n\n${CODES.join('\n')}\n`);
+    expect(JSON.stringify(sessionStorage)).not.toContain(CODES[0]);
+    click.mockRestore();
+    Reflect.deleteProperty(URL, 'createObjectURL');
+    Reflect.deleteProperty(URL, 'revokeObjectURL');
+  });
+
+  it('shows no “Copied” when copying failed', async () => {
+    vi.stubGlobal('navigator', { ...navigator, clipboard: undefined });
+    const execCommand = vi.fn(() => false);
+    Object.defineProperty(document, 'execCommand', { configurable: true, value: execCommand });
+    const view = await atCodes();
+    await fireEvent.click(view.getByRole('button', { name: 'Copy: Recovery codes' }));
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t copy.', error: true }));
+    expect(view.queryByRole('button', { name: 'Copied' })).toBeNull();
+    Reflect.deleteProperty(document, 'execCommand');
+  });
+
+  it('continues with Enter on the step, not on the checkbox; keeps codes and box on the way back', async () => {
+    const view = await atCodes();
+    const saved = view.getByRole('checkbox', { name: SAVED });
+    // Enter on the checkbox is its own (a button): no Continue.
+    await fireEvent.keyDown(saved, { key: 'Enter' });
+    expect(view.queryByRole('alert')).toBeNull();
+    // Enter on the heading continues: unticked, the error and the focus on the checkbox.
+    await fireEvent.keyDown(heading(), { key: 'Enter' });
+    expect(view.getByRole('alert')).toHaveTextContent('Confirm that you’ve saved the codes.');
+    await vi.waitFor(() => expect(saved).toHaveFocus());
+    // Unticking clears the error too.
+    await fireEvent.click(saved);
+    await fireEvent.click(saved);
+    expect(view.queryByRole('alert')).toBeNull();
+    await fireEvent.click(saved);
+    await fireEvent.keyDown(heading(), { key: 'Enter' });
+    await vi.waitFor(() => expect(heading()).toHaveTextContent('All set?'));
+    // Back from the review: the codes with the box ticked, the heading focused.
+    await next('Back');
+    expect(heading()).toHaveTextContent('Recovery codes');
+    await vi.waitFor(() => expect(heading()).toHaveFocus());
+    expect(view.getByRole('checkbox', { name: SAVED })).toHaveAttribute('aria-checked', 'true');
+    // Back again: step 5 with the same key.
+    await next('Back');
+    expect(heading()).toHaveTextContent(MFA_TITLE);
+    expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+  });
+
+  it('speaks German', async () => {
+    sessionStorage.setItem('roedy-setup-lang', 'de');
+    mockApi({ 'POST setup/token': [{ body: {} }], 'POST setup/totp': [KEY], 'POST setup/totp/verify': [VERIFIED] });
+    atToken();
+    const view = render(Page);
+    await vi.waitFor(() => expect(view.getByLabelText('Setup-Token')).toHaveFocus());
+    await type('Setup-Token', 'abcd-efgh-jklm');
+    await next('Weiter');
+    await vi.waitFor(() => expect(heading()).toHaveTextContent('Administrator anlegen'));
+    await type('Ihr Name', 'Anna Becker');
+    await type('E-Mail-Adresse', 'anna@example.com');
+    await next('Weiter');
+    await type(/^Passwort$/, 'Safe-enough1');
+    await type('Passwort wiederholen', 'Safe-enough1');
+    await next('Weiter');
+    await vi.waitFor(() => expect(view.getByLabelText('Bestätigungscode')).toHaveFocus());
+    await type('Bestätigungscode', '123456');
+    await vi.waitFor(() => expect(heading()).toHaveTextContent('Wieder\u00adherstellungs\u00adcodes'));
+    expect(view.getByRole('img', { name: 'Schritt 6 von 7' })).toBeInTheDocument();
+    expect(ui.setupTitle).toBe('Wiederherstellungscodes · Einrichtung');
+    expect(view.getByText(/Mit diesen Codes melden Sie sich an/)).toBeInTheDocument();
+    expect(view.getByRole('list', { name: 'Wiederherstellungscodes' })).toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'Kopieren: Wiederherstellungscodes' })).toHaveTextContent('Kopieren');
+    expect(view.getByRole('button', { name: 'Herunterladen' })).toBeInTheDocument();
+    await next('Weiter');
+    expect(view.getByRole('alert')).toHaveTextContent('Bestätigen Sie, dass Sie die Codes aufbewahrt haben.');
+    expect(view.getByRole('checkbox', { name: 'Ich habe die Codes sicher aufbewahrt' })).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+  });
+});
+
 describe('Step 7: review', () => {
   it('locks Back and "Change" while setting up and shows a server error in place of the note', async () => {
     let answer: (a: { status: number; body: unknown }) => void = () => {};
@@ -968,6 +1134,9 @@ describe('Step 7: review', () => {
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Multi-Faktor-Authenti\u00adfizierung');
     await vi.waitFor(() => expect(view.getByLabelText('Bestätigungscode')).toHaveFocus());
     await type('Bestätigungscode', '123456');
+    await vi.waitFor(() => expect(view.getByRole('img', { name: 'Schritt 6 von 7' })).toBeInTheDocument());
+    await fireEvent.click(view.getByRole('checkbox', { name: 'Ich habe die Codes sicher aufbewahrt' }));
+    await next('Weiter');
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Alles bereit?'));
     expect(ui.setupTitle).toBe('Überprüfen · Einrichtung');
     expect(view.getByRole('list', { name: 'Ihre Angaben' })).toHaveTextContent('Deutsch · System · Eigene #4A7BD0');

@@ -21,10 +21,7 @@ import {
   readSession,
   recentOf,
   rememberColor,
-  isPending,
   resumeStep,
-  stepAfter,
-  stepBefore,
   storeChoice,
   trackCount,
   withRecent,
@@ -49,7 +46,7 @@ afterEach(() => {
 
 function hooks() {
   return {
-    fail: vi.fn<(field?: Field | 'otp') => void>(),
+    fail: vi.fn<(field?: Field | 'otp' | 'saved') => void>(),
     focus: vi.fn<(field: Field) => void>(),
     entered: vi.fn<(step: Step, focus: Focus | null) => void>(),
     refocus: vi.fn<(focus: Focus) => void>(),
@@ -61,9 +58,9 @@ function hooks() {
 
 /**
  * Flow up to the start of step `step` (without API, fields as after the steps; from step 5 with the key for the
- * email, on the review with the recovery codes).
+ * email, from step 6 with the recovery codes, on the review with the box ticked).
  */
-function at(step: 3 | 4 | 5 | 7, h = hooks()) {
+function at(step: 3 | 4 | 5 | 6 | 7, h = hooks()) {
   const flow = new SetupFlow(h);
   flow.token = TOKEN;
   flow.tokOk = true;
@@ -72,7 +69,8 @@ function at(step: 3 | 4 | 5 | 7, h = hooks()) {
   flow.pw = 'Safe-enough1';
   flow.pw2 = 'Safe-enough1';
   if (step >= 5) flow.key = { email: 'anna@example.com', secret: SECRET, uri: URI };
-  if (step === 7) flow.codes = [...CODES];
+  if (step >= 6) flow.codes = [...CODES];
+  if (step === 7) flow.saved = true;
   flow.step = step;
   return { flow, h };
 }
@@ -601,16 +599,6 @@ describe('Step 5: authenticator app', () => {
     return ctx;
   }
 
-  it('skips the steps that are not there yet in both directions', () => {
-    expect(stepAfter(4)).toBe(5);
-    expect(stepAfter(5)).toBe(7);
-    expect(stepBefore(7)).toBe(5);
-    expect(stepBefore(5)).toBe(4);
-    expect(stepBefore(1)).toBe(1);
-    // Not ticked off in the step overview either.
-    expect([isPending(5), isPending(6), isPending(7)]).toEqual([false, true, false]);
-  });
-
   it('asks for the key once per email on entering, keeps it in memory only and shows it again', async () => {
     const { calls } = mockApi({ 'POST setup/totp': [{ body: { secret: SECRET, uri: URI } }] });
     const { flow, h } = intoMfa();
@@ -646,7 +634,7 @@ describe('Step 5: authenticator app', () => {
     flow.edit('email', 'ben@example.com');
     flow.submitAdmin();
     flow.submitPw();
-    expect([flow.step, flow.keyStatus, flow.codes]).toEqual([5, 'loading', []]);
+    expect([flow.step, flow.keyStatus, flow.codes, flow.saved]).toEqual([5, 'loading', [], false]);
     await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
     expect(calls.map((c) => c.body)).toEqual([{ email: 'ben@example.com' }]);
     expect(flow.keyNow?.secret).toBe('A'.repeat(32));
@@ -767,13 +755,14 @@ describe('Step 5: authenticator app', () => {
     flow.back();
     await flow.submitOtp();
     expect([flow.otp, flow.step]).toEqual(['123456', 5]);
-    await vi.waitFor(() => expect(flow.step).toBe(7));
+    await vi.waitFor(() => expect(flow.step).toBe(6));
     expect(calls).toHaveLength(1);
     expect(calls[0]?.body).toEqual({ code: '123456' });
     expect(calls[0]?.headers['X-Setup-Token']).toBe(TOKEN);
     expect(flow.codes).toEqual(CODES);
-    expect(h.entered).toHaveBeenLastCalledWith(7, 'heading');
-    // Back on the review returns to step 5: the same key, an empty code field.
+    // The recovery codes: reading them comes first, so the heading.
+    expect(h.entered).toHaveBeenLastCalledWith(6, 'heading');
+    // Back on the codes returns to step 5: the same key, an empty code field.
     flow.back();
     expect([flow.step, flow.keyStatus, flow.otp, flow.codes]).toEqual([5, 'ready', '', CODES]);
     expect(JSON.stringify(sessionStorage)).not.toContain(CODES[0]);
@@ -866,7 +855,7 @@ describe('Step 5: authenticator app', () => {
     expect(h.fail).toHaveBeenLastCalledWith('otp');
     expect(h.error).not.toHaveBeenCalled();
     await flow.submitOtp();
-    expect(flow.step).toBe(7);
+    expect(flow.step).toBe(6);
     expect(calls).toHaveLength(2);
   });
 
@@ -877,9 +866,10 @@ describe('Step 5: authenticator app', () => {
     });
     const { flow } = at(5);
     flow.codes = [...CODES];
+    flow.saved = true;
     flow.editOtp('666666');
     await vi.waitFor(() => expect(calls).toHaveLength(2));
-    expect([flow.otp, flow.codes]).toEqual(['', []]);
+    expect([flow.otp, flow.codes, flow.saved]).toEqual(['', [], false]);
     await vi.waitFor(() => expect(flow.keyNow?.secret).toBe('C'.repeat(32)));
   });
 
@@ -891,6 +881,111 @@ describe('Step 5: authenticator app', () => {
     expect(flow.tokErr).toBe('invalid');
     // The key stays for this email: back on step 5 it shows again without a new request.
     expect(flow.keyStatus).toBe('ready');
+  });
+});
+
+describe('Step 6: recovery codes', () => {
+  it('enters with the heading and sends nothing; Continue needs the ticked box', async () => {
+    const { calls } = mockApi({ 'POST setup/totp/verify': [{ body: { recovery_codes: CODES } }] });
+    const { flow, h } = at(5);
+    flow.editOtp('123456');
+    await vi.waitFor(() => expect(flow.step).toBe(6));
+    expect(h.entered).toHaveBeenLastCalledWith(6, 'heading');
+    expect([flow.codes, flow.saved, flow.savedErr]).toEqual([CODES, false, false]);
+    // Unticked: the error, the shake and the focus on the checkbox; Continue is never greyed out.
+    flow.submitCodes();
+    expect([flow.step, flow.savedErr]).toEqual([6, true]);
+    expect(h.fail).toHaveBeenLastCalledWith('saved');
+    // Ticking clears the error; ticked, Continue opens the review.
+    flow.toggleSaved();
+    expect([flow.saved, flow.savedErr]).toEqual([true, false]);
+    flow.submitCodes();
+    expect(flow.step).toBe(7);
+    expect(h.entered).toHaveBeenLastCalledWith(7, 'heading');
+    expect(h.fail).toHaveBeenCalledOnce();
+    expect(calls.map((c) => c.path)).toEqual(['setup/totp/verify']);
+  });
+
+  it('clears the error with any click on the box and only toggles on step 6', () => {
+    const { flow } = at(6);
+    flow.submitCodes();
+    flow.toggleSaved();
+    flow.toggleSaved();
+    expect([flow.saved, flow.savedErr]).toEqual([false, false]);
+    flow.submitCodes();
+    expect(flow.savedErr).toBe(true);
+    // Leaving the step drops the error, not the box.
+    flow.toggleSaved();
+    flow.back();
+    expect([flow.step, flow.saved, flow.savedErr]).toEqual([5, true, false]);
+    flow.toggleSaved();
+    flow.submitCodes();
+    expect([flow.step, flow.saved]).toEqual([5, true]);
+  });
+
+  it('keeps the codes and the ticked box after Back and "Change", in memory only', async () => {
+    mockApi({ 'POST setup/totp/verify': [{ body: { recovery_codes: CODES } }, { body: { recovery_codes: CODES } }] });
+    const { flow, h } = at(7);
+    flow.back();
+    expect([flow.step, flow.codes, flow.saved, flow.savedErr]).toEqual([6, CODES, true, false]);
+    expect(h.entered).toHaveBeenLastCalledWith(6, 'heading');
+    flow.back();
+    expect([flow.step, flow.keyStatus]).toEqual([5, 'ready']);
+    // The same key brings the same codes again: the box stays ticked.
+    flow.editOtp('123456');
+    await vi.waitFor(() => expect(flow.step).toBe(6));
+    expect([flow.codes, flow.saved]).toEqual([CODES, true]);
+    flow.submitCodes();
+    expect(flow.step).toBe(7);
+    // "Change" on the review and forward again through the steps.
+    flow.revisit(3);
+    flow.submitAdmin();
+    flow.submitPw();
+    expect(flow.step).toBe(5);
+    flow.editOtp('654321');
+    await vi.waitFor(() => expect(flow.step).toBe(6));
+    expect([flow.codes, flow.saved]).toEqual([CODES, true]);
+    const stored = JSON.stringify(sessionStorage);
+    expect(stored).not.toContain(CODES[0]);
+    expect(stored).not.toContain('saved');
+  });
+
+  it('unticks the box for new codes', async () => {
+    const others = CODES.map((c) => c.replace('ABCD', 'WXYZ'));
+    mockApi({ 'POST setup/totp/verify': [{ body: { recovery_codes: others } }] });
+    const { flow } = at(7);
+    flow.back();
+    flow.back();
+    flow.editOtp('123456');
+    await vi.waitFor(() => expect(flow.step).toBe(6));
+    expect([flow.codes, flow.saved]).toEqual([others, false]);
+  });
+
+  it('forgets the codes and the box on a reload', () => {
+    const { flow } = at(7);
+    flow.go(7);
+    expect([readSession('step'), flow.saved]).toEqual(['7', true]);
+    const again = new SetupFlow(hooks());
+    expect([again.step, again.codes, again.saved]).toEqual([2, [], false]);
+  });
+
+  it('never finishes the setup without passing step 6', async () => {
+    const { calls } = mockApi({});
+    // On the review without the ticked box: back to step 6 with its error.
+    const { flow, h } = at(7);
+    flow.saved = false;
+    await flow.finish();
+    expect([flow.step, flow.savedErr, flow.loading]).toEqual([6, true, false]);
+    expect(h.entered).toHaveBeenLastCalledWith(6, null);
+    expect(h.fail).toHaveBeenLastCalledWith('saved');
+    // Without recovery codes: back to step 5 for the code.
+    flow.step = 7;
+    flow.saved = true;
+    flow.codes = [];
+    await flow.finish();
+    expect(flow.step).toBe(5);
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'otp');
+    expect(calls).toHaveLength(0);
   });
 });
 
@@ -967,7 +1062,7 @@ describe('Step 7: completion', () => {
     expect(h.entered).toHaveBeenLastCalledWith(7, 'heading');
     expect(flow.firstName).toBe('Anna');
     expect([flow.pw, flow.pw2, flow.token]).toEqual(['', '', '']);
-    expect([flow.key, flow.codes]).toEqual([null, []]);
+    expect([flow.key, flow.codes, flow.saved]).toEqual([null, [], false]);
     vi.advanceTimersByTime(DONE_MS - 1);
     expect(signedIn).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
@@ -1043,6 +1138,8 @@ describe('Step 7: completion', () => {
     const { flow, h } = at(7);
     await flow.finish();
     expect([flow.step, flow.finishErr, flow.codes, flow.keyStatus]).toEqual([5, false, [], 'loading']);
+    // The new key brings new codes: the box is unticked again.
+    expect(flow.saved).toBe(false);
     expect(h.fail).not.toHaveBeenCalled();
     expect(h.entered).toHaveBeenLastCalledWith(5, 'heading');
     await vi.waitFor(() => expect(flow.keyNow?.secret).toBe('D'.repeat(32)));

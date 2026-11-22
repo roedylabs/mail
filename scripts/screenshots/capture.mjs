@@ -133,8 +133,9 @@ async function fillSetup(page) {
 }
 
 /**
- * Walks the setup wizard to step `n` (1–7): fills each step, then the primary button. The code step confirms by
- * itself with the sixth digit: no click there, which could hit the next step's primary once the code went through.
+ * Walks the setup wizard to step `n` (1–7): fills each step, ticks the recovery codes' checkbox, then the primary
+ * button. The code step confirms by itself with the sixth digit: no click there, which could hit the next step's
+ * primary once the code went through.
  */
 async function setupStep(page, n) {
   const stepOf = () =>
@@ -146,6 +147,8 @@ async function setupStep(page, n) {
     if ((await stepOf()) === n) return;
     const auto = (await page.locator('#su-otp').count()) > 0;
     await fillSetup(page);
+    const box = page.locator('button[role=checkbox][aria-checked=false]').filter({ visible: true });
+    if (await box.count()) await box.first().click();
     const primary = page.locator('button.primary').filter({ visible: true });
     if (!auto && (await primary.count())) await primary.last().click();
     await settle(page, 900);
