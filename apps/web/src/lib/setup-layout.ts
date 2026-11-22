@@ -441,6 +441,24 @@ export function codesRoom(look: Look): boolean {
   return look.two ? look.full : look.w >= NARROW_CARD;
 }
 
+/** Side padding (px) of a CSS padding shorthand: "28px 22px 26px" → 22. */
+function sidePad(pad: string): number {
+  const parts = pad.trim().split(/\s+/);
+  return parseFloat(parts[1] ?? parts[0] ?? '0') || 0;
+}
+
+/**
+ * Columns of the recovery codes (step 6): three where the level asks for them and there is room (`codesRoom`),
+ * otherwise two; one on a phone narrower than the layouts of the design (such as 320 px) where two columns would cut
+ * the codes. `row` is the width (px) one row needs to show its code in full, `pad` and `gap` those of the codes card.
+ */
+export function codesCols(look: Look, cols3: boolean, row: number, pad: number, gap: number): 1 | 2 | 3 {
+  if (cols3 && codesRoom(look)) return 3;
+  if (!look.mobile) return 2;
+  const inner = look.w - 2 * sidePad(look.mainPad) - 2 * sidePad(look.cardPad) - 2 * pad;
+  return (inner - gap) / 2 >= row ? 2 : 1;
+}
+
 /** Values of the done screen: one column in a card of up to 560 px. */
 export function doneLook(
   w: number,

@@ -16,7 +16,7 @@
   import { Copied } from '#lib/clipboard.svelte.ts';
   import { downloadCodes } from '#lib/download.ts';
   import { m } from '#lib/paraglide/messages.js';
-  import { DESK_LEVELS, MOB_LEVELS, codesRoom, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
+  import { DESK_LEVELS, MOB_LEVELS, codesCols, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
   import type { SetupFlow } from '#lib/setup.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
@@ -46,8 +46,17 @@
   const desk: (DeskLevel & Extra)[] = DESK_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...DESK_X[i]! }));
   const mob: (MobLevel & Extra)[] = MOB_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...MOB_X[i]! }));
 
-  /** Three columns only where the level asks for them and the codes column has room (`codesRoom`). */
-  const columns = (look: Look, lv: Extra): number => (lv.cols3 && codesRoom(look) ? 3 : 2);
+  /**
+   * Width (px) a row needs to show its code in full: padding, number and gap (52) and the code in monospace, 0.6 em
+   * per character plus the 0.04 em letter spacing, with a little room.
+   */
+  const rowW = (fs: number): number => {
+    const chars = Math.max(0, ...flow.codes.map((c) => c.length));
+    return 52 + Math.ceil(chars * 0.64 * fs) + 2;
+  };
+  /** Two columns; three where the level asks for them and there is room, one where two would cut the codes. */
+  const columns = (look: Look, lv: Extra): number =>
+    codesCols(look, lv.cols3, rowW(parseFloat(lv.fs)), parseFloat(lv.cbPad), parseFloat(lv.cbGap));
 
   const copied = new Copied<'codes'>();
   onDestroy(() => copied.stop());
