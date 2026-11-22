@@ -1,12 +1,12 @@
-// Sets up an instance for flows after the setup: setup token and
-// `setup/complete` via the API, then the mail server and the system emails
+// Sets up an instance for flows after the setup: setup token, authenticator
+// app and `setup/complete` via the API, then the mail server and the system emails
 // through the administration API (`#lib/servers.svelte.ts`,
 // `#lib/system-mail.svelte.ts`), after which the administrator is signed in in
 // the browser context. "Connect account", by contrast, still goes through the
 // mail server's real sign-in page – only it hands out the code for it.
 import type { BrowserContext, Page } from '@playwright/test';
 import { expect, type Instance, type MailUser, type Stalwart } from './fixtures.ts';
-import { CSRF, newPage, settled } from './helpers.ts';
+import { CSRF, newPage, settled, totp } from './helpers.ts';
 
 export interface AppUser {
   name: string;
@@ -14,12 +14,38 @@ export interface AppUser {
   password: string;
 }
 
+/** Authenticator app of the setup: the key and the recovery codes from its confirmation. */
+export interface SetupApp {
+  secret: string;
+  recoveryCodes: string[];
+}
+
+/**
+ * Authenticator app for the administrator with `email` via the setup API:
+ * `setup/totp`, then `setup/totp/verify` with the current code. `setup/complete`
+ * needs it for the same address.
+ */
+export async function setupAppByApi(
+  context: BrowserContext,
+  instance: Instance,
+  token: string,
+  email: string,
+): Promise<SetupApp> {
+  const send = sender(context, instance, { 'x-setup-token': token });
+  const { secret } = (await send('POST', 'setup/totp', { email })) as { secret: string };
+  const { recovery_codes } = (await send('POST', 'setup/totp/verify', { code: totp(secret) })) as {
+    recovery_codes: string[];
+  };
+  expect(recovery_codes, 'recovery codes of the setup').toHaveLength(10);
+  return { secret, recoveryCodes: recovery_codes };
+}
+
 /**
  * Sets up `instance` with the Stalwart of the run: setup token,
- * administrator `admin`, then OAuth client via DCR with the Stalwart admin's
- * app password, the mail server and system mails through that account. The
- * session cookie from `setup/complete` ends up in `context` (shared cookie
- * store of `context.request`).
+ * administrator `admin` with an authenticator app, then OAuth client via DCR
+ * with the Stalwart admin's app password, the mail server and system mails
+ * through that account. The session cookie from `setup/complete` ends up in
+ * `context` (shared cookie store of `context.request`).
  */
 export async function setupByApi(
   context: BrowserContext,
@@ -30,6 +56,7 @@ export async function setupByApi(
   const token = await instance.setupToken();
   const send = sender(context, instance, { 'x-setup-token': token });
   await send('POST', 'setup/token', { token });
+  await setupAppByApi(context, instance, token, admin.email);
   await send('POST', 'setup/complete', {
     name: admin.name,
     email: admin.email,

@@ -19,7 +19,7 @@ import {
   waitForMails,
   type Session,
 } from './helpers.ts';
-import { connectAccount, connectServer } from './setup.ts';
+import { connectAccount, connectServer, setupAppByApi } from './setup.ts';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -256,6 +256,10 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await late.getByLabel('Confirm password', { exact: true }).fill(admin.password);
   await next(late).click();
   await expect(late.getByRole('heading', { name: 'All set?' })).toBeVisible();
+
+  // `setup/complete` needs a confirmed authenticator app for the address; the
+  // wizard has no step for it yet, so it comes from the setup API.
+  await setupAppByApi(context, instance, await instance.setupToken(), stalwart.admin.email);
 
   // Done: welcome with the first name, the chips, the sign-in, then Administration › Mail servers.
   // Enter anywhere on the step finishes (here on the heading).

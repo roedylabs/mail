@@ -1,7 +1,8 @@
 //! Initial setup via the API: setup token with lockout per client IP,
-//! completion only with token in one transaction with a session and the
-//! administrator's appearance, locked afterwards – also for `roedy-mail
-//! setup-token`.
+//! authenticator app and recovery codes as a pending enrollment with its own
+//! lockout, completion only with token and confirmed enrollment in one
+//! transaction with a session, the administrator's appearance, app and
+//! codes, locked afterwards – also for `roedy-mail setup-token`.
 
 use std::{net::SocketAddr, process::Command, sync::Arc};
 
@@ -16,17 +17,19 @@ use roedy_mail_server::{
     api::{self, setup::TOKEN_HEADER},
     app::{AppState, router},
     auth::{
+        challenge,
         password::{Hasher, Params},
-        session,
+        session, totp,
     },
     broker::crypto::SecretKey,
     config::Config,
     db::{
         self, Db,
-        repo::{app_settings, notifications},
+        repo::{app_settings, notifications, recovery_codes},
     },
     mailer::system_mail,
-    setup_token,
+    settings::Language,
+    setup_token, setup_totp,
     web::static_files::WebAssets,
 };
 use serde_json::{Value, json};
@@ -34,6 +37,8 @@ use tower::ServiceExt as _;
 use url::Url;
 
 const CLIENT: [u8; 4] = [203, 0, 113, 9];
+/// The administrator's address in [`complete_body`].
+const EMAIL: &str = "Max@Example.com";
 
 struct Setup {
     tmp: tempfile::TempDir,
@@ -73,6 +78,26 @@ impl Reply {
     fn json(&self) -> Value {
         serde_json::from_str(&self.body).unwrap_or_else(|_| panic!("not JSON: {}", self.body))
     }
+
+    fn error(&self) -> Value {
+        self.json()["error"].clone()
+    }
+
+    /// Value of the cookie `name` from `Set-Cookie`.
+    fn cookie(&self, name: &str) -> String {
+        self.headers
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .find_map(|c| {
+                c.to_str()
+                    .unwrap()
+                    .strip_prefix(&format!("{name}="))?
+                    .split(';')
+                    .next()
+                    .map(str::to_owned)
+            })
+            .unwrap_or_else(|| panic!("no cookie {name}: {:?}", self.headers))
+    }
 }
 
 fn app(state: &AppState, ip: [u8; 4]) -> Router {
@@ -86,7 +111,7 @@ async fn post_from(
     path: &str,
     token: Option<&str>,
     body: Value,
-    cookie: Option<&str>,
+    cookies: &[(&str, &str)],
 ) -> Reply {
     let mut builder = Request::builder()
         .method(Method::POST)
@@ -97,8 +122,8 @@ async fn post_from(
     if let Some(token) = token {
         builder = builder.header(TOKEN_HEADER, token);
     }
-    if let Some(cookie) = cookie {
-        builder = builder.header(header::COOKIE, format!("{}={cookie}", session::COOKIE));
+    for (name, value) in cookies {
+        builder = builder.header(header::COOKIE, format!("{name}={value}"));
     }
     read_reply(
         app(state, ip)
@@ -110,7 +135,7 @@ async fn post_from(
 }
 
 async fn post(state: &AppState, path: &str, token: Option<&str>, body: Value) -> Reply {
-    post_from(state, CLIENT, path, token, body, None).await
+    post_from(state, CLIENT, path, token, body, &[]).await
 }
 
 async fn get(state: &AppState, path: &str, cookie: &str) -> Reply {
@@ -149,10 +174,113 @@ fn session_cookie(reply: &Reply) -> String {
 fn complete_body() -> Value {
     json!({
         "name": "Max Mustermann",
-        "email": "Max@Example.com",
+        "email": EMAIL,
         "password": "Summer2026!",
         "settings": { "lang": "de", "mode": "dark", "accent": "sage" },
     })
+}
+
+/// Code of the authenticator app for `secret` at `time` (seconds).
+fn code_at(secret: &[u8], time: u64) -> String {
+    totp_rs::Builder::new()
+        .with_secret(secret.to_vec())
+        .build()
+        .unwrap()
+        .generate(time)
+        .to_string()
+}
+
+fn code(secret: &[u8]) -> String {
+    code_at(secret, totp::now())
+}
+
+/// Six digits that match none of the time steps the server accepts now.
+fn wrong_code(secret: &[u8]) -> String {
+    let now = totp::now();
+    (0..1_000_000)
+        .map(|n| format!("{n:06}"))
+        .find(|code| {
+            [now, now + 30]
+                .iter()
+                .all(|&t| totp::matching_step(secret, code, t).unwrap().is_none())
+        })
+        .unwrap()
+}
+
+/// `setup/totp` for `email`.
+async fn enroll_reply(s: &Setup, email: &str) -> Reply {
+    post(
+        &s.state,
+        "/api/v1/setup/totp",
+        Some(&s.token),
+        json!({ "email": email }),
+    )
+    .await
+}
+
+/// `setup/totp` for `email`: the secret from the answer.
+async fn enroll(s: &Setup, email: &str) -> Vec<u8> {
+    let reply = enroll_reply(s, email).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    totp_rs::Secret::try_from_base32(reply.json()["secret"].as_str().unwrap())
+        .unwrap()
+        .to_vec()
+}
+
+async fn verify(s: &Setup, code: &str) -> Reply {
+    post(
+        &s.state,
+        "/api/v1/setup/totp/verify",
+        Some(&s.token),
+        json!({ "code": code }),
+    )
+    .await
+}
+
+fn recovery_codes_of(reply: &Reply) -> Vec<String> {
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    serde_json::from_value(reply.json()["recovery_codes"].clone()).unwrap()
+}
+
+/// The authenticator app of the administrator in [`complete_body`], set up
+/// and confirmed: secret and recovery codes.
+async fn confirmed(s: &Setup) -> (Vec<u8>, Vec<String>) {
+    let secret = enroll(s, EMAIL).await;
+    let codes = recovery_codes_of(&verify(s, &code(&secret)).await);
+    (secret, codes)
+}
+
+async fn complete(s: &Setup) -> Reply {
+    post(
+        &s.state,
+        "/api/v1/setup/complete",
+        Some(&s.token),
+        complete_body(),
+    )
+    .await
+}
+
+/// Raw value of the pending enrollment in `app_settings`.
+async fn stored_enrollment(state: &AppState) -> Option<String> {
+    db::call(&state.db, |conn| {
+        Ok(conn
+            .query_row(
+                "SELECT json FROM app_settings WHERE key = 'setup_totp'",
+                [],
+                |r| r.get(0),
+            )
+            .ok())
+    })
+    .await
+    .unwrap()
+}
+
+async fn count(state: &AppState, table: &'static str) -> i64 {
+    db::call(&state.db, move |conn| {
+        Ok(conn.query_row(&format!("SELECT COUNT(*) FROM {table}"), [], |r| r.get(0))?)
+    })
+    .await
+    .unwrap()
 }
 
 async fn audit(state: &AppState) -> Vec<(String, String, String)> {
@@ -223,7 +351,7 @@ async fn token_locks_after_five_failures_per_client() {
         "/api/v1/setup/token",
         None,
         json!({ "token": typed }),
-        None,
+        &[],
     )
     .await;
     assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
@@ -335,13 +463,8 @@ async fn mail_server_and_system_mail_steps_are_gone() {
 #[tokio::test]
 async fn complete_creates_the_administrator_with_their_appearance() {
     let s = setup().await;
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/complete",
-        Some(&s.token),
-        complete_body(),
-    )
-    .await;
+    let (secret, _) = confirmed(&s).await;
+    let reply = complete(&s).await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
     let user = reply.json()["user"].clone();
     assert_eq!(user["username"], "max");
@@ -393,6 +516,11 @@ async fn complete_creates_the_administrator_with_their_appearance() {
     // Afterwards all setup endpoints are locked, also with the old token.
     for (path, body) in [
         ("/api/v1/setup/token", json!({ "token": s.token })),
+        ("/api/v1/setup/totp", json!({ "email": EMAIL })),
+        (
+            "/api/v1/setup/totp/verify",
+            json!({ "code": code(&secret) }),
+        ),
         ("/api/v1/setup/complete", complete_body()),
     ] {
         let reply = post(&s.state, path, Some(&s.token), body.clone()).await;
@@ -407,21 +535,39 @@ async fn complete_creates_the_administrator_with_their_appearance() {
 #[tokio::test]
 async fn the_setup_device_is_known_without_a_notice() {
     let s = setup().await;
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/complete",
-        Some(&s.token),
-        complete_body(),
-    )
-    .await;
+    let (secret, codes) = confirmed(&s).await;
+    let reply = complete(&s).await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
     let id = reply.json()["user"]["id"].as_str().unwrap().to_owned();
-    let login = json!({ "login": "max", "password": "Summer2026!" });
-    let kinds = || async {
+    // Password, then the second step at `path` with `code`.
+    let sign_in = |ip: [u8; 4], path: &'static str, code: String| {
+        let state = s.state.clone();
+        async move {
+            let login = json!({ "login": "max", "password": "Summer2026!" });
+            let pending = post_from(&state, ip, "/api/v1/auth/login", None, login, &[]).await;
+            assert_eq!(pending.status, StatusCode::OK, "{}", pending.body);
+            assert_eq!(pending.json()["status"], "totp_required");
+            let mfa = pending.cookie(challenge::COOKIE);
+            post_from(
+                &state,
+                ip,
+                path,
+                None,
+                json!({ "code": code }),
+                &[(challenge::COOKIE, &mfa)],
+            )
+            .await
+        }
+    };
+    let notices = || async {
         let id = id.clone();
         db::call(&s.state.db, move |conn| notifications::list(conn, &id))
             .await
             .unwrap()
+    };
+    let kinds = || async {
+        notices()
+            .await
             .into_iter()
             .map(|n| n.kind)
             .collect::<Vec<_>>()
@@ -430,21 +576,340 @@ async fn the_setup_device_is_known_without_a_notice() {
     // The same device as during setup: known.
     // "Welcome" on account creation.
     assert_eq!(kinds().await, ["news.welcome"]);
-    let again = post(&s.state, "/api/v1/auth/login", None, login.clone()).await;
+    let next = code_at(&secret, totp::now() + 30);
+    let again = sign_in(CLIENT, "/api/v1/auth/totp", next).await;
     assert_eq!(again.status, StatusCode::OK, "{}", again.body);
     assert_eq!(kinds().await, ["news.welcome"]);
-    // From another network: "New sign-in".
-    let elsewhere = post_from(
+    // From another network, with a recovery code: its notice names the new
+    // device.
+    let elsewhere = sign_in([198, 51, 100, 1], "/api/v1/auth/recovery", codes[0].clone()).await;
+    assert_eq!(elsewhere.status, StatusCode::OK, "{}", elsewhere.body);
+    assert_eq!(kinds().await, ["security.recovery_used", "news.welcome"]);
+    assert_eq!(notices().await[0].params["new_device"], true);
+}
+
+#[tokio::test]
+async fn enrollment_answers_secret_and_uri() {
+    let s = setup().await;
+    let reply = enroll_reply(&s, " max@example.com ").await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(reply.headers[header::CACHE_CONTROL], "no-store");
+    let body = reply.json();
+    let secret = body["secret"].as_str().unwrap().to_owned();
+    assert_eq!(secret.len(), 32, "{secret}");
+    assert!(
+        secret
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || (b'2'..=b'7').contains(&b)),
+        "{secret}"
+    );
+    let uri = body["uri"].as_str().unwrap();
+    assert!(
+        uri.starts_with("otpauth://totp/Roedy%20Mail:max%40example.com?"),
+        "{uri}"
+    );
+    assert!(uri.contains(&format!("secret={secret}")), "{uri}");
+    assert!(uri.contains("issuer=Roedy%20Mail"), "{uri}");
+    assert_eq!(body.as_object().unwrap().len(), 2, "{body}");
+
+    // Stored sealed only: neither the secret nor a code in plain text.
+    let stored = stored_enrollment(&s.state).await.unwrap();
+    assert!(!stored.contains(&secret), "{stored}");
+    let pending = db::call(&s.state.db, |conn| setup_totp::get(conn))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.email, "max@example.com");
+    assert_eq!(pending.step, None);
+    let opened = pending.open(&s.state.secrets).unwrap();
+    assert_eq!(opened.codes.len(), 10);
+    for code in &opened.codes {
+        assert!(!stored.contains(code.as_str()), "{code} in {stored}");
+    }
+
+    // A second call: a new secret, the first one no longer applies.
+    let first = totp_rs::Secret::try_from_base32(&secret).unwrap().to_vec();
+    let second = enroll(&s, "max@example.com").await;
+    assert_ne!(first, second);
+    let reply = verify(&s, &code(&first)).await;
+    assert_eq!(reply.error(), "invalid_code");
+
+    // The address is checked like in `setup/complete`; nothing else is taken.
+    let reply = enroll_reply(&s, "max@example").await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(
+        reply.json()["fields"],
+        json!({ "email": { "code": "invalid" } })
+    );
+    for body in [json!({}), json!({ "email": EMAIL, "name": "Max" })] {
+        let reply = post(&s.state, "/api/v1/setup/totp", Some(&s.token), body.clone()).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{body}");
+    }
+}
+
+#[tokio::test]
+async fn the_mfa_steps_need_the_token() {
+    let s = setup().await;
+    let steps = [
+        ("/api/v1/setup/totp", json!({ "email": EMAIL })),
+        ("/api/v1/setup/totp/verify", json!({ "code": "123456" })),
+    ];
+    for (path, body) in &steps {
+        let reply = post(&s.state, path, None, body.clone()).await;
+        assert_eq!(reply.status, StatusCode::BAD_REQUEST, "{path}");
+        assert_eq!(reply.error(), "bad_request", "{path}");
+    }
+    // A wrong token counts towards the same lockout as in `setup/token`.
+    for ((path, body), remaining) in steps.iter().zip([4, 3]) {
+        let reply = post(&s.state, path, Some("ABCD-EFGH-JKLM"), body.clone()).await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY, "{path}");
+        assert_eq!(
+            reply.json(),
+            json!({ "error": "invalid_token", "remaining": remaining }),
+            "{path}"
+        );
+    }
+    assert_eq!(stored_enrollment(&s.state).await, None);
+}
+
+#[tokio::test]
+async fn verification_confirms_each_time_step_once_and_answers_the_codes() {
+    let s = setup().await;
+    let reply = verify(&s, "123456").await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(reply.json(), json!({ "error": "totp_required" }));
+
+    let secret = enroll(&s, EMAIL).await;
+    // Not six digits: rejected without counting.
+    for input in ["", "12345", "12a456", "1234567"] {
+        let reply = verify(&s, input).await;
+        assert_eq!(reply.json(), json!({ "error": "invalid_code" }), "{input}");
+    }
+    let now = totp::now();
+    let first = code_at(&secret, now);
+    let reply = verify(&s, &format!("{} {}", &first[..3], &first[3..])).await;
+    let codes = recovery_codes_of(&reply);
+    assert_eq!(reply.json().as_object().unwrap().len(), 1);
+    assert_eq!(codes.len(), 10);
+    let mut unique = codes.clone();
+    unique.sort();
+    unique.dedup();
+    assert_eq!(unique.len(), 10);
+    for code in &codes {
+        let (a, b) = code.split_once('-').unwrap_or_else(|| panic!("{code}"));
+        assert!(
+            [a, b].iter().all(|part| part.len() == 4
+                && part
+                    .bytes()
+                    .all(|c| b"ABCDEFGHJKLMNPQRSTUVWXYZ23456789".contains(&c))),
+            "{code}"
+        );
+    }
+
+    // The same time step again: used.
+    let reply = verify(&s, &first).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(reply.json(), json!({ "error": "code_used" }));
+    // A newer one confirms again with the same codes.
+    let reply = verify(&s, &code_at(&secret, now + 30)).await;
+    assert_eq!(recovery_codes_of(&reply), codes);
+    let pending = db::call(&s.state.db, |conn| setup_totp::get(conn))
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(pending.step, Some(now / 30 + 1));
+    let stored = stored_enrollment(&s.state).await.unwrap();
+    for code in &codes {
+        assert!(!stored.contains(code.as_str()), "{code} in {stored}");
+    }
+
+    // Nothing of the administrator is stored yet.
+    assert_eq!(count(&s.state, "users").await, 0);
+    assert_eq!(count(&s.state, "totp_devices").await, 0);
+    assert_eq!(count(&s.state, "recovery_codes").await, 0);
+}
+
+#[tokio::test]
+async fn five_wrong_codes_lock_the_verification() {
+    let s = setup().await;
+    let secret = enroll(&s, EMAIL).await;
+    let wrong = wrong_code(&secret);
+    for _ in 0..5 {
+        let reply = verify(&s, &wrong).await;
+        assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+        assert_eq!(reply.json(), json!({ "error": "invalid_code" }));
+    }
+    // Locked for 15 minutes, even for the right code and a new secret.
+    let reply = verify(&s, &code(&secret)).await;
+    assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
+    assert_eq!(reply.headers[header::RETRY_AFTER], "900");
+    assert_eq!(
+        reply.json(),
+        json!({ "error": "rate_limited", "retry_after": 900 })
+    );
+    let fresh = enroll(&s, EMAIL).await;
+    let reply = verify(&s, &code(&fresh)).await;
+    assert_eq!(reply.status, StatusCode::TOO_MANY_REQUESTS);
+    // The setup token's lockout is untouched.
+    let reply = post(
         &s.state,
-        [198, 51, 100, 1],
-        "/api/v1/auth/login",
+        "/api/v1/setup/token",
         None,
-        login,
-        None,
+        json!({ "token": "x" }),
     )
     .await;
-    assert_eq!(elsewhere.status, StatusCode::OK, "{}", elsewhere.body);
-    assert_eq!(kinds().await, ["security.login", "news.welcome"]);
+    assert_eq!(reply.json()["remaining"], 4);
+}
+
+#[tokio::test]
+async fn completion_needs_a_confirmed_enrollment_for_the_address() {
+    let s = setup().await;
+    let expect_required = |reply: Reply| {
+        assert_eq!(
+            reply.status,
+            StatusCode::UNPROCESSABLE_ENTITY,
+            "{}",
+            reply.body
+        );
+        assert_eq!(reply.json(), json!({ "error": "totp_required" }));
+        assert!(!reply.headers.contains_key(header::SET_COOKIE));
+    };
+    // Without an enrollment.
+    expect_required(complete(&s).await);
+    // Not confirmed.
+    let secret = enroll(&s, EMAIL).await;
+    expect_required(complete(&s).await);
+    // Confirmed for another address (the spelling counts).
+    let other = enroll(&s, "max@example.com").await;
+    recovery_codes_of(&verify(&s, &code(&other)).await);
+    expect_required(complete(&s).await);
+    // The old secret no longer applies.
+    let reply = verify(&s, &code(&secret)).await;
+    assert_eq!(reply.error(), "invalid_code");
+
+    // Nothing stored, the token and the enrollment stay.
+    for table in ["users", "totp_devices", "recovery_codes", "sessions"] {
+        assert_eq!(count(&s.state, table).await, 0, "{table}");
+    }
+    let token = db::call(&s.state.db, |conn| setup_token::current(conn))
+        .await
+        .unwrap();
+    assert_eq!(token.as_deref(), Some(s.token.as_str()));
+    assert!(stored_enrollment(&s.state).await.is_some());
+}
+
+#[tokio::test]
+async fn completion_stores_the_app_and_the_recovery_codes() {
+    let s = setup().await;
+    let secret = enroll(&s, EMAIL).await;
+    let now = totp::now();
+    let first = code_at(&secret, now);
+    let codes = recovery_codes_of(&verify(&s, &first).await);
+    let reply = complete(&s).await;
+    assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
+    assert_eq!(reply.json().as_object().unwrap().len(), 1, "{}", reply.body);
+    let id = reply.json()["user"]["id"].as_str().unwrap().to_owned();
+
+    // One confirmed app, named in the administrator's language, with the
+    // step of the confirmation; ten unused codes; the enrollment is gone.
+    let user = id.clone();
+    let (devices, summary, pending) = db::call(&s.state.db, move |conn| {
+        let mut stmt = conn.prepare(
+            "SELECT name, confirmed_at IS NOT NULL, last_step, secret_enc FROM totp_devices \
+             WHERE user_id = ?1",
+        )?;
+        let devices = stmt
+            .query_map([&user], |r| {
+                Ok((
+                    r.get::<_, String>(0)?,
+                    r.get::<_, bool>(1)?,
+                    r.get::<_, i64>(2)?,
+                    r.get::<_, Vec<u8>>(3)?,
+                ))
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok((
+            devices,
+            recovery_codes::summary(conn, &user)?,
+            setup_totp::get(conn)?,
+        ))
+    })
+    .await
+    .unwrap();
+    assert_eq!(devices.len(), 1);
+    let (name, confirmed, last_step, sealed) = &devices[0];
+    assert_eq!(name, &totp::default_name(&[], Language::German));
+    assert!(confirmed);
+    assert_eq!(*last_step, i64::try_from(now / 30).unwrap());
+    assert!(!sealed.windows(secret.len()).any(|w| w == secret.as_slice()));
+    let summary = summary.unwrap();
+    assert_eq!((summary.total, summary.unused), (10, 10));
+    assert_eq!(pending, None);
+    assert_eq!(stored_enrollment(&s.state).await, None);
+    assert_eq!(
+        audit(&s.state).await,
+        [
+            (
+                "system".into(),
+                "setup.complete".into(),
+                "Max Mustermann".into()
+            ),
+            ("login".into(), "auth.login".into(), "Max Mustermann".into()),
+        ]
+    );
+
+    // Signing in again asks for the code; the code from the confirmation is
+    // used up, the next one signs in.
+    let login = json!({ "login": "max", "password": "Summer2026!" });
+    let pending = post(&s.state, "/api/v1/auth/login", None, login.clone()).await;
+    assert_eq!(pending.status, StatusCode::OK, "{}", pending.body);
+    assert_eq!(pending.json()["status"], "totp_required");
+    let mfa = pending.cookie(challenge::COOKIE);
+    let second_step = |path: &'static str, code: String| {
+        let (state, mfa) = (s.state.clone(), mfa.clone());
+        async move {
+            post_from(
+                &state,
+                CLIENT,
+                path,
+                None,
+                json!({ "code": code }),
+                &[(challenge::COOKIE, &mfa)],
+            )
+            .await
+        }
+    };
+    let reply = second_step("/api/v1/auth/totp", first).await;
+    assert_eq!(reply.status, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(reply.error(), "code_used");
+    let reply = second_step("/api/v1/auth/totp", code_at(&secret, now + 30)).await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+    assert_eq!(reply.json()["user"]["id"], id);
+
+    // The recovery codes from the verification are the administrator's.
+    let pending = post(&s.state, "/api/v1/auth/login", None, login).await;
+    let mfa = pending.cookie(challenge::COOKIE);
+    let reply = post_from(
+        &s.state,
+        CLIENT,
+        "/api/v1/auth/recovery",
+        None,
+        json!({ "code": codes[9] }),
+        &[(challenge::COOKIE, &mfa)],
+    )
+    .await;
+    assert_eq!(reply.status, StatusCode::OK, "{}", reply.body);
+}
+
+#[tokio::test]
+async fn a_new_enrollment_during_completion_needs_a_new_confirmation() {
+    let s = setup().await;
+    confirmed(&s).await;
+    // A second tab starts over: its secret is not confirmed yet.
+    enroll(&s, EMAIL).await;
+    let reply = complete(&s).await;
+    assert_eq!(reply.json(), json!({ "error": "totp_required" }));
+    assert_eq!(count(&s.state, "users").await, 0);
 }
 
 #[tokio::test]
@@ -509,13 +974,8 @@ async fn a_public_url_from_an_older_setup_stays() {
     })
     .await
     .unwrap();
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/complete",
-        Some(&s.token),
-        complete_body(),
-    )
-    .await;
+    confirmed(&s).await;
+    let reply = complete(&s).await;
     assert_eq!(reply.status, StatusCode::CREATED, "{}", reply.body);
     // The next start still finds it (`resolve_public_url`).
     let stored = db::call(&s.state.db, |conn| {
@@ -532,6 +992,7 @@ async fn a_public_url_from_an_older_setup_stays() {
 #[tokio::test]
 async fn only_one_of_two_concurrent_completions_wins() {
     let s = setup().await;
+    confirmed(&s).await;
     let body = complete_body();
     let path = "/api/v1/setup/complete";
     let (a, b) = tokio::join!(
@@ -552,13 +1013,8 @@ async fn only_one_of_two_concurrent_completions_wins() {
 #[tokio::test]
 async fn setup_token_command_reports_completion() {
     let s = setup().await;
-    let reply = post(
-        &s.state,
-        "/api/v1/setup/complete",
-        Some(&s.token),
-        complete_body(),
-    )
-    .await;
+    confirmed(&s).await;
+    let reply = complete(&s).await;
     assert_eq!(reply.status, StatusCode::CREATED);
     let output = Command::new(env!("CARGO_BIN_EXE_roedy-mail"))
         .arg("setup-token")

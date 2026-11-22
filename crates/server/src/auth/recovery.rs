@@ -68,10 +68,9 @@ fn generate_one() -> anyhow::Result<String> {
     Ok(code)
 }
 
-/// Creates a new set and replaces the previous one (in the caller's
-/// transaction). The codes exist only in this return value (shown
-/// "once").
-pub fn replace(conn: &Connection, user_id: &str) -> anyhow::Result<Vec<String>> {
+/// A new set of [`COUNT`] distinct codes, not stored yet (the initial setup
+/// keeps it sealed until the administrator exists, `setup_totp`).
+pub fn generate() -> anyhow::Result<Vec<String>> {
     let mut codes = Vec::with_capacity(COUNT);
     while codes.len() < COUNT {
         let code = generate_one()?;
@@ -79,11 +78,26 @@ pub fn replace(conn: &Connection, user_id: &str) -> anyhow::Result<Vec<String>> 
             codes.push(code);
         }
     }
+    Ok(codes)
+}
+
+/// Stores `codes` from [`generate`] as the user's set and replaces the
+/// previous one (in the caller's transaction).
+pub fn store(conn: &Connection, user_id: &str, codes: &[String]) -> anyhow::Result<()> {
     let hashes: Vec<[u8; 32]> = codes
         .iter()
         .map(|code| hash(user_id, &code.replace('-', "")))
         .collect();
     recovery_codes::replace(conn, user_id, &hashes)?;
+    Ok(())
+}
+
+/// Creates a new set and replaces the previous one (in the caller's
+/// transaction). The codes exist only in this return value (shown
+/// "once").
+pub fn replace(conn: &Connection, user_id: &str) -> anyhow::Result<Vec<String>> {
+    let codes = generate()?;
+    store(conn, user_id, &codes)?;
     Ok(codes)
 }
 
@@ -163,6 +177,27 @@ mod tests {
         assert_eq!(redeem(&conn, &user, &codes[1]).unwrap(), Redeem::Invalid);
         assert_eq!(
             redeem(&conn, &user, &fresh[9]).unwrap(),
+            Redeem::Accepted { remaining: 9 }
+        );
+    }
+
+    #[test]
+    fn stores_a_generated_set_later() {
+        let conn = conn();
+        let user = add(&conn, "max", "max@example.com", Role::User);
+        let codes = generate().unwrap();
+        assert_eq!(codes.len(), COUNT);
+        // Nothing is stored before `store`.
+        assert_eq!(recovery_codes::summary(&conn, &user).unwrap(), None);
+        store(&conn, &user, &codes).unwrap();
+        assert_eq!(
+            recovery_codes::summary(&conn, &user)
+                .unwrap()
+                .map(|s| s.unused),
+            Some(10)
+        );
+        assert_eq!(
+            redeem(&conn, &user, &codes[3]).unwrap(),
             Redeem::Accepted { remaining: 9 }
         );
     }

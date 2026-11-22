@@ -26,5 +26,6 @@ pub mod rate_limit;
 pub mod reset_admin;
 pub mod settings;
 pub mod setup_token;
+pub mod setup_totp;
 pub mod updates;
 pub mod web;
