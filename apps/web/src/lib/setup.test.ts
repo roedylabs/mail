@@ -3,6 +3,7 @@ import { mockApi } from '#lib/state/fetch-mock.ts';
 import { ACCENTS } from '@roedy/tokens';
 import { PRESETS } from '#lib/color-editor.svelte.ts';
 import {
+  CODE_LOCK_S,
   DONE_MS,
   MASKED_PW,
   RECENT_MAX,
@@ -21,6 +22,8 @@ import {
   recentOf,
   rememberColor,
   resumeStep,
+  stepAfter,
+  stepBefore,
   storeChoice,
   trackCount,
   withRecent,
@@ -31,6 +34,9 @@ import {
 } from './setup.svelte.ts';
 
 const TOKEN = 'ABCD-EFGH-JKLM';
+const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+const URI = `otpauth://totp/Roedy%20Mail:anna%40example.com?secret=${SECRET}&issuer=Roedy%20Mail`;
+const CODES = Array.from({ length: 10 }, (_, i) => `ABCD-${String(1000 + i)}`);
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -42,7 +48,7 @@ afterEach(() => {
 
 function hooks() {
   return {
-    fail: vi.fn<(field?: Field) => void>(),
+    fail: vi.fn<(field?: Field | 'otp') => void>(),
     focus: vi.fn<(field: Field) => void>(),
     entered: vi.fn<(step: Step, focus: Focus | null) => void>(),
     error: vi.fn<(text: string) => void>(),
@@ -51,8 +57,11 @@ function hooks() {
   };
 }
 
-/** Flow up to the start of step `step` (without API, fields as after the steps). */
-function at(step: 3 | 4 | 5, h = hooks()) {
+/**
+ * Flow up to the start of step `step` (without API, fields as after the steps; from step 5 with the key for the
+ * email, on the review with the recovery codes).
+ */
+function at(step: 3 | 4 | 5 | 7, h = hooks()) {
   const flow = new SetupFlow(h);
   flow.token = TOKEN;
   flow.tokOk = true;
@@ -60,6 +69,8 @@ function at(step: 3 | 4 | 5, h = hooks()) {
   flow.email = 'anna@example.com';
   flow.pw = 'Safe-enough1';
   flow.pw2 = 'Safe-enough1';
+  if (step >= 5) flow.key = { email: 'anna@example.com', secret: SECRET, uri: URI };
+  if (step === 7) flow.codes = [...CODES];
   flow.step = step;
   return { flow, h };
 }
@@ -215,8 +226,8 @@ describe('Session of the tab', () => {
     expect(customHexOf()).toBeNull();
   });
 
-  it('returns to step 2 after a reload on steps 3–5 with name and email, never token or password', async () => {
-    mockApi({ 'POST setup/token': [{ body: {} }] });
+  it('returns to step 2 after a reload on steps 3–7 with name and email, never token, password or key', async () => {
+    mockApi({ 'POST setup/token': [{ body: {} }], 'POST setup/totp': [{ body: { secret: SECRET, uri: URI } }] });
     const flow = new SetupFlow(hooks());
     flow.editToken(TOKEN);
     await flow.submitToken();
@@ -228,10 +239,12 @@ describe('Session of the tab', () => {
     flow.submitPw();
     expect(flow.step).toBe(5);
     expect(readSession('step')).toBe('5');
+    await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
     const stored = Object.keys(sessionStorage).filter((k) => k.startsWith('roedy-setup-'));
     expect(stored.sort()).toEqual(['roedy-setup-email', 'roedy-setup-name', 'roedy-setup-step']);
     expect(Object.values(sessionStorage)).not.toContain('Safe-enough1');
     expect(Object.values(sessionStorage)).not.toContain(TOKEN);
+    expect(JSON.stringify(sessionStorage)).not.toContain(SECRET);
 
     // Reload: a new flow.
     const again = new SetupFlow(hooks());
@@ -240,6 +253,7 @@ describe('Session of the tab', () => {
     expect(again.email).toBe('anna@example.com');
     expect(again.token).toBe('');
     expect(again.pw).toBe('');
+    expect(again.key).toBeNull();
   });
 
   it('stays on the first step after a reload there', () => {
@@ -247,6 +261,8 @@ describe('Session of the tab', () => {
     writeSession('step', '1');
     expect(resumeStep()).toBe(1);
     writeSession('step', '4');
+    expect(resumeStep()).toBe(2);
+    writeSession('step', '7');
     expect(resumeStep()).toBe(2);
   });
 
@@ -258,7 +274,7 @@ describe('Session of the tab', () => {
     expect(sessionStorage.length).toBe(0);
     expect(choicesOf()).toEqual({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
     expect(customHexOf()).toBe('#4a7bd0');
-    const { flow } = at(5);
+    const { flow } = at(7);
     const { calls } = mockApi({ 'POST setup/complete': [{ status: 201, body: { user: {} } }] });
     await flow.finish();
     expect(calls[0]?.body).toMatchObject({ settings: { lang: 'de', mode: 'dark', accent: '#4a7bd0' } });
@@ -575,10 +591,257 @@ describe('Steps 3 and 4', () => {
   });
 });
 
-describe('Step 5: completion', () => {
+describe('Step 5: authenticator app', () => {
+  /** From step 4 into step 5 (Continue sends nothing itself; entering the step asks for the key). */
+  function intoMfa(h = hooks()) {
+    const ctx = at(4, h);
+    ctx.flow.submitPw();
+    return ctx;
+  }
+
+  it('skips the steps that are not there yet in both directions', () => {
+    expect(stepAfter(4)).toBe(5);
+    expect(stepAfter(5)).toBe(7);
+    expect(stepBefore(7)).toBe(5);
+    expect(stepBefore(5)).toBe(4);
+    expect(stepBefore(1)).toBe(1);
+  });
+
+  it('asks for the key once per email on entering, keeps it in memory only and shows it again', async () => {
+    const { calls } = mockApi({ 'POST setup/totp': [{ body: { secret: SECRET, uri: URI } }] });
+    const { flow, h } = intoMfa();
+    expect(flow.step).toBe(5);
+    // Placeholders meanwhile: the code field is locked, the heading has the focus.
+    expect([flow.keyStatus, flow.otpOff]).toEqual(['loading', true]);
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'heading');
+    await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'otp');
+    expect(calls[0]?.body).toEqual({ email: 'anna@example.com' });
+    expect(calls[0]?.headers['X-Setup-Token']).toBe(TOKEN);
+    expect(flow.secretLabel).toBe('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP');
+    expect(flow.qr?.size).toBeGreaterThan(20);
+    expect(flow.otpOff).toBe(false);
+    expect(JSON.stringify(sessionStorage)).not.toContain(SECRET);
+
+    // Back and Continue again: the same key, no new request; the typed code is cleared.
+    flow.otp = '12';
+    flow.back();
+    expect(flow.step).toBe(4);
+    flow.submitPw();
+    expect([flow.step, flow.keyStatus, flow.otp]).toEqual([5, 'ready', '']);
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'otp');
+    expect(calls).toHaveLength(1);
+  });
+
+  it('asks for a new key when the email changed on step 3, dropping the code and the recovery codes', async () => {
+    const other = `otpauth://totp/Roedy%20Mail:ben%40example.com?secret=${'A'.repeat(32)}`;
+    const { calls } = mockApi({ 'POST setup/totp': [{ body: { secret: 'A'.repeat(32), uri: other } }] });
+    const { flow } = at(7);
+    flow.revisit(3);
+    flow.edit('email', 'ben@example.com');
+    flow.submitAdmin();
+    flow.submitPw();
+    expect([flow.step, flow.keyStatus, flow.codes]).toEqual([5, 'loading', []]);
+    await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
+    expect(calls.map((c) => c.body)).toEqual([{ email: 'ben@example.com' }]);
+    expect(flow.keyNow?.secret).toBe('A'.repeat(32));
+  });
+
+  it('keeps one request per email and only the answer of the last one', async () => {
+    let first: (a: { body: unknown }) => void = () => {};
+    const { calls } = mockApi({
+      'POST setup/totp': [
+        () => new Promise((resolve) => (first = resolve)),
+        { body: { secret: 'B'.repeat(32), uri: URI } },
+      ],
+    });
+    const { flow } = intoMfa();
+    // Back while the key is being created (Back stays usable), forward again: no second request.
+    flow.back();
+    flow.submitPw();
+    expect(calls).toHaveLength(1);
+    // Another email meanwhile: a new request; the older answer no longer counts.
+    flow.revisit(3);
+    flow.edit('email', 'ben@example.com');
+    flow.submitAdmin();
+    flow.submitPw();
+    await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
+    first({ body: { secret: SECRET, uri: URI } });
+    await Promise.resolve();
+    expect(flow.keyNow?.secret).toBe('B'.repeat(32));
+    expect(calls).toHaveLength(2);
+  });
+
+  it('shows the failed key with "Try again", which asks again', async () => {
+    const { calls } = mockApi({
+      'POST setup/totp': [{ status: 500, body: {} }, { body: { secret: SECRET, uri: URI } }],
+    });
+    const { flow, h } = intoMfa();
+    await vi.waitFor(() => expect(flow.keyStatus).toBe('failed'));
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'retry');
+    expect(flow.otpOff).toBe(true);
+    expect(h.error).not.toHaveBeenCalled();
+    flow.retryKey();
+    expect(flow.keyStatus).toBe('loading');
+    await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'otp');
+    expect(calls).toHaveLength(2);
+  });
+
+  it('asks again by itself once the server answers after the key got no answer', async () => {
+    const offline = vi.fn();
+    const { calls } = mockApi({ 'POST setup/totp': [] });
+    const { flow } = intoMfa({ ...hooks(), offline } as ReturnType<typeof hooks>);
+    await vi.waitFor(() => expect(offline).toHaveBeenCalledOnce());
+    // Placeholders stay until the next attempt.
+    expect(flow.keyStatus).toBe('loading');
+    mockApi({ 'POST setup/totp': [{ body: { secret: SECRET, uri: URI } }] });
+    flow.online();
+    await vi.waitFor(() => expect(flow.keyStatus).toBe('ready'));
+    expect(calls).toHaveLength(1);
+    // Only on step 5, and only for a key that got no answer.
+    flow.online();
+    expect(flow.keyStatus).toBe('ready');
+  });
+
+  it('returns to the token step when the key request has a wrong token', async () => {
+    mockApi({ 'POST setup/totp': [{ status: 422, body: { error: 'invalid_token', remaining: 3 } }] });
+    const { flow, h } = intoMfa();
+    await vi.waitFor(() => expect(flow.step).toBe(2));
+    expect([flow.tokErr, flow.remaining, flow.tokOk]).toEqual(['invalid', 3, false]);
+    expect(h.fail).toHaveBeenLastCalledWith('token');
+  });
+
+  it('keeps digits only and confirms by itself with the sixth one', async () => {
+    const { calls } = mockApi({ 'POST setup/totp/verify': [{ body: { recovery_codes: CODES } }] });
+    const { flow, h } = at(5);
+    flow.editOtp('12a3');
+    expect(flow.otp).toBe('123');
+    expect(calls).toHaveLength(0);
+    // Pasted with a space.
+    flow.editOtp('123 456');
+    expect(flow.otp).toBe('123456');
+    expect(flow.loading).toBe(true);
+    // Locked while it is being checked: no edit, no second check, no Back.
+    flow.editOtp('1');
+    flow.back();
+    await flow.submitOtp();
+    expect([flow.otp, flow.step]).toEqual(['123456', 5]);
+    await vi.waitFor(() => expect(flow.step).toBe(7));
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.body).toEqual({ code: '123456' });
+    expect(calls[0]?.headers['X-Setup-Token']).toBe(TOKEN);
+    expect(flow.codes).toEqual(CODES);
+    expect(h.entered).toHaveBeenLastCalledWith(7, 'heading');
+    // Back on the review returns to step 5: the same key, an empty code field.
+    flow.back();
+    expect([flow.step, flow.keyStatus, flow.otp, flow.codes]).toEqual([5, 'ready', '', CODES]);
+    expect(JSON.stringify(sessionStorage)).not.toContain(CODES[0]);
+  });
+
+  it('asks for all six digits on Confirm, with the shake; any edit clears it', async () => {
+    const { calls } = mockApi({});
+    const { flow, h } = at(5);
+    await flow.submitOtp();
+    expect(flow.otpErr).toBe('short');
+    expect(h.fail).toHaveBeenLastCalledWith('otp');
+    flow.editOtp('12');
+    expect(flow.otpErr).toBeNull();
+    await flow.submitOtp();
+    expect(flow.otpErr).toBe('short');
+    expect(calls).toHaveLength(0);
+  });
+
+  it('clears a wrong or used code and shows "Invalid code."; the next digit clears the message', async () => {
+    mockApi({
+      'POST setup/totp/verify': [
+        { status: 422, body: { error: 'invalid_code' } },
+        { status: 422, body: { error: 'code_used' } },
+      ],
+    });
+    const { flow, h } = at(5);
+    flow.editOtp('111111');
+    await vi.waitFor(() => expect(flow.otpErr).toBe('invalid'));
+    expect([flow.otp, flow.loading, flow.step]).toEqual(['', false, 5]);
+    expect(h.fail).toHaveBeenLastCalledWith('otp');
+    flow.editOtp('2');
+    expect(flow.otpErr).toBeNull();
+    flow.editOtp('222222');
+    await vi.waitFor(() => expect(flow.otpErr).toBe('invalid'));
+    expect(flow.otp).toBe('');
+  });
+
+  it('locks the field after 429 with a countdown from retry_after and releases it afterwards', async () => {
+    vi.useFakeTimers();
+    const { calls } = mockApi({
+      'POST setup/totp/verify': [{ status: 429, body: { error: 'rate_limited', retry_after: 90 } }],
+    });
+    const { flow, h } = at(5);
+    flow.editOtp('333333');
+    await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
+    expect([flow.otp, flow.otpErr, flow.otpOff, flow.codeLeft, flow.step]).toEqual(['', null, true, 90, 5]);
+    // The shake, no field to focus (it is disabled).
+    expect(h.fail).toHaveBeenLastCalledWith();
+    // Nothing goes in while locked.
+    flow.editOtp('4');
+    await flow.submitOtp();
+    expect([flow.otp, flow.otpErr]).toEqual(['', null]);
+    expect(calls).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(flow.codeLeft).toBe(60);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect([flow.codeLocked, flow.otpOff]).toEqual([false, false]);
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'otp');
+    flow.dispose();
+  });
+
+  it('runs the lock bar against the 15 minutes of the server', () => {
+    expect(CODE_LOCK_S).toBe(900);
+  });
+
+  it('keeps the code on a server error, which does not count; Confirm checks again', async () => {
+    const { calls } = mockApi({
+      'POST setup/totp/verify': [{ status: 500, body: {} }, { body: { recovery_codes: CODES } }],
+    });
+    const { flow, h } = at(5);
+    flow.editOtp('555555');
+    await vi.waitFor(() => expect(flow.otpErr).toBe('server'));
+    expect([flow.otp, flow.loading, flow.codeLocked]).toEqual(['555555', false, false]);
+    expect(h.fail).toHaveBeenLastCalledWith('otp');
+    expect(h.error).not.toHaveBeenCalled();
+    await flow.submitOtp();
+    expect(flow.step).toBe(7);
+    expect(calls).toHaveLength(2);
+  });
+
+  it('asks for a new key when the server no longer has one', async () => {
+    const { calls } = mockApi({
+      'POST setup/totp/verify': [{ status: 422, body: { error: 'totp_required' } }],
+      'POST setup/totp': [{ body: { secret: 'C'.repeat(32), uri: URI } }],
+    });
+    const { flow } = at(5);
+    flow.codes = [...CODES];
+    flow.editOtp('666666');
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect([flow.otp, flow.codes]).toEqual(['', []]);
+    await vi.waitFor(() => expect(flow.keyNow?.secret).toBe('C'.repeat(32)));
+  });
+
+  it('returns to the token step when the check has a wrong token', async () => {
+    mockApi({ 'POST setup/totp/verify': [{ status: 422, body: { error: 'invalid_token', remaining: 4 } }] });
+    const { flow } = at(5);
+    flow.editOtp('777777');
+    await vi.waitFor(() => expect(flow.step).toBe(2));
+    expect(flow.tokErr).toBe('invalid');
+    // The key stays for this email: back on step 5 it shows again without a new request.
+    expect(flow.keyStatus).toBe('ready');
+  });
+});
+
+describe('Step 7: completion', () => {
   it('summarises the steps, never the password', () => {
     storeChoice({ lang: 'en', mode: 'dark', accent: 'apricot' });
-    const { flow } = at(5);
+    const { flow } = at(7);
     const rows = flow.review.map((r) => [r.step, r.icon, r.ini, r.label, r.value, r.sub, r.masked]);
     expect(rows).toEqual([
       [1, 'ti-palette', '', 'Language and appearance', 'English · Dark · Apricot', '', false],
@@ -598,7 +861,7 @@ describe('Step 5: completion', () => {
 
   it('reads the choices fresh after "Change" on step 1', () => {
     storeChoice({ lang: 'en', mode: 'dark', accent: 'apricot' });
-    const { flow } = at(5);
+    const { flow } = at(7);
     expect(flow.review[0]?.value).toBe('English · Dark · Apricot');
     flow.revisit(1);
     storeChoice({ mode: 'light', accent: 'sky' });
@@ -607,7 +870,7 @@ describe('Step 5: completion', () => {
 
   it('walks forward from "Change" keeping the accepted token and the passwords', async () => {
     const { calls } = mockApi({});
-    const { flow, h } = at(5);
+    const { flow, h } = at(7);
     flow.revisit(1);
     expect(h.entered).toHaveBeenLastCalledWith(1, 'lang');
     flow.start();
@@ -618,7 +881,9 @@ describe('Step 5: completion', () => {
     expect(flow.step).toBe(4);
     expect([flow.pw, flow.pw2]).toEqual(['Safe-enough1', 'Safe-enough1']);
     flow.submitPw();
+    // The key for the email is still there: no new request, and no skipping the code.
     expect(flow.step).toBe(5);
+    expect(flow.keyStatus).toBe('ready');
     expect(calls).toHaveLength(0);
     flow.revisit(3);
     expect(h.entered).toHaveBeenLastCalledWith(3, 'name');
@@ -630,7 +895,7 @@ describe('Step 5: completion', () => {
     vi.useFakeTimers();
     storeChoice({ lang: 'de', mode: 'dark', accent: '#4a7bd0' });
     const signedIn = vi.fn(() => Promise.resolve());
-    const { flow, h } = at(5, { ...hooks(), signedIn });
+    const { flow, h } = at(7, { ...hooks(), signedIn });
     // A tab from a copied table cell: checked and sent as a space.
     flow.name = ' Anna\tBaker ';
     const { calls } = mockApi({ 'POST setup/complete': [{ status: 201, body: { user: {} } }] });
@@ -643,9 +908,10 @@ describe('Step 5: completion', () => {
       settings: { lang: 'de', mode: 'dark', accent: '#4a7bd0' },
     });
     expect(flow.view).toBe('done');
-    expect(h.entered).toHaveBeenLastCalledWith(5, 'heading');
+    expect(h.entered).toHaveBeenLastCalledWith(7, 'heading');
     expect(flow.firstName).toBe('Anna');
     expect([flow.pw, flow.pw2, flow.token]).toEqual(['', '', '']);
+    expect([flow.key, flow.codes]).toEqual([null, []]);
     vi.advanceTimersByTime(DONE_MS - 1);
     expect(signedIn).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
@@ -654,7 +920,7 @@ describe('Step 5: completion', () => {
   });
 
   it('shows any other answer in place, with the shake, until the next "Finish setup"', async () => {
-    const { flow, h } = at(5);
+    const { flow, h } = at(7);
     let answer: (a: { status: number; body: unknown }) => void = () => {};
     mockApi({
       'POST setup/complete': [
@@ -664,12 +930,12 @@ describe('Step 5: completion', () => {
       ],
     });
     await flow.finish();
-    expect([flow.step, flow.finishErr, flow.loading]).toEqual([5, true, false]);
+    expect([flow.step, flow.finishErr, flow.loading]).toEqual([7, true, false]);
     expect(h.fail).toHaveBeenCalledOnce();
     expect(h.error).not.toHaveBeenCalled();
     // Steps 3 and 4 already checked the fields with the server's rules: a field error is just another answer.
     await flow.finish();
-    expect([flow.step, flow.finishErr, flow.err]).toEqual([5, true, {}]);
+    expect([flow.step, flow.finishErr, flow.err]).toEqual([7, true, {}]);
     const pending = flow.finish();
     expect([flow.finishErr, flow.loading]).toEqual([false, true]);
     answer({ status: 201, body: {} });
@@ -679,7 +945,7 @@ describe('Step 5: completion', () => {
   });
 
   it('allows neither going back nor to a step during completion', async () => {
-    const { flow } = at(5);
+    const { flow } = at(7);
     let answer: (a: { status: number; body: unknown }) => void = () => {};
     mockApi({ 'POST setup/complete': [() => new Promise((resolve) => (answer = resolve))] });
     const pending = flow.finish();
@@ -688,7 +954,7 @@ describe('Step 5: completion', () => {
     expect(flow.canBack).toBe(true);
     flow.back();
     flow.revisit(3);
-    expect(flow.step).toBe(5);
+    expect(flow.step).toBe(7);
     answer({ status: 201, body: {} });
     await pending;
     expect(flow.view).toBe('done');
@@ -696,7 +962,7 @@ describe('Step 5: completion', () => {
   });
 
   it('reloads on setup_done (the layout then shows the sign-in)', async () => {
-    const { flow, h } = at(5);
+    const { flow, h } = at(7);
     mockApi({ 'POST setup/complete': [{ status: 409, body: { error: 'setup_done' } }] });
     await flow.finish();
     expect(h.reload).toHaveBeenCalledOnce();
@@ -705,17 +971,17 @@ describe('Step 5: completion', () => {
 
   it('shows "No connection" when a request gets no answer, everything entered stays', async () => {
     const offline = vi.fn();
-    const { flow, h } = at(5, { ...hooks(), offline } as ReturnType<typeof hooks>);
+    const { flow, h } = at(7, { ...hooks(), offline } as ReturnType<typeof hooks>);
     mockApi({});
     await flow.finish();
     expect(offline).toHaveBeenCalledOnce();
     expect(h.error).not.toHaveBeenCalled();
-    expect([flow.step, flow.loading, flow.pw]).toEqual([5, false, 'Safe-enough1']);
+    expect([flow.step, flow.loading, flow.pw]).toEqual([7, false, 'Safe-enough1']);
   });
 
   it('returns to the token step on a wrong or locked token', async () => {
     vi.useFakeTimers();
-    const { flow, h } = at(5);
+    const { flow, h } = at(7);
     mockApi({
       'POST setup/complete': [
         { status: 422, body: { error: 'invalid_token', remaining: 2 } },
@@ -726,7 +992,7 @@ describe('Step 5: completion', () => {
     expect(flow.step).toBe(2);
     expect([flow.tokErr, flow.tokOk]).toEqual(['invalid', false]);
     expect(h.fail).toHaveBeenLastCalledWith('token');
-    flow.step = 5;
+    flow.step = 7;
     await flow.finish();
     expect(flow.step).toBe(2);
     expect([flow.tokErr, flow.tokLeft, flow.tokOk]).toEqual(['locked', 12, false]);

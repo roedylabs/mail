@@ -12,6 +12,7 @@
   import NoConnection from '#lib/components/setup/NoConnection.svelte';
   import SetupDone from '#lib/components/setup/SetupDone.svelte';
   import StepAdmin from '#lib/components/setup/StepAdmin.svelte';
+  import StepMfa from '#lib/components/setup/StepMfa.svelte';
   import StepPassword from '#lib/components/setup/StepPassword.svelte';
   import StepReview from '#lib/components/setup/StepReview.svelte';
   import StepToken from '#lib/components/setup/StepToken.svelte';
@@ -42,6 +43,9 @@
     focus: (field) => focus(field, false),
     entered: (_step, target) => {
       if (!target) return;
+      // The latest call wins (step 5: the heading first, the code field once the key is there).
+      for (const timer of enterTimers) clearTimeout(timer);
+      enterTimers.clear();
       // Only after the step has switched; if someone has chosen a field of the
       // card themselves in the meantime (fast typing, autofill), the focus stays
       // there instead of jumping in the middle of the input.
@@ -62,7 +66,8 @@
   /**
    * Entering a step (`entering`): desktop the step's target without
    * scrolling; on mobile the heading instead of a field, so the on-screen
-   * keyboard does not open at once (the language card of step 1 opens none).
+   * keyboard does not open at once (the language card of step 1 opens none),
+   * and instead of step 5's "Try again" (the heading keeps the focus there).
    * A rejected field gets the focus on mobile too.
    */
   function focus(target: Focus, entering = true) {
@@ -156,6 +161,8 @@
     probe,
     stayed: () => shake(netBox, undefined),
     answered: () => {
+      // Step 5 asks again for a key that got no answer.
+      flow.online();
       if (signInOnAnswer) {
         signInOnAnswer = false;
         void signIn();
@@ -196,6 +203,8 @@
 {:else if flow.step === 4}
   <StepPassword {flow} {targets} hidden={net.open} />
 {:else if flow.step === 5}
+  <StepMfa {flow} {targets} hidden={net.open} />
+{:else if flow.step === 7}
   <StepReview {flow} {targets} hidden={net.open} />
 {/if}
 {#if net.open}<NoConnection {net} bind:box={netBox} />{/if}

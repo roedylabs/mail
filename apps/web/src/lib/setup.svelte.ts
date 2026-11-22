@@ -1,7 +1,7 @@
 /**
- * Flow of the setup wizard against the setup API in five steps: language
- * and appearance, setup token, administrator, password and review, then
- * `setup/complete`. The setup token goes along in the header
+ * Flow of the setup wizard against the setup API in seven steps: language
+ * and appearance, setup token, administrator, password, authenticator app,
+ * recovery codes and review, then `setup/complete`. The setup token goes along in the header
  * `X-Setup-Token`; every response can reject it (back to the token step)
  * or report that the setup is already complete (then the page reloads the
  * session and the layout redirects to the sign-in). A request without an
@@ -9,8 +9,9 @@
  *
  * Session of this browser tab (`sessionStorage`, keys `roedy-setup-*`):
  * language, theme, accent, the recently used colours, name and email, and
- * the step to return to on a reload. The setup token and the passwords live in memory only. A reload on
- * steps 3–5 returns to step 2 with the stored values prefilled; a tab
+ * the step to return to on a reload. The setup token, the passwords, the
+ * authenticator app's key and the recovery codes live in memory only. A reload on
+ * steps 3–7 returns to step 2 with the stored values prefilled; a tab
  * without setup data starts with language System, theme System, accent
  * Apricot.
  *
@@ -18,16 +19,18 @@
  * the public address comes from `ROEDY_PUBLIC_URL`.
  */
 import { ACCENTS, DEFAULT_ACCENT, type AccentName } from '@roedy/tokens';
-import { ApiError, NetworkError, api, retryAfter } from '#lib/api.ts';
+import { ApiError, NetworkError, api, isApiError, retryAfter } from '#lib/api.ts';
 import { PRESETS, customName } from '#lib/color-editor.svelte.ts';
 import { isHexColor, parseHex, type HexColor } from '#lib/color.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
 import { failText } from '#lib/errors.ts';
+import { formatOtp } from '#lib/login.svelte.ts';
 import { initials, limitName, nameError, normalizeName } from '#lib/name.ts';
 import { meetsPolicy, tooLong } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { isLocale } from '#lib/paraglide/runtime.js';
+import { qrSymbol, type QrSymbol } from '#lib/qr.ts';
 import type { IconName } from '#lib/icons.ts';
 import type { AccentChoice, LangChoice, ModeName } from '#lib/state/prefs.svelte.ts';
 
@@ -48,27 +51,51 @@ export const LOG_LINES = {
 export const TOKEN_LOCK_S = 30;
 /** Failed attempts until the lock. */
 export const TOKEN_TRIES = 5;
+/** Length of the lock after too many wrong codes from the app, the lock bar is relative to (seconds). */
+export const CODE_LOCK_S = 900;
 
 /** Duration of the done screen until the sign-in (its bar fills in 2.6 s). */
 export const DONE_MS = 2700;
 
-/** Number of steps (step indicator "Step {n} of 5"). */
-export const STEPS = 5;
+/** Number of steps (step indicator "Step {n} of 7"). */
+export const STEPS = 7;
 
 /**
  * 1 language and appearance, 2 setup token, 3 administrator, 4 password,
- * 5 review.
+ * 5 authenticator app, 6 recovery codes, 7 review.
  */
-export type Step = 1 | 2 | 3 | 4 | 5;
+export type Step = 1 | 2 | 3 | 4 | 5 | 6 | 7;
 /** First step the wizard shows: language and appearance. */
 export const FIRST_STEP: Step = 1;
 
+/**
+ * Steps the wizard does not show yet: the recovery codes (step 6) come in a
+ * change of their own. Until then a confirmed code on step 5 goes on to the
+ * review, and Back on the review returns to step 5.
+ */
+const PENDING: readonly Step[] = [6];
+
+/** The step after `step` the wizard shows. */
+export function stepAfter(step: Step): Step {
+  let n = step + 1;
+  while (PENDING.includes(n as Step)) n++;
+  return Math.min(n, STEPS) as Step;
+}
+
+/** The step before `step` the wizard shows. */
+export function stepBefore(step: Step): Step {
+  let n = step - 1;
+  while (PENDING.includes(n as Step)) n--;
+  return Math.max(n, FIRST_STEP) as Step;
+}
+
 export type Field = 'token' | 'name' | 'email' | 'pw' | 'pw2';
 /**
- * Where focus goes when a step opens: a field, the selected language card
- * (`lang`, step 1) or the step heading.
+ * Where focus goes when a step opens: a field, the code field of the
+ * authenticator app (`otp`), its "Try again" (`retry`), the selected language
+ * card (`lang`, step 1) or the step heading.
  */
-export type Focus = Field | 'lang' | 'heading';
+export type Focus = Field | 'otp' | 'retry' | 'lang' | 'heading';
 
 // ---- Session of this browser tab ----
 
@@ -276,7 +303,10 @@ export function trackCount(template: string): number {
   return tracks.length && tracks.every((t) => /^[\d.]+px$/.test(t)) ? tracks.length : 0;
 }
 
-/** Step after a reload: step 1 stays, steps 2–5 return to step 2 (token and password must be entered again). */
+/**
+ * Step after a reload: step 1 stays, steps 2–7 return to step 2 (token and
+ * password must be entered again, step 5 asks for a new key).
+ */
 export function resumeStep(): Step {
   return Number(readSession('step')) >= 2 ? 2 : FIRST_STEP;
 }
@@ -291,7 +321,7 @@ export interface SetupPageValues {
   appVersion: string;
 }
 
-/** A row of the summary on step 5: the step it changes, its tile (initials or icon), label, value and an optional second line. */
+/** A row of the summary on step 7: the step it changes, its tile (initials or icon), label, value and an optional second line. */
 export interface ReviewRow {
   step: 1 | 3 | 4;
   icon: IconName;
@@ -334,8 +364,8 @@ export function choicesSummary(c: SetupChoices): string {
 }
 
 export interface SetupHooks {
-  /** Input rejected: shake the card, focus the field. */
-  fail?: (field?: Field) => void;
+  /** Input rejected: shake the card, focus the field (step 5: its code field). */
+  fail?: (field?: Field | 'otp') => void;
   /** Incomplete step: focus the field, no message. */
   focus?: (field: Field) => void;
   /** Step changed: focus the field or heading (`null`: the focus follows from `fail`). */
@@ -359,7 +389,22 @@ export function formatToken(input: string): string {
 }
 
 /** Focus when a step opens: its first field or the selected language card, otherwise its heading. */
-const FIRST: Partial<Record<Step, Focus>> = { 1: 'lang', 2: 'token', 3: 'name', 4: 'pw' };
+const FIRST: Partial<Record<Step, Focus>> = { 1: 'lang', 2: 'token', 3: 'name', 4: 'pw', 5: 'otp' };
+
+/** Key of the authenticator app from `setup/totp`, for the email it was requested for. */
+export interface TotpKey {
+  email: string;
+  /** Base32, for manual entry. */
+  secret: string;
+  /** `otpauth://` URI for the QR code. */
+  uri: string;
+}
+
+/** The key on step 5: there, being requested (placeholders), or not created (a server error, "Try again"). */
+export type KeyStatus = 'ready' | 'loading' | 'failed';
+
+/** Errors of the code field: fewer than six digits, a wrong or used code, or the check failed on the server. */
+export type OtpError = 'short' | 'invalid' | 'server';
 
 export function focusOf(step: Step): Focus {
   return FIRST[step] ?? 'heading';
@@ -380,8 +425,24 @@ export class SetupFlow {
   /** The server accepted the token: coming back to step 2 needs no new check until it is edited. */
   tokOk = $state(false);
 
-  /** Step 5: `setup/complete` failed on the server; shown in place of the note until the next "Finish setup". */
+  /** Step 7: `setup/complete` failed on the server; shown in place of the note until the next "Finish setup". */
   finishErr = $state(false);
+
+  // Step 5 (key, code and recovery codes live in memory only)
+  /** The last key from `setup/totp`; it belongs to `key.email`. */
+  key = $state<TotpKey | null>(null);
+  /**
+   * `setup/totp`: running (`loading`, for `keyEmail`), failed with an answer (`failed`) or without one (`offline`:
+   * asks again once the server answers); `idle` otherwise.
+   */
+  keyState = $state<'idle' | 'loading' | 'failed' | 'offline'>('idle');
+  /** Email of the running or last `setup/totp`. */
+  private keyEmail = '';
+  /** Code from the app, digits only. */
+  otp = $state('');
+  otpErr = $state<OtpError | null>(null);
+  /** The ten recovery codes of the confirmed key (step 6). */
+  codes = $state<string[]>([]);
 
   // Steps 3 and 4
   name = $state('');
@@ -389,9 +450,11 @@ export class SetupFlow {
   pw = $state('');
   pw2 = $state('');
 
-  /** Lock of the setup token with countdown (the clock only runs while it applies). */
-  readonly locks = new Countdown<'token'>(() => this.freed());
+  /** Locks of the setup token and of the codes from the app, with countdown (the clock only runs while one applies). */
+  readonly locks = new Countdown<'token' | 'code'>((kind) => this.freed(kind));
   private doneTimer: ReturnType<typeof setTimeout> | undefined;
+  /** Requests of `setup/totp`: only the answer of the last one counts. */
+  private keyReq = 0;
 
   readonly hooks: SetupHooks;
 
@@ -416,8 +479,19 @@ export class SetupFlow {
   /** All twelve characters entered (Continue is greyed out until then). */
   tokFull = $derived(this.token.replace(/-/g, '').length === 12);
 
+  /** The key for the current email, if there is one. */
+  keyNow = $derived(this.key && this.key.email === this.email.trim() ? this.key : null);
+  keyStatus = $derived<KeyStatus>(this.keyNow ? 'ready' : this.keyState === 'failed' ? 'failed' : 'loading');
+  qr = $derived<QrSymbol | null>(this.keyNow ? qrSymbol(this.keyNow.uri) : null);
+  /** The key in groups of four. */
+  secretLabel = $derived((this.keyNow?.secret.match(/.{1,4}/g) ?? []).join(' '));
+  codeLocked = $derived(this.locks.active('code'));
+  codeLeft = $derived(this.locks.left('code'));
+  /** Code field disabled and Confirm greyed out: locked after too many wrong codes, or no key yet. */
+  otpOff = $derived(this.codeLocked || this.keyStatus !== 'ready');
+
   /**
-   * Summary of step 5, one row per step with input: language and appearance,
+   * Summary of step 7, one row per step with input: language and appearance,
    * administrator (initials, name, email), password (never shown). Read
    * fresh each time (the choices of step 1 live in the session storage).
    */
@@ -501,7 +575,7 @@ export class SetupFlow {
 
   /** "Back" keeps everything entered; not while a request is running. */
   back(): void {
-    if (this.canBack && !this.loading) this.go((this.step - 1) as Step);
+    if (this.canBack && !this.loading) this.go(stepBefore(this.step));
   }
 
   /**
@@ -518,6 +592,8 @@ export class SetupFlow {
     this.loading = false;
     this.err = {};
     writeSession('step', String(step));
+    // Step 5 without its key yet: the heading until the key is there (the code field is disabled meanwhile).
+    if (step === 5 && !this.enterMfa() && focus === 'otp') focus = 'heading';
     this.hooks.entered?.(step, focus);
   }
 
@@ -599,6 +675,129 @@ export class SetupFlow {
     this.hooks.focus?.(this.pwOk ? 'pw2' : 'pw');
   }
 
+  // ---- Step 5: authenticator app ----
+
+  /**
+   * Entering step 5: an empty code field and the key for the current email. A key for another email (changed on step
+   * 3 meanwhile) is dropped with its recovery codes; a new one is requested unless it is already on its way. `true`
+   * if the key is there.
+   */
+  private enterMfa(): boolean {
+    this.otp = '';
+    this.otpErr = null;
+    if (this.keyNow) return true;
+    const email = this.email.trim();
+    if (this.key) {
+      this.key = null;
+      this.codes = [];
+    }
+    if (this.keyState !== 'loading' || this.keyEmail !== email) void this.requestKey();
+    return false;
+  }
+
+  /**
+   * `setup/totp` for the current email. The key arrives: focus as on entering the step. A server error: "Key not
+   * created" with "Try again"; no answer: "No connection", then the step asks again by itself (`online`). Answers
+   * after leaving the step are kept (a key) or dropped (an error: entering again asks again).
+   */
+  private async requestKey(): Promise<void> {
+    const email = this.email.trim();
+    const req = ++this.keyReq;
+    this.keyState = 'loading';
+    this.keyEmail = email;
+    try {
+      const res = await api<{ secret: string; uri: string }>('POST', 'setup/totp', { email }, this.withToken());
+      if (req !== this.keyReq) return;
+      this.key = { email, secret: res.secret, uri: res.uri };
+      this.keyState = 'idle';
+      if (this.step === 5) this.hooks.entered?.(5, 'otp');
+    } catch (error) {
+      if (req !== this.keyReq) return;
+      this.keyState = error instanceof NetworkError ? 'offline' : 'failed';
+      if (this.step !== 5) return;
+      await this.rejected(error, () => this.hooks.entered?.(5, 'retry'));
+    }
+  }
+
+  /** "Try again" after the key was not created. */
+  retryKey(): void {
+    if (this.step === 5 && this.keyStatus === 'failed') void this.requestKey();
+  }
+
+  /** The server answers again ("No connection" closed): step 5 asks again for a key that got no answer. */
+  online(): void {
+    if (this.step === 5 && this.keyState === 'offline' && !this.keyNow) void this.requestKey();
+  }
+
+  /**
+   * Code input: digits only, at most six (pasted "123 456" works); not while it is being checked. Any edit clears
+   * the wrong-code, short-code and server errors; the sixth digit confirms by itself.
+   */
+  editOtp(value: string): void {
+    if (this.loading || this.otpOff) return;
+    const otp = formatOtp(value);
+    if (otp === this.otp) return;
+    this.otp = otp;
+    this.otpErr = null;
+    if (otp.length === 6) void this.submitOtp();
+  }
+
+  /**
+   * "Confirm" (or the sixth digit): under six digits "Please enter all 6 digits." with the shake. Otherwise
+   * `setup/totp/verify`: `200` keeps the recovery codes and goes on; a wrong or used code clears the field and shows
+   * "Invalid code."; `429` locks the field for `retry_after`; no key on the server any more asks for a new one; any
+   * other answer keeps the code and shows the server error (not counted towards the lock).
+   */
+  async submitOtp(): Promise<void> {
+    if (this.step !== 5 || this.loading || this.otpOff) return;
+    if (this.otp.length < 6) {
+      this.otpErr = 'short';
+      this.hooks.fail?.('otp');
+      return;
+    }
+    this.loading = true;
+    this.otpErr = null;
+    const key = this.keyReq;
+    try {
+      const res = await api<{ recovery_codes: string[] }>(
+        'POST',
+        'setup/totp/verify',
+        { code: this.otp },
+        this.withToken(),
+      );
+      // Left the step meanwhile (its own request reset `loading`), or the code belonged to an older key.
+      if (this.step !== 5) return;
+      this.loading = false;
+      if (key !== this.keyReq) return;
+      this.codes = res.recovery_codes;
+      this.go(stepAfter(5));
+    } catch (error) {
+      if (this.step !== 5) return;
+      this.loading = false;
+      if (key !== this.keyReq) return;
+      if (isApiError(error, 422, 'invalid_code') || isApiError(error, 422, 'code_used')) {
+        this.otp = '';
+        this.otpErr = 'invalid';
+        this.hooks.fail?.('otp');
+      } else if (isApiError(error, 429)) {
+        this.otp = '';
+        this.locks.start('code', retryAfter(error, CODE_LOCK_S));
+        this.hooks.fail?.();
+      } else if (isApiError(error, 422, 'totp_required')) {
+        // The server has no key any more: a new one to scan.
+        this.key = null;
+        this.codes = [];
+        this.otp = '';
+        void this.requestKey();
+      } else {
+        await this.rejected(error, () => {
+          this.otpErr = 'server';
+          this.hooks.fail?.('otp');
+        });
+      }
+    }
+  }
+
   /**
    * "Finish setup": `setup/complete` with the administrator and the choices
    * of step 1. `201` → the done screen, then the sign-in; no answer → "No
@@ -621,9 +820,11 @@ export class SetupFlow {
       await api('POST', 'setup/complete', body, this.withToken());
       this.loading = false;
       this.view = 'done';
-      // Token and password are no longer needed.
-      this.pw = this.pw2 = this.token = '';
+      // Token, password, key and recovery codes are no longer needed.
+      this.pw = this.pw2 = this.token = this.otp = '';
       this.tokOk = false;
+      this.key = null;
+      this.codes = [];
       this.hooks.entered?.(this.step, 'heading');
       this.doneTimer = setTimeout(() => void this.hooks.signedIn?.(), DONE_MS);
     } catch (error) {
@@ -635,8 +836,9 @@ export class SetupFlow {
     }
   }
 
-  /** Stops clocks and timers (when leaving the page). */
+  /** Stops clocks and timers and drops the answers of running key requests (when leaving the page). */
   dispose(): void {
+    this.keyReq++;
     this.locks.stop();
     clearTimeout(this.doneTimer);
   }
@@ -655,8 +857,12 @@ export class SetupFlow {
     return true;
   }
 
-  /** The token lock has expired: release the field. */
-  private freed(): void {
+  /** A lock has expired: release the field (focus as on entering its step). */
+  private freed(kind: 'token' | 'code'): void {
+    if (kind === 'code') {
+      if (this.step === 5 && !this.otpOff) this.hooks.entered?.(5, 'otp');
+      return;
+    }
     this.tokErr = null;
     if (this.step === 2) this.hooks.entered?.(2, 'token');
   }

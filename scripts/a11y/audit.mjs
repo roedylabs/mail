@@ -75,6 +75,7 @@ const SETUP_VALUES = {
   'su-email': 'max@example.test',
   'su-pw': 'Example-Password-2026!',
   'su-pw2': 'Example-Password-2026!',
+  'su-otp': '123456',
 };
 
 /**
@@ -82,7 +83,7 @@ const SETUP_VALUES = {
  * checked state (setup step, error, open editor).
  */
 const ROUTES = [
-  ...[1, 2, 3, 4].map((n) => ({
+  ...[1, 2, 3, 4, 5].map((n) => ({
     id: `/setup (step ${n})`,
     path: '/setup',
     opts: { setup: true },

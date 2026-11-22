@@ -113,6 +113,7 @@ const SETUP_VALUES = {
   'su-email': 'alex@example.com',
   'su-pw': 'Lakeside-Harbor-2026!',
   'su-pw2': 'Lakeside-Harbor-2026!',
+  'su-otp': '123456',
 };
 
 /** Fills the visible setup fields with the demo values. */
@@ -131,7 +132,7 @@ async function fillSetup(page) {
   }
 }
 
-/** Walks the setup wizard to step `n` (1–5): fills each step, then the primary button. */
+/** Walks the setup wizard to step `n` (1–7): fills each step, then the primary button (the code confirms by itself). */
 async function setupStep(page, n) {
   const stepOf = () =>
     page.evaluate(() => {
@@ -201,7 +202,7 @@ const SHOTS = [
     opts: { setup: true },
     prepare: async (p) => {
       await lightTheme(p);
-      await setupStep(p, 5);
+      await setupStep(p, 7);
     },
   },
   { name: 'login', path: '/login', opts: { guest: true }, prepare: lightTheme },

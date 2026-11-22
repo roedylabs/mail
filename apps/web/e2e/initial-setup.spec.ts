@@ -1,5 +1,6 @@
-// First flow: setup in five steps (a wrong token up to the lock, then the
-// right one; a second tab that finishes too late gets the sign-in), the done
+// First flow: setup through its steps (a wrong token up to the lock, then the
+// right one; the authenticator app with a wrong and the right code; a second
+// tab that goes on too late gets the sign-in), the done
 // screen opens Administration › Mail servers; then mail server (OAuth client via DCR) and
 // system mails via the administration API → invitations to two addresses,
 // links from the system mails →
@@ -19,7 +20,7 @@ import {
   waitForMails,
   type Session,
 } from './helpers.ts';
-import { connectAccount, connectServer, setupAppByApi } from './setup.ts';
+import { connectAccount, connectServer } from './setup.ts';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -48,17 +49,25 @@ test.afterEach(async ({ browser }) => {
  * New setup step: heading present and, where the step has one, focus in the
  * first field (the page sets it shortly after entering); axe without findings.
  */
-async function step(page: Page, heading: string, first?: string): Promise<void> {
+async function step(page: Page, heading: string | RegExp, first?: string): Promise<void> {
   await expect(page.getByRole('heading', { name: heading })).toBeVisible();
   if (first) await expect(page.getByLabel(first, { exact: true })).toBeFocused();
-  expect(await axeViolations(page), `axe: ${heading}`).toEqual([]);
+  expect(await axeViolations(page), `axe: ${String(heading)}`).toEqual([]);
+}
+
+/** Heading of the authenticator app step (with its soft hyphen). */
+const MFA = /^Multi-factor authen\u00ad?tication$/;
+
+/** The key of the authenticator app step, without the spaces between its groups. */
+async function keyOf(page: Page): Promise<string> {
+  return (await page.locator('.key-value').innerText()).replace(/\s/g, '');
 }
 
 function next(page: Page) {
   return page.getByRole('button', { name: 'Continue', exact: true });
 }
 
-test('setup: five steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
+test('setup: all steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
   // The token lock alone takes 30 s.
   test.slow();
   const context = await browser.newContext();
@@ -207,7 +216,40 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(admin.password);
   await next(page).click();
 
-  // 5 Review: a summary row per step, the password never shown; focus on the heading
+  // 5 Authenticator app: QR code and key from the setup API; the sixth digit confirms by itself
+  await expect(page.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible();
+  await step(page, MFA, 'Verification code');
+  await expect(page).toHaveTitle('Authenticator app · Setup');
+  await expect(page.getByRole('img', { name: 'Step 5 of 7' })).toBeVisible();
+  const secret = await keyOf(page);
+  expect(secret).toMatch(/^[A-Z2-7]{32}$/);
+  expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(secret);
+  const code = page.getByLabel('Verification code');
+  const confirm = page.getByRole('button', { name: 'Confirm', exact: true });
+  // Too short: Confirm says so (it is never greyed out for an incomplete code).
+  await code.fill('12');
+  await expect(confirm).toHaveAttribute('aria-disabled', 'false');
+  await confirm.click();
+  await expect(alert).toContainText('Please enter all 6 digits.');
+  await expect(code).toBeFocused();
+  // A wrong code: cleared, "Invalid code.", focus back in the field.
+  const right = totp(secret);
+  await code.fill(`${(Number(right[0]) + 5) % 10}${right.slice(1)}`);
+  await expect(alert).toContainText('Invalid code.');
+  await expect(code).toHaveValue('');
+  await expect(code).toHaveAttribute('aria-invalid', 'true');
+  await expect(code).toBeFocused();
+  expect(await axeViolations(page), 'axe: invalid code').toEqual([]);
+  // Back and forward again: the same key without a new one.
+  await page.getByRole('button', { name: 'Back' }).click();
+  await step(page, 'Set password', 'Password');
+  await next(page).click();
+  await step(page, MFA, 'Verification code');
+  expect(await keyOf(page)).toBe(secret);
+  await code.fill(totp(secret));
+
+  // 7 Review (step 6, the recovery codes, comes in its own change): a summary row per step, the password never
+  // shown; focus on the heading
   await step(page, 'All set?');
   await expect(page).toHaveTitle('Review · Setup');
   await expect(page.getByRole('heading', { name: 'All set?' })).toBeFocused();
@@ -240,9 +282,14 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await step(page, 'Set password', 'Password');
   await expect(pw2).toHaveValue(admin.password);
   await next(page).click();
+  // The same key again; the code must be newer than the confirmed one (the next one of the app).
+  await step(page, MFA, 'Verification code');
+  expect(await keyOf(page)).toBe(secret);
+  await code.fill(totp(secret, Date.now() + 30_000));
   await step(page, 'All set?');
 
-  // A second tab gets to the review as well, but finishes too late (below).
+  // A second tab gets to the password as well, but goes on too late (below): its authenticator app would replace this
+  // tab's key, so it waits before that step.
   const late = await newPage(await browser.newContext());
   await late.goto(`${instance.url}/setup`);
   await settled(late);
@@ -254,12 +301,7 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await next(late).click();
   await late.getByLabel('Password', { exact: true }).fill(admin.password);
   await late.getByLabel('Confirm password', { exact: true }).fill(admin.password);
-  await next(late).click();
-  await expect(late.getByRole('heading', { name: 'All set?' })).toBeVisible();
-
-  // `setup/complete` needs a confirmed authenticator app for the address; the
-  // wizard has no step for it yet, so it comes from the setup API.
-  await setupAppByApi(context, instance, await instance.setupToken(), stalwart.admin.email);
+  await expect(next(late)).toHaveAttribute('aria-disabled', 'false');
 
   // Done: welcome with the first name, the chips, the sign-in, then Administration › Mail servers.
   // Enter anywhere on the step finishes (here on the heading).
@@ -285,8 +327,8 @@ test('setup: five steps, then mail server and system mails', async ({ browser, i
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'custom');
   expect(await axeViolations(page), 'axe: mail servers').toEqual([]);
 
-  // The late tab: 409 `setup_done` → the sign-in.
-  await late.getByRole('button', { name: 'Finish setup' }).click();
+  // The late tab: its key request gets 409 `setup_done` → the sign-in.
+  await next(late).click();
   await expect(late).toHaveURL(/\/login$/);
 
   await connectServer(context, instance, stalwart);

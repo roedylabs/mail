@@ -265,6 +265,8 @@
       m.setup_step_token(),
       m.setup_step_admin(),
       m.setup_step_password(),
+      m.setup_step_mfa(),
+      m.setup_step_codes(),
       m.setup_step_review(),
     ].map((label, i) => {
       const n = i + 1;

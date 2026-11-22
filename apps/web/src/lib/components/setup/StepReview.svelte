@@ -1,5 +1,5 @@
 <!--
-  Step 5: "All set?". A summary with one row per step with input (language
+  Step 7: "All set?". A summary with one row per step with input (language
   and appearance, administrator, password – never shown), each with a tilted
   accent tile and "Change" (a pencil button on narrow screens), then a note
   on what comes next. "Finish setup" is always ready and sends
@@ -59,7 +59,7 @@
 
 <SetupShell
   email={flow.email.trim()}
-  step={5}
+  step={7}
   docTitle={m.setup_doc_title({ step: m.setup_step_review() })}
   title={m.setup_review_title()}
   {intro}
