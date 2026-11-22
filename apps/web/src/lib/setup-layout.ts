@@ -326,6 +326,8 @@ export function sharedCardH(w: number, two: boolean, level: number): number | nu
 
 /** Resolved values of the shell at the current size and level. */
 export interface Look {
+  /** Width of the page the values are for (px). */
+  w: number;
   tier: Tier;
   mobile: boolean;
   two: boolean;
@@ -368,6 +370,7 @@ export function stepLook(
   if (isMobileWidth(w)) {
     const W = mob[Math.min(level, mob.length - 1)]!;
     return {
+      w,
       tier: 'mob',
       mobile: true,
       two: false,
@@ -400,6 +403,7 @@ export function stepLook(
   const full = w >= WIDE;
   const colGap = two ? (full ? L.col : '32px') : '0';
   return {
+    w,
     tier: two ? 'wide' : 'mid',
     mobile: false,
     two,
@@ -428,6 +432,15 @@ export function stepLook(
   };
 }
 
+/**
+ * The recovery codes (step 6) have room for three columns: on desktop in the one-column card from 700 px, or in the
+ * full two-column card from 1000 px (the step asks for them at its densest level only).
+ */
+export function codesRoom(look: Look): boolean {
+  if (look.mobile) return false;
+  return look.two ? look.full : look.w >= NARROW_CARD;
+}
+
 /** Values of the done screen: one column in a card of up to 560 px. */
 export function doneLook(
   w: number,
@@ -438,6 +451,7 @@ export function doneLook(
   if (isMobileWidth(w)) return stepLook(w, false, level, [], mob);
   const L = desk[Math.min(level, desk.length - 1)]!;
   return {
+    w,
     tier: 'mid',
     mobile: false,
     two: false,

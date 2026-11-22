@@ -1,5 +1,6 @@
 // First flow: setup through its steps (a wrong token up to the lock, then the
-// right one; the authenticator app with a wrong and the right code; a second
+// right one; the authenticator app with a wrong and the right code; the
+// recovery codes, which "Finish setup" cannot skip; a second
 // tab that goes on too late gets the sign-in), the done
 // screen opens Administration › Mail servers; then mail server (OAuth client via DCR) and
 // system mails via the administration API → invitations to two addresses,
@@ -7,6 +8,7 @@
 // accept both (with mandatory MFA) → connect an account via the mail server's
 // sign-in page and /oauth/callback. The tests build on each other (serial) and
 // share the file's instance (fixtures.ts).
+import { readFile } from 'node:fs/promises';
 import type { Page } from '@playwright/test';
 import { expect, test, type MailUser } from './fixtures.ts';
 import {
@@ -65,6 +67,11 @@ async function keyOf(page: Page): Promise<string> {
 
 function next(page: Page) {
   return page.getByRole('button', { name: 'Continue', exact: true });
+}
+
+/** Checkbox of the recovery codes step. */
+function savedBox(page: Page) {
+  return page.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' });
 }
 
 test('setup: all steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
@@ -248,8 +255,56 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   expect(await keyOf(page)).toBe(secret);
   await code.fill(totp(secret));
 
-  // 7 Review (step 6, the recovery codes, comes in its own change): a summary row per step, the password never
-  // shown; focus on the heading
+  // 6 Recovery codes: the ten codes of the confirmed code, in memory only; reading them comes first (the heading)
+  await step(page, 'Recovery codes');
+  await expect(page).toHaveTitle('Recovery codes · Setup');
+  await expect(page.getByRole('img', { name: 'Step 6 of 7' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Recovery codes' })).toBeFocused();
+  const codeItems = page.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem');
+  await expect(codeItems).toHaveCount(10);
+  const recovery = (await codeItems.allInnerTexts()).map((t) => t.replace(/^\d+\s*/, '').trim());
+  expect(new Set(recovery).size).toBe(10);
+  expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(recovery[0]);
+  // Download: app, address, a blank line, one code per line.
+  const [file] = await Promise.all([
+    page.waitForEvent('download'),
+    page.getByRole('button', { name: 'Download' }).click(),
+  ]);
+  expect(file.suggestedFilename()).toBe('recovery-codes.txt');
+  expect(await readFile(await file.path(), 'utf8')).toBe(
+    `Roedy Mail – Recovery codes\n${stalwart.admin.email}\n\n${recovery.join('\n')}\n`,
+  );
+  // Focus order: Copy → Download → checkbox → Back → Continue.
+  const saved = savedBox(page);
+  await page.getByRole('button', { name: 'Copy: Recovery codes' }).focus();
+  for (const to of [
+    page.getByRole('button', { name: 'Download' }),
+    saved,
+    page.getByRole('button', { name: 'Back' }),
+  ]) {
+    await page.keyboard.press('Tab');
+    await expect(to).toBeFocused();
+  }
+  await page.keyboard.press('Tab');
+  await expect(next(page)).toBeFocused();
+  // Not past this step without the ticked box: Continue (never greyed out) shows the error and moves to the box, and
+  // "Finish setup" is out of reach.
+  await expect(next(page)).toHaveAttribute('aria-disabled', 'false');
+  await next(page).click();
+  await expect(alert).toContainText('Confirm that you’ve saved the codes.');
+  await expect(saved).toBeFocused();
+  await expect(saved).toHaveAttribute('aria-invalid', 'true');
+  expect(await axeViolations(page), 'axe: codes not saved').toEqual([]);
+  await page.getByRole('heading', { name: 'Recovery codes' }).press('Enter');
+  await expect(alert).toContainText('Confirm that you’ve saved the codes.');
+  await expect(page.getByRole('button', { name: 'Finish setup' })).toHaveCount(0);
+  // Space ticks the box (Enter on it would not continue either) and clears the error.
+  await saved.press('Space');
+  await expect(saved).toHaveAttribute('aria-checked', 'true');
+  await expect(alert).toBeHidden();
+  await next(page).click();
+
+  // 7 Review: a summary row per step, the password never shown; focus on the heading
   await step(page, 'All set?');
   await expect(page).toHaveTitle('Review · Setup');
   await expect(page.getByRole('heading', { name: 'All set?' })).toBeFocused();
@@ -270,6 +325,13 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   }
   await page.keyboard.press('Tab');
   await expect(page.getByRole('button', { name: 'Finish setup' })).toBeFocused();
+  // Back: the same codes with the box still ticked.
+  await page.getByRole('button', { name: 'Back' }).click();
+  await step(page, 'Recovery codes');
+  await expect(codeItems).toHaveText(recovery.map((c, i) => new RegExp(`^${String(i + 1)}\\s*${c}$`)));
+  await expect(saved).toHaveAttribute('aria-checked', 'true');
+  await next(page).click();
+  await step(page, 'All set?');
   // "Change" walks forward again through the following steps: the token stays accepted, the passwords filled.
   await change('Language and appearance').click();
   await step(page, 'Welcome');
@@ -286,6 +348,11 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   await step(page, MFA, 'Verification code');
   expect(await keyOf(page)).toBe(secret);
   await code.fill(totp(secret, Date.now() + 30_000));
+  // The same codes, the box still ticked.
+  await step(page, 'Recovery codes');
+  await expect(codeItems).toHaveText(recovery.map((c, i) => new RegExp(`^${String(i + 1)}\\s*${c}$`)));
+  await expect(saved).toHaveAttribute('aria-checked', 'true');
+  await next(page).click();
   await step(page, 'All set?');
 
   // A second tab gets to the password as well, but goes on too late (below): its authenticator app would replace this

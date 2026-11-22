@@ -3,6 +3,7 @@ import {
   DESK_LEVELS,
   MOB_LEVELS,
   SHARED_FIT,
+  codesRoom,
   doneLook,
   fitTier,
   sharedCardH,
@@ -93,6 +94,13 @@ describe('stepLook', () => {
     expect(look(1280, true, 99).ctl).toBe('44px');
     expect(look(390, false, 9).intro).toBe(false);
     expect(look(390, false, 2).introShort).toBe(true);
+  });
+
+  it('has room for three columns of recovery codes in the wider cards only', () => {
+    // One column from 700 px, two columns from 1000 px (not in the low window from 800 px), never on mobile.
+    expect([640, 699, 700, 999].map((w) => codesRoom(look(w, false, 6)))).toEqual([false, false, true, true]);
+    expect([codesRoom(look(900, true, 6)), codesRoom(look(1000, true, 6))]).toEqual([false, true]);
+    expect(codesRoom(look(390, false, 3))).toBe(false);
   });
 
   it('has one column on the done screen', () => {

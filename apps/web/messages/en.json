@@ -1099,6 +1099,7 @@
   "setup_codes_title": "Recovery codes",
   "setup_codes_intro": "Use these codes to sign in if you can’t access your authenticator app. Each code can only be used once.",
   "setup_codes_intro_short": "Each code signs you in once without your authenticator app.",
+  "setup_codes_copy_label": "Copy: Recovery codes",
   "setup_sys_no_identity": "The account has no identity for sending. Create an identity for this account in Stalwart.",
   "setup_review_title": "All set?",
   "setup_review_intro": "Review the details. After you finish, the setup token is no longer valid.",
