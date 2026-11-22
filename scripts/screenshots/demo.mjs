@@ -25,6 +25,21 @@ const ME_NAME = 'Alex Morgan';
 const GiB = 2 ** 30;
 /** Version shown by the mocked server; the web app takes its own from ROEDY_VERSION. */
 const VERSION = process.env.ROEDY_VERSION || '0.1.0';
+/** Authenticator key of the setup (`setup/totp`) for the demo administrator. */
+const SETUP_SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+/** Recovery codes from the setup's code check (`setup/totp/verify`). */
+const SETUP_CODES = [
+  'H4KP-7XQM',
+  'R9TW-2ZLC',
+  'B6NF-8VJD',
+  'M3YG-5KTR',
+  'W8PC-4HQZ',
+  'E2LX-9NBV',
+  'T7DJ-6RMS',
+  'Q5ZA-3WGK',
+  'N8VH-2CPY',
+  'G4RU-7EXF',
+];
 
 /** Builds all data relative to `now`, so that relative times ("10:42", "Yesterday") stay plausible. */
 function demoData(now) {
@@ -1198,6 +1213,13 @@ function apiAnswer(method, path, d, st, servers, opts, base) {
       return ok({ database: 52_000_000, assets: 320_000, asset_name: null, compacted_at: ago(7 * D) });
     case 'POST setup/token':
       return ok({});
+    case 'POST setup/totp':
+      return ok({
+        secret: SETUP_SECRET,
+        uri: `otpauth://totp/Roedy%20Mail:alex%40example.com?secret=${SETUP_SECRET}&issuer=Roedy%20Mail`,
+      });
+    case 'POST setup/totp/verify':
+      return ok({ recovery_codes: SETUP_CODES });
   }
   const token = /^mail-accounts\/([^/]+)\/token$/.exec(bare);
   if (token && servers[token[1]]) {

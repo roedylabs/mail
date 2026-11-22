@@ -3,16 +3,28 @@
 //! with 409 `setup_done`.
 //!
 //! - `POST setup/token` (`{token}`): checks the token.
-//! - `POST setup/complete` with the token in the header `X-Setup-Token`:
-//!   creates the administrator with their appearance settings in one
-//!   transaction, deletes the token and signs the administrator in.
 //!
-//! Mail servers and system emails are added afterwards under Administration;
-//! the public address comes from `ROEDY_PUBLIC_URL`.
+//! With the token in the header `X-Setup-Token`:
+//!
+//! - `POST setup/totp` (`{email}`): new secret for the authenticator app and
+//!   ten recovery codes as the pending enrollment (`setup_totp`), in place of
+//!   an earlier one; answers secret and otpauth URI.
+//! - `POST setup/totp/verify` (`{code}`): confirms the pending enrollment
+//!   with a code from the app and answers the recovery codes (the same ones
+//!   on every confirmation of the same enrollment).
+//! - `POST setup/complete`: needs a confirmed enrollment for the same
+//!   address; creates the administrator with their appearance settings,
+//!   authenticator app and recovery codes in one transaction, deletes token
+//!   and enrollment and signs the administrator in.
+//!
+//! Nothing is stored for the administrator before `setup/complete`. Mail
+//! servers and system emails are added afterwards under Administration; the
+//! public address comes from `ROEDY_PUBLIC_URL`.
 //!
 //! Every token check counts towards the lockout (five failed attempts, then
-//! 30 s, per client IP) – in `setup/complete` too, otherwise it could be
-//! guessed there without limit.
+//! 30 s, per client IP) – in the other steps too, otherwise it could be
+//! guessed there without limit. Wrong codes from the app have their own
+//! lockout and do not count towards it.
 
 use std::time::Duration;
 
@@ -29,13 +41,13 @@ use serde_json::{Value, json};
 use super::{ApiError, FieldErrors, JsonBody, auth, me};
 use crate::{
     app::AppState,
-    auth::{AuthUser, session},
+    auth::{AuthUser, recovery, session, totp},
     client_ip::ClientIp,
     db::{
         self,
         repo::{
             audit_log::{self, Category, Entry},
-            known_devices,
+            known_devices, totp_devices,
             users::{self, NewUser, Role},
         },
     },
@@ -43,9 +55,10 @@ use crate::{
     rate_limit::{Key, Policy},
     settings::{self, Accent, ColorScheme, Language, Settings},
     setup_token,
+    setup_totp::{self, Confirm, Pending},
 };
 
-/// Header with the setup token for `setup/complete`.
+/// Header with the setup token for the steps after `setup/token`.
 pub const TOKEN_HEADER: &str = "x-setup-token";
 
 /// Five failed attempts, then a 30 s lockout. The page counts the attempts
@@ -57,15 +70,31 @@ const TOKEN_LIMIT: Policy = Policy::lockout(
     Duration::from_secs(10 * 60),
     Duration::from_secs(30),
 );
+/// Wrong codes from the app in `setup/totp/verify`: five in 15 minutes, then
+/// a 15-minute lockout (like `invites.code` and `auth.login.code`). One
+/// counter for the setup, so that a new enrollment does not reset it.
+const SETUP_CODE: Policy = Policy::lockout(
+    "setup.code",
+    5,
+    Duration::from_secs(15 * 60),
+    Duration::from_secs(15 * 60),
+);
 
 pub fn routes() -> Router<AppState> {
     Router::new()
         .route("/setup/token", post(token))
+        .route("/setup/totp", post(enroll))
+        .route("/setup/totp/verify", post(verify))
         .route("/setup/complete", post(complete))
 }
 
 fn setup_done() -> ApiError {
     ApiError::rejected(StatusCode::CONFLICT, "setup_done")
+}
+
+/// 422 `totp_required`: no (confirmed) enrollment for the administrator.
+fn totp_required() -> ApiError {
+    ApiError::rejected(StatusCode::UNPROCESSABLE_ENTITY, "totp_required")
 }
 
 /// Checks the token with a lockout after failed attempts. After the setup
@@ -137,6 +166,116 @@ async fn token(
     Ok(Json(json!({})))
 }
 
+/// The pending enrollment. 409 `setup_done` if the setup has been completed
+/// since the token check (it deletes the enrollment).
+async fn pending(state: &AppState) -> Result<Option<Pending>, ApiError> {
+    let (done, pending) = db::call(&state.db, |conn| {
+        Ok((users::admin_exists(conn)?, setup_totp::get(conn)?))
+    })
+    .await?;
+    if done {
+        return Err(setup_done());
+    }
+    Ok(pending)
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct EnrollBody {
+    email: String,
+}
+
+/// The administrator's address for the otpauth URI, checked like in
+/// `setup/complete`.
+fn enroll_email(body: EnrollBody) -> Result<String, FieldErrors> {
+    let mut errors = FieldErrors::default();
+    let email = body.email.trim();
+    me::check_email(&mut errors, "email", email);
+    if errors.is_empty() {
+        Ok(email.to_owned())
+    } else {
+        Err(errors)
+    }
+}
+
+/// "Authenticator app" step: new secret and recovery codes for `email` in
+/// place of an earlier enrollment; answers the secret in Base32 and the
+/// otpauth URI for the QR code, like `invites/{token}/totp`.
+async fn enroll(
+    State(state): State<AppState>,
+    _: SetupToken,
+    JsonBody(body): JsonBody<EnrollBody>,
+) -> Result<Json<Value>, ApiError> {
+    let email = enroll_email(body).map_err(FieldErrors::into_error)?;
+    let secret = totp::generate_secret()?;
+    let (base32, uri) = totp::enrollment(&secret, &state.brand().app, &email)?;
+    let pending = Pending::new(&state.secrets, &email, &secret, recovery::generate()?)?;
+    let stored = db::call(&state.db, move |conn| {
+        let tx = conn.transaction()?;
+        // Completed in the meantime: nothing to set up any more.
+        if setup_token::current(&tx)?.is_none() {
+            return Ok(false);
+        }
+        setup_totp::replace(&tx, &pending)?;
+        tx.commit()?;
+        Ok(true)
+    })
+    .await?;
+    if !stored {
+        return Err(setup_done());
+    }
+    Ok(Json(json!({ "secret": base32, "uri": uri })))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct VerifyBody {
+    /// Code from the app.
+    code: String,
+}
+
+/// Checks a code from the app against the pending enrollment and confirms
+/// it; answers the enrollment's recovery codes. Without an enrollment 422
+/// `totp_required`, a wrong code 422 `invalid_code` (five within 15 minutes
+/// lock for 15 minutes), a time step that was already accepted 422
+/// `code_used`.
+async fn verify(
+    State(state): State<AppState>,
+    _: SetupToken,
+    JsonBody(body): JsonBody<VerifyBody>,
+) -> Result<Json<Value>, ApiError> {
+    let pending = pending(&state).await?.ok_or_else(totp_required)?;
+    let code = totp::compact(&body.code);
+    // Not six digits: not an attempt, nothing to count.
+    if !totp::is_well_formed(&code) {
+        return Err(auth::invalid_code());
+    }
+    let attempt = state.limiter.reserve(&SETUP_CODE, Key::Global)?;
+    let opened = pending.open(&state.secrets)?;
+    let Some(step) = totp::matching_step(&opened.secret, &code, totp::now())? else {
+        attempt.count();
+        return Err(auth::invalid_code());
+    };
+    drop(attempt);
+    let id = pending.id;
+    let confirmed = db::call(&state.db, move |conn| {
+        let tx = conn.transaction()?;
+        if users::admin_exists(&tx)? {
+            return Ok(None);
+        }
+        let confirmed = setup_totp::confirm(&tx, &id, step)?;
+        tx.commit()?;
+        Ok(Some(confirmed))
+    })
+    .await?;
+    match confirmed.ok_or_else(setup_done)? {
+        Confirm::Done => Ok(Json(json!({ "recovery_codes": opened.codes }))),
+        Confirm::Used => Err(auth::code_used()),
+        // A new secret in the meantime: the code belonged to the old one.
+        Confirm::Gone => Err(auth::invalid_code()),
+    }
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct CompleteBody {
@@ -195,11 +334,14 @@ enum Outcome {
     Done(AuthUser, HeaderValue),
     /// An administrator exists by now.
     SetupDone,
+    /// The enrollment has been replaced or deleted since the check.
+    TotpRequired,
 }
 
-/// "Finish setup": creates the administrator with their settings in one
-/// transaction, deletes the token and signs the administrator in (201 with
-/// the session cookie).
+/// "Finish setup": creates the administrator with their settings, the
+/// authenticator app and the recovery codes of the confirmed enrollment in
+/// one transaction, deletes token and enrollment and signs the administrator
+/// in (201 with the session cookie).
 async fn complete(
     State(state): State<AppState>,
     _: SetupToken,
@@ -208,9 +350,18 @@ async fn complete(
     JsonBody(body): JsonBody<CompleteBody>,
 ) -> Result<Response, ApiError> {
     let plan = validate(body).map_err(FieldErrors::into_error)?;
+    let pending = pending(&state)
+        .await?
+        .filter(|pending| pending.step.is_some() && pending.email == plan.email)
+        .ok_or_else(totp_required)?;
 
-    // Before the transaction: hashing needs no database.
+    // Before the transaction: hashing and sealing need no database.
+    let opened = pending.open(&state.secrets)?;
     let password_hash = state.hasher.hash(&plan.password).await?;
+    let device_id = db::new_id()?;
+    let device_secret = state
+        .secrets
+        .seal(totp::SECRET_PURPOSE, &device_id, &opened.secret)?;
     let origin = auth::origin(&state, &headers, ip);
 
     let outcome = db::call(&state.db, move |conn| {
@@ -219,6 +370,15 @@ async fn complete(
         if users::admin_exists(&tx)? {
             return Ok(Outcome::SetupDone);
         }
+        // A new secret in the meantime: the check applied to a different
+        // enrollment. The step as of now: a later confirmation may have
+        // moved it on.
+        let Some(step) = setup_totp::get(&tx)?
+            .filter(|now| now.id == pending.id)
+            .and_then(|now| now.step)
+        else {
+            return Ok(Outcome::TotpRequired);
+        };
         let username = users::unique_username(&tx, &plan.email)?;
         let user_id = users::insert(
             &tx,
@@ -234,11 +394,17 @@ async fn complete(
         if settings::save(&tx, &user_id, 0, &plan.settings)?.is_none() {
             anyhow::bail!("settings of the new administrator already exist");
         }
+        // The code from the app's confirmation is used up: it cannot also
+        // sign in.
+        let app = totp::default_name(&[], plan.settings.lang);
+        totp_devices::insert_confirmed(&tx, &device_id, &user_id, &app, &device_secret, step)?;
+        recovery::store(&tx, &user_id, &opened.codes)?;
         let client = origin.client();
         let started = session::start(&tx, &user_id, &client, true)?;
         // The account's first device: known, without a notice.
         known_devices::remember(&tx, &user_id, &origin.device_hash)?;
         setup_token::delete(&tx)?;
+        setup_totp::delete(&tx)?;
         let admin = AuthUser {
             id: user_id,
             username,
@@ -270,6 +436,7 @@ async fn complete(
     let (admin, cookie) = match outcome {
         Outcome::Done(admin, cookie) => (admin, cookie),
         Outcome::SetupDone => return Err(setup_done()),
+        Outcome::TotpRequired => return Err(totp_required()),
     };
     tracing::info!(user = %admin.id, "setup completed");
     let body = Json(json!({ "user": auth::user_json(&admin) }));
@@ -367,6 +534,35 @@ mod tests {
         let mut without = valid();
         without.as_object_mut().unwrap().remove("settings");
         assert!(body(without).is_err());
+    }
+
+    #[test]
+    fn enrollment_takes_only_a_valid_address() {
+        let enroll = |value: Value| serde_json::from_value::<EnrollBody>(value);
+        let email = enroll(json!({ "email": " max@example.com " })).unwrap();
+        assert_eq!(enroll_email(email).unwrap(), "max@example.com");
+        for (input, code) in [(" ", "required"), ("max@example", "invalid")] {
+            let errors = enroll_email(enroll(json!({ "email": input })).unwrap()).unwrap_err();
+            assert_eq!(
+                errors.into_value(),
+                json!({ "email": { "code": code } }),
+                "{input}"
+            );
+        }
+        assert!(enroll(json!({})).is_err());
+        assert!(enroll(json!({ "email": "max@example.com", "name": "Max" })).is_err());
+    }
+
+    #[test]
+    fn verification_takes_only_the_code() {
+        let verify = |value: Value| serde_json::from_value::<VerifyBody>(value);
+        assert_eq!(
+            verify(json!({ "code": "123 456" })).unwrap().code,
+            "123 456"
+        );
+        assert!(verify(json!({})).is_err());
+        assert!(verify(json!({ "code": "123456", "email": "max@example.com" })).is_err());
+        assert!(verify(json!({ "code": 123_456 })).is_err());
     }
 
     #[test]
