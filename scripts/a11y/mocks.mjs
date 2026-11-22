@@ -927,6 +927,13 @@ function apiAnswer(key, path, method, body, st, opts, base, miss) {
       return ok({ database: 48_000_000, assets: 320_000, asset_name: null, compacted_at: ago(24 * 7) });
     case 'POST setup/token':
       return ok({});
+    case 'POST setup/totp':
+      return ok({
+        secret: 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP',
+        uri: 'otpauth://totp/Roedy%20Mail:max%40example.test?secret=JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP&issuer=Roedy%20Mail',
+      });
+    case 'POST setup/totp/verify':
+      return ok({ recovery_codes: Array.from({ length: 10 }, (_, i) => `EXAM-PL${String(i).padStart(2, '0')}`) });
   }
   let m;
   if ((m = /^invites\/([^/]+)$/.exec(bare)) && method === 'GET')

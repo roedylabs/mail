@@ -56,7 +56,7 @@
     type MobLevel,
   } from '#lib/setup-layout.ts';
   import { setupSwipe } from '#lib/setup-swipe.ts';
-  import { STEPS, type Step } from '#lib/setup.svelte.ts';
+  import { STEPS, isPending, type Step } from '#lib/setup.svelte.ts';
   import { locales } from '#lib/paraglide/runtime.js';
   import { fitLang, prefs } from '#lib/state/prefs.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
@@ -265,10 +265,13 @@
       m.setup_step_token(),
       m.setup_step_admin(),
       m.setup_step_password(),
+      m.setup_step_mfa(),
+      m.setup_step_codes(),
       m.setup_step_review(),
     ].map((label, i) => {
       const n = i + 1;
-      return { label, n, cur: n === step, done: step !== null && n < step };
+      // A step the wizard does not show yet is not ticked off (`isPending`).
+      return { label, n, cur: n === step, done: step !== null && n < step && !isPending(n as Step) };
     }),
   );
 

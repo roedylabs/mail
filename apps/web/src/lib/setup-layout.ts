@@ -280,8 +280,8 @@ export function fitTier(w: number, two: boolean): FitTier {
 }
 
 /**
- * One level for all five steps: per tier the window height each level needs (`need`, px of the page; on mobile of
- * the page around the panel) and the card's height at that level (`card`, desktop). Both are the largest of the five
+ * One level for all seven steps: per tier the window height each level needs (`need`, px of the page; on mobile of
+ * the page around the panel) and the card's height at that level (`card`, desktop). Both are the largest of the
  * steps in the longer language, measured on the real steps at the narrowest width of the tier. Every step starts its
  * fit at the level the window allows, so heading, sizes and card are the same on every step; a step only goes denser
  * on its own when its content still overflows (an error message).

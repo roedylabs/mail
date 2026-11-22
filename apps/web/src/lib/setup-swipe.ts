@@ -1,6 +1,6 @@
 /**
  * Swipe back in the setup wizard on mobile: dragging the page to the right
- * from steps 2–5 moves it along (a rubber band to the left), an arrow chip
+ * from steps 2–7 moves it along (a rubber band to the left), an arrow chip
  * fades in at the left edge and turns to the accent colour once the gesture
  * would go back. Released at 30 % of the width or flicked (faster than
  * 0.35 px/ms after more than 48 px), the page slides out and "Back" runs;

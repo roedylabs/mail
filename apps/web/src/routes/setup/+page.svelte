@@ -12,6 +12,7 @@
   import NoConnection from '#lib/components/setup/NoConnection.svelte';
   import SetupDone from '#lib/components/setup/SetupDone.svelte';
   import StepAdmin from '#lib/components/setup/StepAdmin.svelte';
+  import StepMfa from '#lib/components/setup/StepMfa.svelte';
   import StepPassword from '#lib/components/setup/StepPassword.svelte';
   import StepReview from '#lib/components/setup/StepReview.svelte';
   import StepToken from '#lib/components/setup/StepToken.svelte';
@@ -27,6 +28,8 @@
   import { ui } from '#lib/state/ui.svelte.ts';
 
   const targets = new SetupTargets();
+  /** Controls a user may have moved to while a step waits (see `refocus`). */
+  const CONTROLS = 'a[href],button,input,select,textarea,[role="button"],[role="radio"],[role="alertdialog"]';
   /** Pending focus timers of entered steps (see `entered`); cleared when the page goes. */
   // eslint-disable-next-line svelte/prefer-svelte-reactivity -- bookkeeping only, no state
   const enterTimers = new Set<ReturnType<typeof setTimeout>>();
@@ -46,13 +49,10 @@
       // card themselves in the meantime (fast typing, autofill), the focus stays
       // there instead of jumping in the middle of the input.
       const before = document.activeElement;
-      const timer = setTimeout(() => {
-        enterTimers.delete(timer);
-        const now = document.activeElement;
-        if (now === before || !targets.get('card')?.contains(now)) focus(target);
-      }, 40);
-      enterTimers.add(timer);
+      focusLater(target, (now) => now === before || !targets.get('card')?.contains(now));
     },
+    // Same step: only while no control has the focus (the heading, the page; not after a Tab to Back meanwhile).
+    refocus: (target) => focusLater(target, (now) => !now?.closest(CONTROLS)),
     error: (text) => ui.toasts.error(text),
     offline: () => net.show(),
     reload: () => session.load(),
@@ -60,9 +60,24 @@
   });
 
   /**
+   * Focuses `target` 40 ms from now if `may` still allows it with the element that has the focus then. The latest
+   * request wins (step 5: the heading on entering, the code field once the key is there).
+   */
+  function focusLater(target: Focus, may: (now: Element | null) => boolean) {
+    for (const timer of enterTimers) clearTimeout(timer);
+    enterTimers.clear();
+    const timer = setTimeout(() => {
+      enterTimers.delete(timer);
+      if (may(document.activeElement)) focus(target);
+    }, 40);
+    enterTimers.add(timer);
+  }
+
+  /**
    * Entering a step (`entering`): desktop the step's target without
    * scrolling; on mobile the heading instead of a field, so the on-screen
-   * keyboard does not open at once (the language card of step 1 opens none).
+   * keyboard does not open at once (the language card of step 1 opens none),
+   * and instead of step 5's "Try again" (the heading keeps the focus there).
    * A rejected field gets the focus on mobile too.
    */
   function focus(target: Focus, entering = true) {
@@ -156,6 +171,8 @@
     probe,
     stayed: () => shake(netBox, undefined),
     answered: () => {
+      // Step 5 asks again for a key that got no answer.
+      flow.online();
       if (signInOnAnswer) {
         signInOnAnswer = false;
         void signIn();
@@ -196,6 +213,8 @@
 {:else if flow.step === 4}
   <StepPassword {flow} {targets} hidden={net.open} />
 {:else if flow.step === 5}
+  <StepMfa {flow} {targets} hidden={net.open} />
+{:else if flow.step === 7}
   <StepReview {flow} {targets} hidden={net.open} />
 {/if}
 {#if net.open}<NoConnection {net} bind:box={netBox} />{/if}

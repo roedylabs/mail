@@ -113,6 +113,7 @@ const SETUP_VALUES = {
   'su-email': 'alex@example.com',
   'su-pw': 'Lakeside-Harbor-2026!',
   'su-pw2': 'Lakeside-Harbor-2026!',
+  'su-otp': '123456',
 };
 
 /** Fills the visible setup fields with the demo values. */
@@ -131,7 +132,10 @@ async function fillSetup(page) {
   }
 }
 
-/** Walks the setup wizard to step `n` (1–5): fills each step, then the primary button. */
+/**
+ * Walks the setup wizard to step `n` (1–7): fills each step, then the primary button. The code step confirms by
+ * itself with the sixth digit: no click there, which could hit the next step's primary once the code went through.
+ */
 async function setupStep(page, n) {
   const stepOf = () =>
     page.evaluate(() => {
@@ -140,9 +144,10 @@ async function setupStep(page, n) {
     });
   for (let guard = 0; guard < 16; guard++) {
     if ((await stepOf()) === n) return;
+    const auto = (await page.locator('#su-otp').count()) > 0;
     await fillSetup(page);
     const primary = page.locator('button.primary').filter({ visible: true });
-    if (await primary.count()) await primary.last().click();
+    if (!auto && (await primary.count())) await primary.last().click();
     await settle(page, 900);
   }
   throw new Error(`setup: step ${n} not reached`);
@@ -201,7 +206,7 @@ const SHOTS = [
     opts: { setup: true },
     prepare: async (p) => {
       await lightTheme(p);
-      await setupStep(p, 5);
+      await setupStep(p, 7);
     },
   },
   { name: 'login', path: '/login', opts: { guest: true }, prepare: lightTheme },

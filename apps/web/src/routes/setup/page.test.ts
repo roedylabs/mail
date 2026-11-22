@@ -33,9 +33,21 @@ async function next(name: string | RegExp = 'Continue') {
   await fireEvent.click(screen.getByRole('button', { name }));
 }
 
-/** Opens the wizard at the administrator step (via the token step). */
-async function atAdmin() {
-  mockApi({ 'POST setup/token': [{ body: {} }] });
+type Routes = Parameters<typeof mockApi>[0];
+
+const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+const URI = `otpauth://totp/Roedy%20Mail:anna%40example.com?secret=${SECRET}&issuer=Roedy%20Mail`;
+const CODES = Array.from({ length: 10 }, (_, i) => `ABCD-${String(1000 + i)}`);
+/** Answer of `setup/totp`. */
+const KEY = { body: { secret: SECRET, uri: URI } };
+/** Answer of `setup/totp/verify`. */
+const VERIFIED = { body: { recovery_codes: CODES } };
+/** Heading of step 5, with its soft hyphen. */
+const MFA_TITLE = 'Multi-factor authen\u00adtication';
+
+/** Opens the wizard at the administrator step (via the token step); `routes` answer the later requests. */
+async function atAdmin(routes: Routes = {}) {
+  mockApi({ 'POST setup/token': [{ body: {} }], ...routes });
   atToken();
   const view = render(Page);
   // After the focus of entering step 2 (40 ms), as a person would.
@@ -47,8 +59,8 @@ async function atAdmin() {
 }
 
 /** Opens the wizard at the password step (via the token and administrator steps). */
-async function atPassword() {
-  const view = await atAdmin();
+async function atPassword(routes: Routes = {}) {
+  const view = await atAdmin(routes);
   await type('Your name', 'Anna Becker');
   await type('Email address', 'anna@example.com');
   await next();
@@ -56,12 +68,25 @@ async function atPassword() {
   return view;
 }
 
-/** Opens the wizard at the review step (via the token, administrator and password steps). */
-async function atReview() {
-  const view = await atPassword();
+/**
+ * Opens the wizard at the authenticator app (via the token, administrator and password steps); the key is answered
+ * unless `routes` answer `setup/totp` themselves.
+ */
+async function atMfa(routes: Routes = {}) {
+  const view = await atPassword({ 'POST setup/totp': [KEY], ...routes });
   await type(/^Password$/, 'Safe-enough1');
   await type('Confirm password', 'Safe-enough1');
   await next();
+  expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(MFA_TITLE);
+  return view;
+}
+
+/** Opens the wizard at the review step (via the steps before it, the code confirmed). */
+async function atReview() {
+  const view = await atMfa({ 'POST setup/totp/verify': [VERIFIED] });
+  // Enabled once the key is there (the focus is checked without fake timers, which also hold back Svelte's updates).
+  await vi.waitFor(() => expect(view.getByLabelText('Verification code')).toBeEnabled());
+  await type('Verification code', '123456');
   await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
   expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
   return view;
@@ -80,7 +105,7 @@ describe('Setup page', () => {
     const view = render(Page);
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up Roedy Mail');
     expect(view.getByText('Roedy Mail')).toBeInTheDocument();
-    expect(view.getByRole('img', { name: 'Step 2 of 5' })).toBeInTheDocument();
+    expect(view.getByRole('img', { name: 'Step 2 of 7' })).toBeInTheDocument();
     expect(ui.setupTitle).toBe('Setup token · Setup');
     expect(view.getByRole('button', { name: 'Back' })).toBeInTheDocument();
     // One line of text with its spaces (a selection copies the command as it is).
@@ -407,6 +432,8 @@ describe('Setup page', () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     const { calls } = mockApi({
       'POST setup/token': [{ body: {} }],
+      'POST setup/totp': [KEY],
+      'POST setup/totp/verify': [VERIFIED, VERIFIED],
       'POST setup/complete': [{ status: 201, body: { user: {} } }],
       // The check that the server answers, then the session.
       'GET public/config': Array.from({ length: 2 }, () => ({
@@ -435,7 +462,7 @@ describe('Setup page', () => {
     await type('Setup token', 'abcd-efgh-jklm');
     await next();
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Create administrator'));
-    expect(view.getByRole('img', { name: 'Step 3 of 5' })).toBeInTheDocument();
+    expect(view.getByRole('img', { name: 'Step 3 of 7' })).toBeInTheDocument();
 
     // 3: administrator (incomplete: Continue greyed out, a click only moves to the empty field)
     expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
@@ -462,9 +489,22 @@ describe('Setup page', () => {
     expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'false');
     await next();
 
-    // 5: summary and completion
+    // 5: authenticator app (the key from the setup API, the sixth digit confirms by itself)
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(MFA_TITLE);
+    expect(view.getByRole('img', { name: 'Step 5 of 7' })).toBeInTheDocument();
+    expect(ui.setupTitle).toBe('Authenticator app · Setup');
+    await vi.waitFor(() => expect(view.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible());
+    expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    const totp = calls.find((c) => c.path === 'setup/totp');
+    expect(totp?.body).toEqual({ email: 'anna@example.com' });
+    expect(totp?.headers['X-Setup-Token']).toBe('ABCD-EFGH-JKLM');
+    await type('Verification code', '123 456');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?'));
+    expect(calls.find((c) => c.path === 'setup/totp/verify')?.body).toEqual({ code: '123456' });
+
+    // 7: summary and completion (step 6 comes with the recovery codes)
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
-    expect(view.getByRole('img', { name: 'Step 5 of 5' })).toBeInTheDocument();
+    expect(view.getByRole('img', { name: 'Step 7 of 7' })).toBeInTheDocument();
     expect(ui.setupTitle).toBe('Review · Setup');
     const summary = view.getByRole('list', { name: 'Your details' });
     const rows = within(summary).getAllByRole('listitem');
@@ -501,7 +541,13 @@ describe('Setup page', () => {
     // On through 4 again: both passwords are still there.
     expect(view.getByLabelText('Confirm password')).toHaveValue('Safe-enough1');
     await next();
+    // On step 5 the same key without a new request; the code is entered again (no skipping).
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(MFA_TITLE);
+    expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    expect(view.getByLabelText('Verification code')).toHaveValue('');
+    await type('Verification code', '654321');
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?'));
+    expect(calls.filter((c) => c.path === 'setup/totp')).toHaveLength(1);
     // Enter on the heading finishes.
     await fireEvent.keyDown(view.getByRole('heading', { level: 1 }), { key: 'Enter' });
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Anna'));
@@ -539,7 +585,198 @@ describe('Setup page', () => {
   });
 });
 
-describe('Step 5: review', () => {
+describe('Step 5: authenticator app', () => {
+  /** The code field. */
+  const otp = () => screen.getByLabelText('Verification code');
+
+  it('shows the QR code and the key in groups of four; Copy key copies it without spaces', async () => {
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const view = await atMfa();
+    expect(view.getByRole('img', { name: 'Step 5 of 7' })).toBeInTheDocument();
+    expect(ui.setupTitle).toBe('Authenticator app · Setup');
+    const qr = await view.findByRole('img', { name: 'QR code for the authenticator app' });
+    expect(qr.querySelector('svg path')?.getAttribute('d')).toMatch(/^M\d/);
+    expect(view.getByText('Or enter the key manually')).toBeInTheDocument();
+    expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    // The code field gets the focus once the key is there.
+    await vi.waitFor(() => expect(otp()).toHaveFocus());
+    expect(otp()).toHaveAttribute('autocomplete', 'one-time-code');
+    expect(otp()).toHaveAttribute('inputmode', 'numeric');
+    expect(otp()).toHaveAttribute('name', 'otp');
+    // Focus order: Copy key → code field → Back → Confirm.
+    const order = [...view.container.querySelectorAll<HTMLElement>('button, input:not([hidden])')]
+      .filter((el) => el.tabIndex >= 0)
+      .map((el) => el.getAttribute('aria-label') || el.id || el.textContent?.trim());
+    expect(order).toEqual(['Copy key', 'su-otp', 'Back', 'Confirm']);
+    // Confirm is never greyed out for an incomplete code.
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'false');
+    await fireEvent.click(view.getByRole('button', { name: 'Copy key' }));
+    expect(writeText).toHaveBeenCalledWith(SECRET);
+    await vi.waitFor(() => expect(view.getByRole('button', { name: 'Copied' })).toBeInTheDocument());
+    expect(JSON.stringify(sessionStorage)).not.toContain(SECRET);
+  });
+
+  it('shows placeholders while the key is being created; the field and Confirm are locked, Back is not', async () => {
+    let answer: (a: { body: unknown }) => void = () => {};
+    const view = await atMfa({ 'POST setup/totp': [() => new Promise((resolve) => (answer = resolve))] });
+    expect(view.getByRole('status')).toHaveTextContent('Creating the key …');
+    expect(view.container.querySelector('.auth')).toHaveAttribute('aria-busy', 'true');
+    expect(view.queryByRole('img', { name: 'QR code for the authenticator app' })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Copy key' })).toBeNull();
+    expect(otp()).toBeDisabled();
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'true');
+    expect(view.getByRole('button', { name: 'Back' })).not.toHaveAttribute('aria-disabled', 'true');
+    // The heading has the focus meanwhile, the code field once the key is there.
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
+    answer(KEY);
+    await vi.waitFor(() => expect(otp()).toHaveFocus());
+    expect(view.getByRole('status')).toHaveTextContent('');
+    expect(view.container.querySelector('.auth')).not.toHaveAttribute('aria-busy');
+  });
+
+  it('leaves the focus on Back when the key arrives after a Tab there', async () => {
+    let answer: (a: { body: unknown }) => void = () => {};
+    const view = await atMfa({ 'POST setup/totp': [() => new Promise((resolve) => (answer = resolve))] });
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());
+    const back = view.getByRole('button', { name: 'Back' });
+    back.focus();
+    answer(KEY);
+    await vi.waitFor(() => expect(view.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible());
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(back).toHaveFocus();
+  });
+
+  it('shows "Something went wrong." with "Try again" when the key was not created', async () => {
+    const view = await atMfa({ 'POST setup/totp': [{ status: 500, body: {} }, KEY] });
+    const alert = await view.findByRole('alert');
+    expect(alert).toHaveAttribute('id', 'su-key-alert');
+    expect(alert).toHaveTextContent('Something went wrong.');
+    expect(alert).toHaveTextContent('The key couldn’t be created. Details are in the container log.');
+    expect(view.container.querySelector('.auth')).toBeNull();
+    expect(otp()).toBeDisabled();
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'true');
+    const retry = view.getByRole('button', { name: 'Try again' });
+    await vi.waitFor(() => expect(retry).toHaveFocus());
+    await fireEvent.click(retry);
+    expect(view.getByRole('status')).toHaveTextContent('Creating the key …');
+    await vi.waitFor(() => expect(view.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible());
+    await vi.waitFor(() => expect(otp()).toHaveFocus());
+  });
+
+  it('asks for all six digits, shows a wrong code and a server error', async () => {
+    const view = await atMfa({
+      'POST setup/totp/verify': [
+        { status: 422, body: { error: 'invalid_code' } },
+        { status: 502, body: {} },
+      ],
+    });
+    await vi.waitFor(() => expect(otp()).toHaveFocus());
+    await type('Verification code', '1a2');
+    expect(otp()).toHaveValue('12');
+    await next('Confirm');
+    expect(view.getByRole('alert')).toHaveTextContent('Please enter all 6 digits.');
+    expect(view.getByRole('alert')).toHaveAttribute('id', 'su-otp-err');
+    expect(otp()).toHaveAttribute('aria-invalid', 'true');
+    expect(otp()).toHaveAttribute('aria-describedby', 'su-otp-err');
+    // Any edit clears it; the sixth digit confirms by itself.
+    await type('Verification code', '12345');
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(otp()).toHaveAttribute('aria-invalid', 'false');
+    await type('Verification code', '123456');
+    const alert = await view.findByRole('alert');
+    expect(alert).toHaveAttribute('id', 'su-code-alert');
+    expect(alert).toHaveTextContent('Invalid code.');
+    expect(alert).toHaveTextContent('Check the current code in your app and try again.');
+    expect(otp()).toHaveValue('');
+    expect(otp()).toHaveAttribute('aria-describedby', 'su-code-alert');
+    expect(otp()).toHaveAttribute('aria-invalid', 'true');
+    expect(view.container.querySelectorAll('.box.bad')).toHaveLength(6);
+    await type('Verification code', '6');
+    expect(view.queryByRole('alert')).toBeNull();
+    // A server error keeps the code in the boxes.
+    await type('Verification code', '654321');
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Something went wrong.'));
+    expect(view.getByRole('alert')).toHaveTextContent(
+      'The code couldn’t be checked. Details are in the container log.',
+    );
+    expect(otp()).toHaveValue('654321');
+    expect(view.container.querySelector('.boxes')?.textContent?.replace(/\s/g, '')).toBe('654321');
+    await vi.waitFor(() => expect(otp()).toHaveFocus());
+  });
+
+  it('locks the field after too many codes with a countdown, then releases it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = await atMfa({
+      'POST setup/totp/verify': [{ status: 429, body: { error: 'rate_limited', retry_after: 900 } }],
+    });
+    await vi.waitFor(() => expect(otp()).toBeEnabled());
+    await type('Verification code', '123456');
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Too many incorrect codes.'));
+    const alert = view.getByRole('alert');
+    expect(alert).toHaveTextContent('Try again in 15 minutes.');
+    expect(alert.querySelector('.time')).toHaveTextContent('15:00');
+    expect(alert.querySelector('.msg-extra')).toHaveAttribute('aria-hidden', 'true');
+    expect(otp()).toBeDisabled();
+    expect(otp()).toHaveValue('');
+    // Not marked invalid while locked, but described by the message.
+    expect(otp()).toHaveAttribute('aria-invalid', 'false');
+    expect(otp()).toHaveAttribute('aria-describedby', 'su-code-alert');
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'true');
+    await vi.advanceTimersByTimeAsync(860_000);
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Try again in 40 seconds.'));
+    expect(view.getByRole('alert').querySelector('.time')).toHaveTextContent('0:40');
+    await vi.advanceTimersByTimeAsync(40_000);
+    await vi.waitFor(() => expect(view.queryByRole('alert')).toBeNull());
+    await vi.waitFor(() => expect(otp()).toBeEnabled());
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  it('asks again for a key that got no answer once the server answers', async () => {
+    const routes = {
+      'POST setup/totp': [] as { body: unknown }[],
+      'GET public/config': [{ body: { setup_required: true } }],
+    };
+    const view = await atPassword(routes);
+    await type(/^Password$/, 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
+    await next();
+    expect(await view.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
+    routes['POST setup/totp'].push(KEY);
+    window.dispatchEvent(new Event('online'));
+    await vi.waitFor(() => expect(view.queryByRole('alertdialog')).toBeNull());
+    await vi.waitFor(() => expect(view.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible());
+    await vi.waitFor(() => expect(otp()).toHaveFocus());
+  });
+
+  it('speaks German', async () => {
+    sessionStorage.setItem('roedy-setup-lang', 'de');
+    mockApi({ 'POST setup/token': [{ body: {} }], 'POST setup/totp': [KEY] });
+    atToken();
+    const view = render(Page);
+    await type('Setup-Token', 'abcd-efgh-jklm');
+    await next('Weiter');
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Administrator anlegen'));
+    await type('Ihr Name', 'Anna Becker');
+    await type('E-Mail-Adresse', 'anna@example.com');
+    await next('Weiter');
+    await type(/^Passwort$/, 'Safe-enough1');
+    await type('Passwort wiederholen', 'Safe-enough1');
+    await next('Weiter');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Multi-Faktor-Authenti­fizierung');
+    expect(view.getByRole('img', { name: 'Schritt 5 von 7' })).toBeInTheDocument();
+    expect(ui.setupTitle).toBe('Authenticator-App · Einrichtung');
+    expect(view.getByText(/Schützen Sie das Administratorkonto/)).toBeInTheDocument();
+    await vi.waitFor(() => expect(view.getByRole('img', { name: 'QR-Code für die Authenticator-App' })).toBeVisible());
+    expect(view.getByText('Oder Schlüssel manuell eingeben')).toBeInTheDocument();
+    expect(view.getByRole('button', { name: 'Schlüssel kopieren' })).toBeInTheDocument();
+    expect(view.getByLabelText('Bestätigungscode')).toBeInTheDocument();
+    await next('Bestätigen');
+    expect(view.getByRole('alert')).toHaveTextContent('Bitte geben Sie alle 6 Ziffern ein.');
+  });
+});
+
+describe('Step 7: review', () => {
   it('locks Back and "Change" while setting up and shows a server error in place of the note', async () => {
     let answer: (a: { status: number; body: unknown }) => void = () => {};
     const view = await atReview();
@@ -715,7 +952,7 @@ describe('Step 5: review', () => {
     sessionStorage.setItem('roedy-setup-lang', 'de');
     sessionStorage.setItem('roedy-setup-accent', 'custom');
     sessionStorage.setItem('roedy-setup-accentHex', '#4a7bd0');
-    mockApi({ 'POST setup/token': [{ body: {} }] });
+    mockApi({ 'POST setup/token': [{ body: {} }], 'POST setup/totp': [KEY], 'POST setup/totp/verify': [VERIFIED] });
     atToken();
     const view = render(Page);
     await vi.waitFor(() => expect(view.getByLabelText('Setup-Token')).toHaveFocus());
@@ -728,6 +965,9 @@ describe('Step 5: review', () => {
     await type(/^Passwort$/, 'Safe-enough1');
     await type('Passwort wiederholen', 'Safe-enough1');
     await next('Weiter');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Multi-Faktor-Authenti\u00adfizierung');
+    await vi.waitFor(() => expect(view.getByLabelText('Bestätigungscode')).toHaveFocus());
+    await type('Bestätigungscode', '123456');
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Alles bereit?'));
     expect(ui.setupTitle).toBe('Überprüfen · Einrichtung');
     expect(view.getByRole('list', { name: 'Ihre Angaben' })).toHaveTextContent('Deutsch · System · Eigene #4A7BD0');
@@ -761,7 +1001,7 @@ describe('Step 1: language and appearance', () => {
         'Roedy Mail is set up in a few steps. First, choose your language and appearance. This becomes your default, and you can change it later in Settings.',
       ),
     ).toBeInTheDocument();
-    expect(view.getByRole('img', { name: 'Step 1 of 5' })).toBeInTheDocument();
+    expect(view.getByRole('img', { name: 'Step 1 of 7' })).toBeInTheDocument();
     expect(ui.setupTitle).toBe('Language and appearance · Setup');
     expect(view.queryByRole('button', { name: 'Back' })).toBeNull();
 
@@ -1257,7 +1497,7 @@ describe('Step 4: password', () => {
   });
 
   it('shows "too long" while typing and the mismatch on Enter', async () => {
-    const view = await atPassword();
+    const view = await atPassword({ 'POST setup/totp': [KEY] });
     const pw = view.getByLabelText(/^Password$/);
     const pw2 = view.getByLabelText('Confirm password');
     await type(/^Password$/, `Safe-enough1${'ä'.repeat(507)}`);
@@ -1278,7 +1518,7 @@ describe('Step 4: password', () => {
     await type(/^Password$/, 'Safe-enough2');
     expect(view.queryByRole('alert')).toBeNull();
     await fireEvent.keyDown(pw2, { key: 'Enter' });
-    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('All set?');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(MFA_TITLE);
     // Passwords live in memory only.
     expect(Object.values(sessionStorage)).not.toContain('Safe-enough2');
   });

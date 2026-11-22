@@ -45,6 +45,16 @@ export function setupHeads(app: string, email: string): StepHead[] {
         short: [before, mail, m.setup_pw_intro_after_short({}, o)] as const,
       })),
       {
+        title: m.setup_mfa_title({}, o),
+        long: plain(m.setup_mfa_intro({}, o)),
+        short: plain(m.setup_mfa_intro_short({}, o)),
+      },
+      {
+        title: m.setup_codes_title({}, o),
+        long: plain(m.setup_codes_intro({}, o)),
+        short: plain(m.setup_codes_intro_short({}, o)),
+      },
+      {
         title: m.setup_review_title({}, o),
         long: plain(m.setup_review_intro({}, o)),
         short: plain(m.setup_review_intro_short({}, o)),
