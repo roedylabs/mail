@@ -303,7 +303,7 @@ export interface SetupPageValues {
 
 /** A row of the summary on step 7: the step it changes, its tile (initials or icon), label, value and an optional second line. */
 export interface ReviewRow {
-  step: 1 | 3 | 4;
+  step: 1 | 3 | 4 | 5;
   icon: IconName;
   /** Initials in place of the icon (administrator). */
   ini: string;
@@ -485,8 +485,10 @@ export class SetupFlow {
 
   /**
    * Summary of step 7, one row per step with input: language and appearance,
-   * administrator (initials, name, email), password (never shown). Read
-   * fresh each time (the choices of step 1 live in the session storage).
+   * administrator (initials, name, email), password (never shown),
+   * multi-factor authentication (steps 5 and 6; "Change" leads to step 5 with
+   * the same key). Read fresh each time (the choices of step 1 live in the
+   * session storage).
    */
   get review(): ReviewRow[] {
     const name = normalizeName(this.name);
@@ -518,6 +520,15 @@ export class SetupFlow {
         value: MASKED_PW,
         sub: m.setup_review_pw_set(),
         masked: true,
+      },
+      {
+        step: 5,
+        icon: 'ti-shield-check',
+        ini: '',
+        label: m.setup_review_mfa(),
+        value: m.setup_review_mfa_value(),
+        sub: m.setup_review_mfa_set(),
+        masked: false,
       },
     ];
   }

@@ -998,6 +998,15 @@ describe('Step 7: completion', () => {
       [1, 'ti-palette', '', 'Language and appearance', 'English · Dark · Apricot', '', false],
       [3, 'ti-user-shield', 'AB', 'Administrator', 'Anna Baker', 'anna@example.com', false],
       [4, 'ti-lock', '', 'Password', MASKED_PW, 'Set', true],
+      [
+        5,
+        'ti-shield-check',
+        '',
+        'Multi-factor authentication',
+        'Authenticator app',
+        'Set up, 10 recovery codes',
+        false,
+      ],
     ]);
     expect(JSON.stringify(flow.review)).not.toContain(flow.pw);
   });
@@ -1040,6 +1049,23 @@ describe('Step 7: completion', () => {
     expect(h.entered).toHaveBeenLastCalledWith(3, 'name');
     flow.revisit(4);
     expect(h.entered).toHaveBeenLastCalledWith(4, 'pw');
+  });
+
+  it('leads "Change" on multi-factor authentication to step 5 with the same key, then forward through step 6', async () => {
+    const { calls } = mockApi({ 'POST setup/totp/verify': [{ body: { recovery_codes: CODES } }] });
+    const { flow, h } = at(7);
+    flow.otp = '123456';
+    flow.revisit(5);
+    // Same QR code and key, an empty code field; no new key requested.
+    expect([flow.step, flow.keyStatus, flow.keyNow?.secret, flow.otp]).toEqual([5, 'ready', SECRET, '']);
+    expect(h.entered).toHaveBeenLastCalledWith(5, 'otp');
+    flow.editOtp('654321');
+    await vi.waitFor(() => expect(flow.step).toBe(6));
+    // Same codes, the box as left.
+    expect([flow.codes, flow.saved]).toEqual([CODES, true]);
+    flow.submitCodes();
+    expect(flow.step).toBe(7);
+    expect(calls.map((c) => c.path)).toEqual(['setup/totp/verify']);
   });
 
   it('sets up with the stored appearance, shows the done screen, then signs in', async () => {

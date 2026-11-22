@@ -20,19 +20,21 @@ docker compose logs roedy-mail | grep Setup-Token
 
 ### 2. Run the setup wizard
 
-Open the app's address in the browser. As long as there is no administrator, Roedy Mail opens the setup wizard. It has five steps and only creates your administrator account:
+Open the app's address in the browser. As long as there is no administrator, Roedy Mail opens the setup wizard. It has seven steps and only creates your administrator account, protected by multi-factor authentication from the start:
 
 1. **Language and appearance:** language, theme and accent color. They apply at once and become your settings; you can change them later in Settings.
 2. **Setup token:** the token from the log. It proves that you operate the server and is only valid until the setup is complete.
 3. **Administrator:** your name and email address.
 4. **Password:** a password and its confirmation. It has to meet the rules shown below the field before you can continue.
-5. **Review:** everything at a glance, with **Change** per row.
+5. **Authenticator app:** scan the QR code with an authenticator app (or type in the key) and enter the 6-digit code it shows. This step cannot be skipped.
+6. **Recovery codes:** ten codes that sign you in once each if you can't access the app. Copy or download them and confirm that you've saved them.
+7. **Review:** everything at a glance, with **Change** per row.
 
 ![Setup wizard, step 2: the setup token](screenshots/setup-token.png)
 
-**Finish setup** creates the account and revokes the setup token. The done screen welcomes you by your first name, signs you in and opens **Administration › Mail servers**.
+**Finish setup** creates the account with its authenticator app and recovery codes and revokes the setup token. The done screen welcomes you by your first name, signs you in and opens **Administration › Mail servers**. From then on, signing in asks for a code from the app.
 
-![Setup wizard, step 5: the review before finishing](screenshots/setup-review.png)
+![Setup wizard, step 7: the review before finishing](screenshots/setup-review.png)
 
 ### 3. Connect the mail server
 

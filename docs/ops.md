@@ -177,25 +177,26 @@ docker exec roedy-mail roedy-mail setup-token   # alternatively
 
 The token is valid until the setup is completed; afterwards `roedy-mail setup-token` reports `error: Setup is complete; there is no setup token anymore.` (exit code 1). After five wrong entries, input from that address is blocked for 30 seconds.
 
-The setup only creates the administrator, in five steps:
+The setup only creates the administrator, with multi-factor authentication from the start, in seven steps:
 
 1. **Language and appearance:** language (System, English, German), theme (System, Light, Dark) and accent color (five colors or your own under "More"). They apply to the wizard at once and become the administrator's settings; nothing is sent to the server yet.
 2. **Setup token:** the token from the log.
 3. **Administrator:** name and email address.
 4. **Password:** password and confirmation; "Continue" is available once the rules below the field are met.
-5. **Review** ("All set?"): a summary with "Change" per row; "Finish setup" creates the administrator and revokes the setup token.
+5. **Authenticator app:** QR code and key for an authenticator app, confirmed with a 6-digit code; it cannot be skipped. After five wrong codes the field is locked for 15 minutes.
+6. **Recovery codes:** the ten recovery codes with "Copy" and "Download"; "Continue" needs the confirmation that they are saved.
+7. **Review** ("All set?"): a summary with "Change" per row; "Finish setup" creates the administrator with the authenticator app and the recovery codes and revokes the setup token.
 
-The setup runs in this browser tab: language, appearance, name and email address stay in the tab's session storage, the token and the password only in memory. After a reload on steps 3 to 5 the wizard returns to the setup token with the other details kept. Then it signs the administrator in and opens Administration › Mail servers. The public address is not part of the setup; it comes from [`ROEDY_PUBLIC_URL`](#configuration).
+The setup runs in this browser tab: language, appearance, name and email address stay in the tab's session storage, the token, the password, the app's key and the recovery codes only in memory. The account, its authenticator app and its recovery codes only come into being with "Finish setup". After a reload on steps 3 to 7 the wizard returns to the setup token with the other details kept; the authenticator app then has to be scanned again. Then it signs the administrator in and opens Administration › Mail servers; every later sign-in asks for a code from the app. The public address is not part of the setup; it comes from [`ROEDY_PUBLIC_URL`](#configuration).
 
 Next:
 
 1. Add the mail server under Administration › Mail servers, with the OAuth client ([`stalwart.md`](setup/stalwart.md#oauth-client)); "Test connection" checks it.
 2. Set up the system emails under Administration › Email with a [sender account](setup/stalwart.md#sender-account-for-system-emails) (optional; invitations, password reset and notifications by email need it).
 3. Back up the [instance key](#instance-key).
-4. Set up an authenticator app under Account › Security.
-5. Under Administration › Maintenance, check the schedule of the [backups](#backup-and-restore) (daily by default, 30 days).
-6. Invite more people under Administration › Users: with system emails by email, without them via "Copy link".
-7. Optionally adjust the [update check](#updates) under Administration › Updates.
+4. Under Administration › Maintenance, check the schedule of the [backups](#backup-and-restore) (daily by default, 30 days).
+5. Invite more people under Administration › Users: with system emails by email, without them via "Copy link".
+6. Optionally adjust the [update check](#updates) under Administration › Updates.
 
 ## Data directory
 
@@ -407,7 +408,7 @@ If an administrator has lost the password, or the authenticator app and the reco
 docker exec roedy-mail roedy-mail reset-admin --user admin@example.com
 ```
 
-The command sets a new random password (it only appears in the output), removes authenticator apps and recovery codes, ends all sessions and unlocks the account. Then sign in with the printed password, change it under Account › Security and set up the authenticator app again. Other users reset their password on the sign-in page via "Forgot password?" (this needs system emails); if they have lost the authenticator app and recovery codes, an administrator resets the multi-factor authentication under Administration › Users.
+The command sets a new random password (it only appears in the output), removes authenticator apps and recovery codes (including the ones from the setup), ends all sessions and unlocks the account. Then sign in with the printed password, change it under Account › Security and set up the authenticator app again. Other users reset their password on the sign-in page via "Forgot password?" (this needs system emails); if they have lost the authenticator app and recovery codes, an administrator resets the multi-factor authentication under Administration › Users.
 
 ## Further guides
 
