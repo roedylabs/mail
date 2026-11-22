@@ -732,6 +732,8 @@ describe('Step 5: authenticator app', () => {
     expect(alert).toHaveAttribute('id', 'su-code-alert');
     expect(alert).toHaveTextContent('Invalid code.');
     expect(alert).toHaveTextContent('Check the current code in your app and try again.');
+    // Under the code boxes, as on the setup token step.
+    expect(otp().compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(otp()).toHaveValue('');
     expect(otp()).toHaveAttribute('aria-describedby', 'su-code-alert');
     expect(otp()).toHaveAttribute('aria-invalid', 'true');
