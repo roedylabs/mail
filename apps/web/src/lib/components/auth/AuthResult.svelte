@@ -273,17 +273,21 @@
     gap: 6px 8px;
   }
 
+  /* One line: a 30 px pill; a long chip (a narrow phone) wraps inside its rounded box */
   .chips li {
+    max-width: 100%;
     display: flex;
     align-items: center;
     gap: 7px;
-    height: 30px;
-    padding: 0 12px 0 5px;
-    border-radius: 9999px;
+    min-height: 30px;
+    padding: 5px 12px 5px 5px;
+    border-radius: 16px;
     background: var(--accsoft);
     color: var(--deep);
     font-size: 13px;
     font-weight: 700;
+    line-height: 1.35;
+    text-align: left;
   }
 
   .chip-icon {

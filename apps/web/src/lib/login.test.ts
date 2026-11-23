@@ -16,12 +16,14 @@ function hooks() {
   return {
     fail: vi.fn<(field?: Field) => void>(),
     focus: vi.fn<(field: Field) => void>(),
+    unlocked: vi.fn<(field: Field) => void>(),
     navigate: vi.fn<(to: 'login' | 'forgot') => void>(),
     home: vi.fn(),
     signedIn: vi.fn(() => Promise.resolve(true)),
     signOut: vi.fn(),
     passwordReset: vi.fn(),
     error: vi.fn<(text: string) => void>(),
+    offline: vi.fn(),
   };
 }
 
@@ -84,23 +86,83 @@ describe('step password', () => {
   it('locks after 429 with a countdown, the fields stay editable', async () => {
     vi.useFakeTimers();
     mockApi({ 'POST auth/login': [{ status: 429, body: { error: 'rate_limited', retry_after: 300 } }] });
-    const { flow } = filled();
+    const { flow, h } = filled();
     await flow.submit();
     expect(flow.pwLocked).toBe(true);
     expect(flow.pwLockText).toBe('Try again in 5 minutes.');
-    expect(flow.pwLockBtn).toBe('Try again in 5:00');
-    expect(flow.loginReady).toBe(false);
-    expect(flow.loginDis).toBe(true);
+    // The lock bar: full at the answer, empty at `retry_after`.
+    expect(flow.pwLock).toEqual({ left: 300, total: 300 });
     expect(flow.authErr).toBe(false);
     expect(flow.pw).toBe('');
+    expect(h.fail).toHaveBeenCalledWith('pw');
     flow.editPw('once-more');
     expect(flow.pw).toBe('once-more');
+    // Locked: a submit sends nothing.
+    await flow.submit();
+    expect(flow.loading).toBe(false);
     vi.advanceTimersByTime(275_000);
     expect(flow.pwLockText).toBe('Try again in 25 seconds.');
-    expect(flow.pwLockBtn).toBe('Try again in 0:25');
+    expect(flow.pwLock).toEqual({ left: 25, total: 300 });
+    expect(h.unlocked).not.toHaveBeenCalled();
     vi.advanceTimersByTime(25_000);
     expect(flow.pwLocked).toBe(false);
-    expect(flow.loginReady).toBe(true);
+    expect(flow.pwLock).toBeNull();
+    expect(flow.pwLockText).toBe('');
+    // Ran out: the message goes and the password field may take the focus.
+    expect(h.unlocked).toHaveBeenCalledWith('pw');
+  });
+
+  it('keeps “Stay signed in” while the sign-in runs', async () => {
+    let answer: (value: { body: unknown }) => void = () => undefined;
+    mockApi({ 'POST auth/login': [() => new Promise((resolve) => (answer = resolve))] });
+    const { flow } = filled();
+    const sent = flow.submit();
+    flow.toggleRemember();
+    expect(flow.remember).toBe(true);
+    answer({ body: { status: 'ok', user: USER } });
+    await sent;
+    expect(flow.done).toBe(true);
+    expect(flow.remember).toBe(true);
+    flow.reset();
+    flow.toggleRemember();
+    expect(flow.remember).toBe(false);
+  });
+
+  it('shows “No connection” without an answer, everything typed stays', async () => {
+    mockApi({});
+    const { flow, h } = filled();
+    await flow.submit();
+    expect(h.offline).toHaveBeenCalledOnce();
+    expect(h.error).not.toHaveBeenCalled();
+    expect(flow.loading).toBe(false);
+    expect(flow.ident).toBe('max@example.net');
+    expect(flow.pw).toBe('Safe-enough1');
+    expect(flow.authErr).toBe(false);
+  });
+
+  it('reports a busy server as an error toast, the input stays', async () => {
+    mockApi({ 'POST auth/login': [{ status: 503, body: { error: 'busy' } }] });
+    const { flow, h } = filled();
+    await flow.submit();
+    expect(h.error).toHaveBeenCalledWith('That didn’t work. Please try again.');
+    expect(h.offline).not.toHaveBeenCalled();
+    expect(flow.pw).toBe('Safe-enough1');
+  });
+
+  it('clears the failed and expired notices on a rejected submit', async () => {
+    mockApi({ 'POST auth/login': [{ status: 422, body: { error: 'invalid_credentials' } }] });
+    const { flow } = filled();
+    await flow.submit();
+    expect(flow.authErr).toBe(true);
+    flow.loginExpired = true;
+    // Typing keeps the messages until the next submit.
+    flow.editIdent('');
+    expect(flow.authErr).toBe(true);
+    await flow.submit();
+    expect(flow.authErr).toBe(false);
+    expect(flow.loginExpired).toBe(false);
+    expect(flow.idErr).toBe('Please enter your email address or username.');
+    expect(flow.pwErr).toBe('Please enter your password.');
   });
 
   it('reports maintenance mode with the custom notice', async () => {
@@ -143,6 +205,11 @@ describe('step password', () => {
     flow.reset();
     expect(flow.done).toBe(false);
     expect(h.signOut).toHaveBeenCalledOnce();
+    // The form with the identifier, the password cleared, the focus in the password field.
+    expect(flow.view).toBe('login');
+    expect(flow.ident).toBe('max@example.net');
+    expect(flow.pw).toBe('');
+    expect(h.focus).toHaveBeenLastCalledWith('pw');
     vi.advanceTimersByTime(DONE_MS);
     expect(h.signedIn).not.toHaveBeenCalled();
   });
@@ -189,6 +256,18 @@ describe('step password', () => {
     expect(flow.done).toBe(false);
     expect(flow.view).toBe('login');
     expect(h.error).toHaveBeenCalledWith('Couldn’t sign in. Allow cookies for this site and try again.');
+    expect(flow.ident).toBe('max@example.net');
+    expect(h.focus).toHaveBeenLastCalledWith('pw');
+  });
+
+  it('greets with the part before the “@” without a name', async () => {
+    mockApi({ 'POST auth/login': [{ body: { status: 'ok', user: { ...USER, display_name: '  ' } } }] });
+    const { flow } = filled();
+    await flow.submit();
+    expect(flow.greetName).toBe('Max');
+    flow.reset();
+    flow.editIdent('anna');
+    expect(flow.greetName).toBe('Anna');
   });
 
   it('signs out a session whose response only arrives after leaving', async () => {
@@ -250,11 +329,49 @@ describe('step password', () => {
     await flow.submit();
     expect(h.error).toHaveBeenCalledWith('That didn’t work. Please try again.');
     expect(flow.loading).toBe(false);
-    // Without a server response (`fetch` fails).
+    // Without a server response (`fetch` fails) and without "No connection" on the page: its own text.
+    const rest: Partial<ReturnType<typeof hooks>> = hooks();
+    delete rest.offline;
+    const bare = new LoginFlow(rest);
+    bare.editIdent('max');
+    bare.editPw('Safe-enough1');
     mockApi({});
-    await flow.submit();
-    expect(h.error).toHaveBeenLastCalledWith('No connection. Please try again.');
-    expect(flow.loading).toBe(false);
+    await bare.submit();
+    expect(rest.error).toHaveBeenLastCalledWith('No connection. Please try again.');
+    expect(bare.loading).toBe(false);
+  });
+});
+
+describe('resend', () => {
+  it('reports a resend without an answer only while “Email sent” is open', async () => {
+    mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });
+    const h = hooks();
+    const flow = new LoginFlow(h);
+    flow.openForgot();
+    flow.editEmail('max@example.net');
+    await flow.submitForgot();
+    expect(flow.view).toBe('sent');
+    flow.locks.clear('resend');
+    let fail: (error: Error) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise((_, reject) => (fail = reject))),
+    );
+    const sent = flow.resend();
+    flow.backToLogin();
+    fail(new TypeError('Failed to fetch'));
+    await sent;
+    expect(h.offline).not.toHaveBeenCalled();
+    expect(h.error).not.toHaveBeenCalled();
+    // Still on "Email sent": "No connection".
+    flow.openForgot();
+    flow.editEmail('max@example.net');
+    mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });
+    await flow.submitForgot();
+    flow.locks.clear('resend');
+    mockApi({});
+    await flow.resend();
+    expect(h.offline).toHaveBeenCalledOnce();
   });
 });
 

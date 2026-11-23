@@ -8,7 +8,7 @@
  * same page: `route()` opens the matching step, step changes report the route
  * back (`navigate`). Unexpected responses show "Something went wrong".
  */
-import { ApiError, api, fieldsOf, isApiError, maintenanceMessage, retryAfter } from '#lib/api.ts';
+import { ApiError, NetworkError, api, fieldsOf, isApiError, maintenanceMessage, retryAfter } from '#lib/api.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
 import { failText } from '#lib/errors.ts';
@@ -88,6 +88,8 @@ export interface LoginHooks {
   fail?: (field?: Field) => void;
   /** New step: focus the field. */
   focus?: (field: Field) => void;
+  /** A lock of the step ran out: the field may take the focus again (desktop). */
+  unlocked?: (field: Field) => void;
   /** The step belongs to another route (`onFgView`, `onPwNewLeave`). */
   navigate?: (to: 'login' | 'forgot') => void;
   /** "Back to ‹app name›" when signed in on `/password/forgot` (`onFgHome`). */
@@ -103,6 +105,8 @@ export interface LoginHooks {
   passwordReset?: () => void;
   /** Errors without their own text: error toast (`ui.toasts.error`). */
   error?: (text: string) => void;
+  /** A request got no answer: "No connection" (everything typed stays); without it an error toast. */
+  offline?: () => void;
 }
 
 /** Locks of the buttons and the countdown of "Resend". */
@@ -140,6 +144,8 @@ export class LoginFlow {
   authErr = $state(false);
   /** 422 `login_expired` in the second step: notice until the next submit. */
   loginExpired = $state(false);
+  /** Length of the running sign-in lock in seconds (the lock bar is full at the answer). */
+  pwLockTotal = $state(0);
   // Steps code and recovery code
   otp = $state('');
   otpErr = $state<'short' | 'invalid' | 'used' | null>(null);
@@ -191,9 +197,8 @@ export class LoginFlow {
 
   pwLocked = $derived(this.pwLeft > 0);
   pwLockText = $derived(this.pwLeft ? m.limit_text({ wait: waitText(this.pwLeft) }) : '');
-  pwLockBtn = $derived(this.pwLeft ? m.login_submit_locked({ time: clockText(this.pwLeft) }) : '');
-  loginReady = $derived(!this.loading && !this.pwLocked);
-  loginDis = $derived(this.loading || this.pwLocked);
+  /** The lock bar under the password field: seconds left of the lock's length. */
+  pwLock = $derived(this.pwLeft ? { left: this.pwLeft, total: Math.max(this.pwLockTotal, this.pwLeft) } : null);
 
   codeLocked = $derived(this.codeLeft > 0);
   codeLockText = $derived.by(() => {
@@ -321,7 +326,9 @@ export class LoginFlow {
     this.pwErr = null;
   }
 
+  /** "Stay signed in"; fixed while the sign-in runs (the request already carries the choice "Hello" names). */
   toggleRemember(): void {
+    if (this.loading) return;
     this.remember = !this.remember;
   }
 
@@ -372,7 +379,8 @@ export class LoginFlow {
         this.hooks.fail?.('pw');
       } else if (isApiError(error, 429)) {
         this.pw = '';
-        this.locks.start('pw', retryAfter(error));
+        this.pwLockTotal = retryAfter(error);
+        this.locks.start('pw', this.pwLockTotal);
         this.hooks.fail?.('pw');
       } else if (isApiError(error, 503, 'maintenance')) {
         this.maintenance(error);
@@ -386,7 +394,7 @@ export class LoginFlow {
         this.pw = '';
         this.hooks.fail?.('pw');
       } else {
-        this.hooks.error?.(failText(error));
+        this.failed(error);
       }
     }
   }
@@ -518,7 +526,7 @@ export class LoginFlow {
         this.fgErr = m.login_fg_invalid();
         this.hooks.fail?.('fg');
       } else {
-        this.hooks.error?.(failText(error));
+        this.failed(error);
       }
     }
   }
@@ -527,12 +535,14 @@ export class LoginFlow {
   async resend(): Promise<void> {
     if (this.resendBlocked || this.resending) return;
     this.resending = true;
+    const req = this.req;
     try {
       await api('POST', 'auth/password/forgot', { email: this.ident.trim() });
       this.cool(RESEND_S, false);
     } catch (error) {
       if (isApiError(error, 429)) this.cool(retryAfter(error), true);
-      else this.hooks.error?.(failText(error));
+      // Left "Email sent" meanwhile: no toast or "No connection" over another screen.
+      else if (req === this.req && this.view === 'sent') this.failed(error);
     } finally {
       this.resending = false;
     }
@@ -589,7 +599,7 @@ export class LoginFlow {
       } else if (isApiError(error, 422, 'invalid') && fieldsOf(error).password) {
         this.npPolicy(fieldsOf(error).password ?? { code: 'policy' });
       } else {
-        this.hooks.error?.(failText(error));
+        this.failed(error);
       }
     }
   }
@@ -668,6 +678,7 @@ export class LoginFlow {
     this.done = false;
     this.user = null;
     this.hooks.error?.(m.error_cookie());
+    this.hooks.focus?.(this.ident.trim() ? 'pw' : 'id');
   }
 
   /**
@@ -731,7 +742,7 @@ export class LoginFlow {
       this.hooks.fail?.(field);
       return;
     }
-    this.hooks.error?.(failText(error));
+    this.failed(error);
   }
 
   private setCode(kind: 'otp' | 'bc', value: string, err: 'invalid' | 'used' | null): void {
@@ -828,9 +839,16 @@ export class LoginFlow {
     this.rsLimit = limited;
   }
 
-  /** A lock has expired: notice gone, the code field ready again. */
+  /** Other failures: "No connection" without an answer (the input stays), otherwise the error toast. */
+  private failed(error: unknown): void {
+    if (error instanceof NetworkError && this.hooks.offline) this.hooks.offline();
+    else this.hooks.error?.(failText(error));
+  }
+
+  /** A lock has expired: notice gone, the field ready again. */
   private freed(kind: LockKind): void {
     if (kind === 'resend') this.rsLimit = false;
+    else if (kind === 'pw' && this.view === 'login' && !this.done) this.hooks.unlocked?.('pw');
     else if (kind === 'code' && this.view === 'otp') this.hooks.focus?.('otp');
     else if (kind === 'code' && this.view === 'backup') this.hooks.focus?.('bc');
   }
