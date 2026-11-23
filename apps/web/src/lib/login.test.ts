@@ -557,14 +557,15 @@ describe('reset password', () => {
     await flow.submitForgot();
     expect(flow.fgLocked).toBe(true);
     expect(flow.fgLockText).toBe('Try again in 6 minutes.');
-    expect(flow.fgLockBtn).toBe('Send link in 6:00');
-    expect(flow.fgReady).toBe(false);
-    expect(flow.fgDis).toBe(true);
+    expect(flow.fgLock).toEqual({ left: 360, total: 360 });
+    vi.advanceTimersByTime(60_000);
+    expect(flow.fgLock).toEqual({ left: 300, total: 360 });
     expect(flow.view).toBe('forgot');
     expect(flow.ident).toBe('max@example.net');
     expect(h.fail).toHaveBeenCalledWith();
-    vi.advanceTimersByTime(360_000);
+    vi.advanceTimersByTime(300_000);
     expect(flow.fgLocked).toBe(false);
+    expect(flow.fgLock).toBeNull();
     await flow.submitForgot();
     expect(flow.view).toBe('sent');
     vi.advanceTimersByTime(30_000);
@@ -576,6 +577,57 @@ describe('reset password', () => {
     vi.advanceTimersByTime(360_000);
     expect(flow.resendLimited).toBe(false);
     expect(flow.resendLabel).toBe('Resend');
+    flow.dispose();
+  });
+
+  it('names and resends the address the request sent, not one typed while it ran', async () => {
+    vi.useFakeTimers();
+    let answer: () => void = () => undefined;
+    const { calls } = mockApi({
+      'POST auth/password/forgot': [
+        () => new Promise<{ status: number }>((resolve) => (answer = () => resolve({ status: 202 }))),
+        { status: 202 },
+      ],
+    });
+    const flow = new LoginFlow(hooks());
+    flow.route({ kind: 'forgot' });
+    flow.editEmail(' max@example.net ');
+    const sending = flow.submitForgot();
+    flow.editEmail('other@example.net');
+    answer();
+    await sending;
+    expect(flow.view).toBe('sent');
+    expect(flow.sentTo).toBe('max@example.net');
+    vi.advanceTimersByTime(30_000);
+    await flow.resend();
+    expect(calls.map((c) => c.body)).toEqual([{ email: 'max@example.net' }, { email: 'max@example.net' }]);
+    flow.dispose();
+  });
+
+  it('blocks “Resend” while it runs and starts the countdown again', async () => {
+    vi.useFakeTimers();
+    mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });
+    const flow = new LoginFlow(hooks());
+    flow.route({ kind: 'forgot' });
+    flow.editEmail('max@example.net');
+    await flow.submitForgot();
+    vi.advanceTimersByTime(30_000);
+    expect(flow.resendBlocked).toBe(false);
+    let answer: (res: Response) => void = () => undefined;
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => (answer = resolve)));
+    vi.stubGlobal('fetch', fetch);
+    const running = flow.resend();
+    expect(flow.resending).toBe(true);
+    expect(flow.resendBlocked).toBe(true);
+    expect(flow.resendLabel).toBe('Resend');
+    // A second press while it runs sends nothing.
+    await flow.resend();
+    expect(fetch).toHaveBeenCalledOnce();
+    answer(new Response(null, { status: 202 }));
+    await running;
+    expect(flow.resending).toBe(false);
+    expect(flow.resendLabel).toBe('Resend in 0:30');
+    expect(flow.resendLimited).toBe(false);
     flow.dispose();
   });
 

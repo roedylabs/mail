@@ -3,8 +3,9 @@
   `/password/reset/[token]`: one persistent page whose screens come from the
   flow (`#lib/login.svelte.ts`), so switching between the routes keeps what
   was typed and running locks. The route comes in as `route`, screen changes
-  report it back via `navigate`. "Sign in", the code steps and "Hello" use
-  the shared guest-page shell; the other screens keep the old card
+  report it back via `navigate`. "Sign in", the code steps, "Hello", "Reset
+  password" and "Check your inbox" use the shared guest-page shell; the
+  other screens keep the old card
   (`LoginLegacy`) until they move. "No connection" covers the page when a
   request gets no answer or the window goes offline; everything typed stays.
 -->
@@ -13,8 +14,10 @@
   import NoConnection from '#lib/components/auth/NoConnection.svelte';
   import LoginLegacy from '#lib/components/LoginLegacy.svelte';
   import SignInCode from '#lib/components/signin/SignInCode.svelte';
+  import SignInForgot from '#lib/components/signin/SignInForgot.svelte';
   import SignInHello from '#lib/components/signin/SignInHello.svelte';
   import SignInPassword from '#lib/components/signin/SignInPassword.svelte';
+  import SignInSent from '#lib/components/signin/SignInSent.svelte';
   import { SignInTargets } from '#lib/components/signin/targets.ts';
   import { NetworkError, api } from '#lib/api.ts';
   import { isMobileWidth } from '#lib/auth-layout.ts';
@@ -40,7 +43,7 @@
   let netBox: HTMLDivElement | undefined = $state();
 
   /** Fields of the screens on the shared shell: on mobile entering one focuses the heading (no on-screen keyboard). */
-  const SHELL_FIELDS: readonly Field[] = ['id', 'pw', 'otp', 'bc'];
+  const SHELL_FIELDS: readonly Field[] = ['id', 'pw', 'otp', 'bc', 'fg'];
   /** Code boxes: on mobile a rejected code leaves the focus where it is. */
   const CODE_FIELDS: readonly Field[] = ['otp', 'bc'];
 
@@ -141,6 +144,10 @@
   <SignInCode {flow} {targets} kind="otp" hidden={net.open} />
 {:else if flow.view === 'backup'}
   <SignInCode {flow} {targets} kind="bc" hidden={net.open} />
+{:else if flow.view === 'forgot'}
+  <SignInForgot {flow} {values} {targets} hidden={net.open} />
+{:else if flow.view === 'sent'}
+  <SignInSent {flow} {values} {targets} hidden={net.open} />
 {:else}
   <LoginLegacy {flow} {values} {targets} hidden={net.open} />
 {/if}

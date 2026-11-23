@@ -1,7 +1,7 @@
 <!--
-  The sign-in page's screens that still have the old card ("Reset password"
-  with "Email sent", "Set a new password" from the link in the mail,
-  "Password changed", "Link expired or invalid") until they move
+  The sign-in page's screens that still have the old card ("Set a new
+  password" from the link in the mail, "Password changed", "Link expired or
+  invalid") until they move
   to the shared guest-page shell. The page (`LoginPage`) owns the flow; this
   card registers its fields, card and artwork tile for focus and shake. The
   card adapts to the window height in four steps (`fit`), from 1000 px width
@@ -41,7 +41,6 @@
   const inputs: Partial<Record<Field, HTMLInputElement>> = $state({});
   $effect(() => targets.hold('card', card));
   $effect(() => targets.hold('tile', artTile));
-  $effect(() => targets.hold('fg', inputs.fg));
   $effect(() => targets.hold('np', inputs.np));
 
   /** Guests change the theme only in the browser (`prefs` without `load()`), signed-in users as in the account menu. */
@@ -89,9 +88,7 @@
     () => card,
   );
   const fit = $derived(fitter.level);
-  const fitKey = $derived(
-    [flow.view, flow.npErr, flow.npLocked, flow.fgLocked, flow.resendLimited, flow.ended].join('|'),
-  );
+  const fitKey = $derived([flow.view, flow.npErr, flow.npLocked, flow.ended].join('|'));
   // New state: start over.
   $effect(() => {
     void fitKey;
@@ -212,76 +209,7 @@
 
     <main style:padding={F.mainPad}>
       <div class="card" bind:this={card} style:padding={F.cardPad}>
-        {#if flow.view === 'forgot'}
-          <form onsubmit={submit(() => flow.submitForgot())} novalidate>
-            {@render back(values.fgBackLabel, () => flow.fgBack(values.fgAuthed))}
-            <h1>{m.login_forgot_title()}</h1>
-            <p class="intro">{m.login_forgot_intro()}</p>
-            <div class="fields gap-l">
-              <FormField
-                id="ln-fg"
-                bind:input={inputs.fg}
-                label={m.login_fg_label()}
-                icon="ti-mail"
-                type="email"
-                inputmode="email"
-                name="email"
-                autocomplete="email"
-                autocapitalize="none"
-                spellcheck={false}
-                placeholder={m.login_id_placeholder()}
-                value={flow.ident}
-                oninput={(v: string) => flow.editEmail(v)}
-                onfocus={focusOn('fg')}
-                onblur={blur}
-                error={flow.fgErr}
-              >
-                {#if flow.fgLocked}
-                  <div class="fg-alert">{@render alert('ti-lock', m.login_requests_title(), flow.fgLockText)}</div>
-                {/if}
-              </FormField>
-            </div>
-            <button
-              type="submit"
-              class="primary"
-              disabled={flow.fgDis}
-              aria-busy={flow.fgLoading ? 'true' : 'false'}
-              style:opacity={flow.fgLocked ? 0.5 : 1}
-            >
-              {@render primary(m.login_send(), 'ti-send', m.login_sending(), {
-                busy: flow.fgLoading,
-                ready: flow.fgReady,
-                lock: flow.fgLockBtn,
-              })}
-            </button>
-          </form>
-        {:else if flow.view === 'sent'}
-          <div class="tile-view" role="status">
-            <span class="big-tile"><Icon name="ti-mail-check" /></span>
-            <h1 class="tile-title">{m.login_sent_title()}</h1>
-            <p class="tile-text">
-              {m.login_sent_before()}<strong class="addr">{flow.sentTo}</strong>{m.login_sent_after()}
-            </p>
-            <button type="button" class="primary wide" onclick={() => flow.fgBack(values.fgAuthed)}>
-              <span class="bi"><Icon name="ti-arrow-left" /></span><span>{values.fgBackLabel}</span>
-            </button>
-            <div class="aside">
-              <span>{m.login_no_mail()}</span>
-              <button
-                type="button"
-                class="link clock"
-                class:blocked={flow.resendBlocked}
-                disabled={flow.resendBlocked}
-                onclick={() => void flow.resend()}>{flow.resendLabel}</button
-              >
-            </div>
-            {#if flow.resendLimited}
-              <div class="limit" role="alert">
-                <Icon name="ti-lock" /><span><strong>{m.login_requests_title()}</strong> {flow.resendLimitText}</span>
-              </div>
-            {/if}
-          </div>
-        {:else if flow.showNewPw}
+        {#if flow.showNewPw}
           <form onsubmit={submit(() => flow.submitNp())} novalidate>
             {@render back(m.login_back(), () => flow.backToLogin())}
             <h1>{m.login_newpw_title()}</h1>
@@ -528,12 +456,6 @@
     margin-top: var(--f-gap-l);
   }
 
-  .fields {
-    display: flex;
-    flex-direction: column;
-    gap: var(--f-gap-f);
-  }
-
   .alert {
     display: flex;
     align-items: flex-start;
@@ -566,10 +488,6 @@
 
   .alert-text strong {
     font-weight: 800;
-  }
-
-  .fg-alert {
-    margin-top: 2px;
   }
 
   .eye {
@@ -668,36 +586,6 @@
 
   .back :global(svg) {
     font-size: 18px;
-  }
-
-  .aside {
-    margin-top: 14px;
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    justify-content: center;
-    gap: 2px 4px;
-    font-size: 14px;
-    color: var(--mfg);
-  }
-
-  .link {
-    height: 36px;
-    padding: 0 10px;
-    border-radius: 9999px;
-    font-weight: 800;
-    color: var(--deep);
-    transition:
-      background-color 220ms,
-      color 220ms;
-  }
-
-  .link:hover {
-    background: var(--hov);
-  }
-
-  .link.blocked {
-    color: var(--dim);
   }
 
   /* "New password" with the rules below */
@@ -836,12 +724,6 @@
     margin-top: 6px;
   }
 
-  .addr {
-    font-weight: 800;
-    color: var(--fg);
-    overflow-wrap: anywhere;
-  }
-
   .quiet {
     margin-top: 12px;
     height: 44px;
@@ -853,30 +735,6 @@
     transition:
       background-color 220ms,
       color 220ms;
-  }
-
-  .limit {
-    margin-top: 4px;
-    display: flex;
-    align-items: flex-start;
-    justify-content: center;
-    gap: 6px;
-    max-width: 100%;
-    font-size: 13.5px;
-    line-height: 1.45;
-    font-weight: 600;
-    color: var(--errfg);
-    text-wrap: pretty;
-  }
-
-  .limit :global(svg) {
-    flex-shrink: 0;
-    margin-top: 2px;
-    font-size: 15px;
-  }
-
-  .limit strong {
-    font-weight: 800;
   }
 
   footer {
