@@ -186,7 +186,7 @@
           placeholder={m.login_pw_placeholder()}
           value={flow.pw}
           oninput={(value: string) => flow.editPw(value)}
-          invalid={!!pwErr || flow.authErr}
+          invalid={!!pwErr}
           error={pwErr}
           describedby={pwDescribed}
           link={{

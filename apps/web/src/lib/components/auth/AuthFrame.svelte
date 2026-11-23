@@ -254,11 +254,13 @@
         </header>
       {/if}
 
-      <main style:padding={look.mainPad}>
+      <!-- Mobile without step bars (sign-in, invitation): 18 px between the panel and the bottom bar's padding -->
+      <main style:padding={mobile && !bars ? '0 10px 18px' : look.mainPad}>
         <div
           bind:this={card}
           class="card"
           class:held={!mobile && cardH !== null}
+          class:mid={mobile && !bars && !columns}
           style:height={!mobile && cardH !== null ? `${cardH}px` : undefined}
           style:min-height={cardMin !== null ? `${cardMin}px` : undefined}
           style:max-width={look.cardMaxW}
@@ -549,6 +551,11 @@
     scrollbar-width: none;
     border-radius: 30px;
     box-shadow: none;
+  }
+
+  /* Mobile result screens without step bars (sign-in, invitation): the result centred in the panel */
+  .mobile .card.mid {
+    justify-content: safe center;
   }
 
   .mobile .card::-webkit-scrollbar {
