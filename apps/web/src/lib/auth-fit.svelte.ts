@@ -1,6 +1,6 @@
 /**
- * Height fitting of the setup wizard: on each new size the card starts at
- * level 0 and steps down through the denser levels of its tier until the
+ * Height fitting of the guest pages (setup, sign-in, invitation): on each
+ * new size the card starts at level 0 and steps down through the denser levels of its tier until the
  * page (desktop) or the panel (mobile) no longer scrolls. Each step runs
  * after the DOM update and before the browser paints, so only the final
  * level is ever shown; there is no animation between levels.
@@ -25,7 +25,7 @@
  */
 import { tick } from 'svelte';
 import type { Lang } from '#lib/locale.ts';
-import { isMobileWidth, twoCol, WIDE } from '#lib/setup-layout.ts';
+import { isMobileWidth, twoCol, WIDE } from '#lib/auth-layout.ts';
 
 export interface FitTargets {
   /** The page: scrolls on desktop, its size decides the tier. */
@@ -55,7 +55,7 @@ export interface FitTargets {
   start?: (w: number, h: number, two: boolean) => number;
 }
 
-export class SetupFit {
+export class AuthFit {
   w = $state(1280);
   h = $state(860);
   two = $state(false);
@@ -68,7 +68,7 @@ export class SetupFit {
   private ready = false;
   /** Size of the last refit decision: small changes are measured against it, not against the previous one. */
   private checked = { w: 0, h: 0 };
-  /** Held (a step's inline editor is open): the level stays; a new size or content refits on release. */
+  /** Held (a screen's inline editor is open): the level stays; a new size or content refits on release. */
   private held = false;
   private pending: { w: number; h: number } | null = null;
   /** A relayout waits for the on-screen keyboard to close. */

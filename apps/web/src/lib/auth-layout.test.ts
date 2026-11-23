@@ -11,7 +11,7 @@ import {
   sharedLevel,
   stepLook,
   twoCol,
-} from './setup-layout.ts';
+} from './auth-layout.ts';
 
 const look = (w: number, two: boolean, level = 0) => stepLook(w, two, level, DESK_LEVELS, MOB_LEVELS);
 
@@ -125,7 +125,7 @@ describe('stepLook', () => {
   });
 });
 
-describe('shared setup level', () => {
+describe('shared level', () => {
   it('needs less room at every denser level', () => {
     for (const { need } of Object.values(SHARED_FIT))
       for (let i = 1; i < need.length; i++) expect(need[i]).toBeLessThanOrEqual(need[i - 1]!);

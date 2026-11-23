@@ -6,16 +6,9 @@
  * password step comes twice: with the email so far and with the placeholder
  * address, so the space is there before the email is typed.
  */
+import type { IntroParts, StepHead } from '#lib/auth-layout.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { locales } from '#lib/paraglide/runtime.js';
-
-export type IntroParts = readonly [string, string, string];
-
-export interface StepHead {
-  title: string;
-  long: IntroParts;
-  short: IntroParts;
-}
 
 export function setupHeads(app: string, email: string): StepHead[] {
   return locales.flatMap((locale) => {

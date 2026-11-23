@@ -1,8 +1,8 @@
 <!--
   Step 2: setup token from the container log, checked against
   `POST setup/token`. A terminal box (dark in the dark theme, a light card in
-  the light theme) shows the command and the log line; the token goes into twelve boxes in three groups (one hidden
-  input on top: typing, pasting with or without dashes and Backspace).
+  the light theme) shows the command and the log line; the token goes into twelve boxes in three groups
+  (`CodeField`: typing, pasting with or without dashes and Backspace).
   Continue stays greyed out until all twelve characters are there. Under the
   boxes: invalid token with the attempts left, the lock with a countdown, a
   server error, or the accepted token (coming back to this step).
@@ -10,13 +10,16 @@
 <script lang="ts">
   import { ACCENTS } from '@roedy/tokens';
   import { onDestroy } from 'svelte';
+  import AuthShell from '#lib/components/auth/AuthShell.svelte';
+  import CodeField from '#lib/components/auth/CodeField.svelte';
+  import MessageBox from '#lib/components/auth/MessageBox.svelte';
   import Icon from '#lib/components/Icon.svelte';
-  import SetupShell from '#lib/components/setup/SetupShell.svelte';
+  import { setupFrame } from '#lib/components/setup/frame.ts';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
   import { Copied } from '#lib/clipboard.svelte.ts';
   import { accentText, isHexColor, TERMINAL_BG, terminalAccent } from '#lib/color.ts';
   import { m } from '#lib/paraglide/messages.js';
-  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
+  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/auth-layout.ts';
   import { LOG_CMD, LOG_LINES, TOKEN_LOCK_S, TOKEN_TRIES, type SetupFlow } from '#lib/setup.svelte.ts';
   import { prefs } from '#lib/state/prefs.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
@@ -105,33 +108,22 @@
     return () => ro.disconnect();
   }
 
-  let tokFocus = $state(false);
-  const tokRaw = $derived(flow.token.replace(/-/g, ''));
+  let tokInput: HTMLInputElement | undefined = $state();
+  $effect(() => targets.hold('token', tokInput));
   const te = $derived(flow.tokErr);
-  const cells = $derived.by(() => {
-    const at = Math.min(tokRaw.length, 11);
-    return Array.from({ length: 12 }, (_, i) => {
-      const d = tokRaw[i] ?? '';
-      const active = tokFocus && !flow.loading && !flow.locked && i === at;
-      return { d, active, caret: active && !d };
-    });
-  });
   /** Red borders for an invalid token and a server error (not while locked: the boxes are empty and dimmed). */
   const bad = $derived(te === 'invalid' || te === 'server');
   const ok = $derived(flow.tokOk && !te);
   const left = $derived(flow.remaining ?? TOKEN_TRIES);
   /** Five bars, the remaining attempts filled. */
-  const tries = $derived(Array.from({ length: TOKEN_TRIES }, (_, i) => i < left));
-  const lockPct = $derived(`${Math.round(Math.min(1, flow.tokLeft / TOKEN_LOCK_S) * 100)}%`);
-  const lockTime = $derived(`${Math.floor(flow.tokLeft / 60)}:${String(flow.tokLeft % 60).padStart(2, '0')}`);
+  const triesOn = $derived(Array.from({ length: TOKEN_TRIES }, (_, i) => i < left));
   const described = $derived(te ? 'su-token-err' : ok ? 'su-token-ok' : undefined);
 </script>
 
 {#snippet intro(short: boolean)}{short ? m.setup_token_intro_short() : m.setup_token_intro()}{/snippet}
 
-<SetupShell
-  email={flow.email.trim()}
-  step={2}
+<AuthShell
+  {...setupFrame(flow, 2)}
   docTitle={m.setup_doc_title({ step: m.setup_step_token() })}
   title={m.setup_token_title({ app: session.appName })}
   {intro}
@@ -139,8 +131,6 @@
   {mob}
   contentKey={[te ?? '', ok ? 'ok' : ''].join('|')}
   {hidden}
-  canBack={flow.canBack}
-  onback={() => flow.back()}
   primary={{
     label: m.setup_next(),
     icon: 'ti-arrow-right',
@@ -209,92 +199,72 @@
       {#if x.hint}<p class="term-hint">{m.setup_log_hint()}</p>{/if}
 
       <div class="token">
-        <label for="su-token">{m.setup_token_label()}</label>
-        <div class="token-ctl">
-          <div class="boxes" class:narrow aria-hidden="true" style:opacity={flow.locked ? 0.5 : 1} style:--tk-h={x.tkH}>
-            {#each cells as cell, i (i)}
-              {#if i === 4 || i === 8}<span class="sep"></span>{/if}
-              <span class="box" class:active={cell.active} class:has={!!cell.d} class:bad>
-                {#if cell.d}<span class="digit">{cell.d}</span>{/if}
-                {#if cell.caret}<span class="caret"></span>{/if}
-              </span>
-            {/each}
-          </div>
-          <input
-            id="su-token"
-            {@attach targets.reg('token')}
-            type="text"
-            name="setup-token"
-            autocomplete="off"
-            autocapitalize="characters"
-            spellcheck="false"
-            value={flow.token}
-            oninput={(e) => {
-              flow.editToken(e.currentTarget.value);
-              // Remove rejected characters from the field too (otherwise they stay there invisibly).
-              e.currentTarget.value = flow.token;
-            }}
-            onfocus={() => (tokFocus = true)}
-            onblur={() => (tokFocus = false)}
-            aria-invalid={te ? 'true' : 'false'}
-            aria-describedby={described}
-            disabled={flow.locked}
-            readonly={flow.loading}
-          />
-        </div>
+        <CodeField
+          id="su-token"
+          name="setup-token"
+          label={m.setup_token_label()}
+          groups={[4, 4, 4]}
+          filter="alnum"
+          value={flow.token}
+          autocapitalize="characters"
+          invalid={!!te}
+          {bad}
+          locked={flow.locked}
+          busy={flow.loading}
+          describedby={described}
+          height={x.tkH}
+          {narrow}
+          fontSize={narrow ? 15 : 18}
+          gap={narrow ? 4 : 5}
+          radius={narrow ? 10 : 13}
+          sep={narrow ? 6 : 9}
+          caret={22}
+          oninput={(value: string) => flow.editToken(value)}
+          bind:input={tokInput}
+        />
 
         {#if te}
-          <div class="msg err" id="su-token-err" role="alert">
-            <div class="msg-row">
-              <span class="msg-icon" aria-hidden="true">
-                <Icon name={te === 'locked' ? 'ti-lock' : te === 'server' ? 'ti-server-off' : 'ti-key-off'} />
-              </span>
-              <div class="msg-text">
-                <strong>
-                  {te === 'locked'
-                    ? m.limit_title()
-                    : te === 'server'
-                      ? m.setup_token_server_title()
-                      : m.setup_token_invalid_title()}
-                </strong>
-                <span>
-                  {te === 'locked'
-                    ? m.setup_token_locked_text()
-                    : te === 'server'
-                      ? m.setup_token_server_text()
-                      : m.setup_token_invalid_text()}
-                </span>
-              </div>
+          {#snippet tries()}
+            <div class="tries" aria-hidden="true">
+              {#each triesOn as on, i (i)}<span class:on></span>{/each}
             </div>
-            {#if te === 'invalid' && flow.remaining !== null}
-              <div class="msg-extra">
-                <div class="tries" aria-hidden="true">
-                  {#each tries as on, i (i)}<span class:on></span>{/each}
-                </div>
-                <span class="extra-label">
-                  {left === 1 ? m.setup_token_remaining_one() : m.setup_token_remaining({ n: left })}
-                </span>
-              </div>
-            {:else if te === 'locked'}
-              <div class="msg-extra lock">
-                <div class="lock-bar" aria-hidden="true"><span style:width={lockPct}></span></div>
-                <span class="extra-label time">{lockTime}</span>
-              </div>
-            {/if}
-          </div>
+            <span class="extra-label">
+              {left === 1 ? m.setup_token_remaining_one() : m.setup_token_remaining({ n: left })}
+            </span>
+          {/snippet}
+          <MessageBox
+            id="su-token-err"
+            role="alert"
+            icon={te === 'locked' ? 'ti-lock' : te === 'server' ? 'ti-server-off' : 'ti-key-off'}
+            title={te === 'locked'
+              ? m.limit_title()
+              : te === 'server'
+                ? m.setup_token_server_title()
+                : m.setup_token_invalid_title()}
+            text={te === 'locked'
+              ? m.setup_token_locked_text()
+              : te === 'server'
+                ? m.setup_token_server_text()
+                : m.setup_token_invalid_text()}
+            extra={te === 'invalid' && flow.remaining !== null ? tries : undefined}
+            lock={te === 'locked' ? { left: flow.tokLeft, total: TOKEN_LOCK_S, read: true } : null}
+            top="4px"
+          />
         {:else if ok}
-          <div class="msg ok" id="su-token-ok" role="status">
-            <span class="msg-icon" aria-hidden="true"><Icon name="ti-check" /></span>
-            <div class="msg-text">
-              <strong>{m.setup_token_accepted()}</strong>
-              <span class="ok-text">{m.setup_token_accepted_text()}</span>
-            </div>
-          </div>
+          <MessageBox
+            id="su-token-ok"
+            role="status"
+            tone="ok"
+            icon="ti-check"
+            title={m.setup_token_accepted()}
+            text={m.setup_token_accepted_text()}
+            top="4px"
+          />
         {/if}
       </div>
     </div>
   {/snippet}
-</SetupShell>
+</AuthShell>
 
 <style>
   .tok {
@@ -572,208 +542,6 @@
     gap: 8px;
   }
 
-  .token label {
-    padding: 0 4px;
-    font-size: 13.5px;
-    font-weight: 700;
-  }
-
-  .token-ctl {
-    position: relative;
-  }
-
-  .boxes {
-    --tk-fs: 18px;
-    --tk-r: 13px;
-    --tk-sep: 9px;
-    display: grid;
-    grid-template-columns:
-      repeat(4, minmax(0, 1fr)) auto repeat(4, minmax(0, 1fr)) auto
-      repeat(4, minmax(0, 1fr));
-    align-items: center;
-    gap: 5px;
-    transition: opacity 220ms;
-  }
-
-  .boxes.narrow {
-    --tk-fs: 15px;
-    --tk-r: 10px;
-    --tk-sep: 6px;
-    gap: 4px;
-  }
-
-  /* Fill --fbg, border --fbd; filled and active --deep, the active one with a ring */
-  .box {
-    min-width: 0;
-    height: var(--tk-h);
-    border-radius: var(--tk-r);
-    background: var(--fbg);
-    border: 1.5px solid var(--fbd);
-    box-shadow: var(--sh1);
-    display: grid;
-    place-items: center;
-    font-family: var(--font-mono);
-    font-size: var(--tk-fs);
-    font-weight: 700;
-    transition:
-      border-color 220ms,
-      box-shadow 220ms,
-      transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1),
-      background-color 300ms;
-  }
-
-  .box.has {
-    border-color: var(--deep);
-  }
-
-  .box.active {
-    background: var(--surface);
-    border-color: var(--deep);
-    box-shadow:
-      0 0 0 4px var(--accsoft),
-      var(--sh1);
-    transform: translateY(-2px);
-  }
-
-  /* Narrow: a thin ring and no lift, so neighbouring boxes never overlap */
-  .narrow .box {
-    box-shadow: none;
-  }
-
-  .narrow .box.active {
-    box-shadow: 0 0 0 2px var(--accsoft);
-    transform: none;
-  }
-
-  .box.bad {
-    border-color: var(--err);
-  }
-
-  .digit {
-    animation: suPop 260ms cubic-bezier(0.2, 1.2, 0.3, 1);
-  }
-
-  .caret {
-    width: 2px;
-    height: 22px;
-    border-radius: 2px;
-    background: var(--deep);
-    animation: suBlink 1s step-end infinite;
-  }
-
-  .sep {
-    width: var(--tk-sep);
-    height: 3px;
-    border-radius: 2px;
-    background: var(--dim);
-  }
-
-  .token-ctl input {
-    position: absolute;
-    inset: 0;
-    width: 100%;
-    height: 100%;
-    opacity: 0;
-    border: 0;
-    padding: 0;
-    font-size: 16px;
-    caret-color: transparent;
-    cursor: text;
-  }
-
-  /* Messages under the boxes: icon tile, title and hint */
-  .msg {
-    margin-top: 4px;
-    padding: 12px 16px 12px 12px;
-    border-radius: 18px;
-    animation: suPop 340ms cubic-bezier(0.2, 1.2, 0.3, 1);
-  }
-
-  .msg.err {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    background: var(--errsoft);
-    color: var(--errfg);
-  }
-
-  .msg.ok {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    background: color-mix(in oklab, var(--sage) 24%, var(--surface));
-    color: var(--fg);
-  }
-
-  .msg-row {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-  }
-
-  .msg-icon {
-    width: 32px;
-    height: 32px;
-    flex-shrink: 0;
-    border-radius: 11px;
-    display: grid;
-    place-items: center;
-    transform: rotate(-6deg);
-    box-shadow: var(--sh1);
-    font-size: 17px;
-  }
-
-  .err .msg-icon {
-    background: var(--errfg);
-    color: var(--errsoft);
-  }
-
-  .ok .msg-icon {
-    background: var(--sage);
-    color: var(--sage-ink);
-  }
-
-  .msg-text {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding-top: 1px;
-  }
-
-  .msg-text strong {
-    font-size: 14.5px;
-    font-weight: 800;
-    line-height: 1.35;
-  }
-
-  .msg-text span {
-    font-size: 13.5px;
-    font-weight: 600;
-    line-height: 1.45;
-    text-wrap: pretty;
-  }
-
-  /* A little towards --fg: --mfg alone stays under 4.5 : 1 on the sage tint in the dark theme */
-  .msg-text .ok-text {
-    color: color-mix(in oklab, var(--mfg) 80%, var(--fg));
-  }
-
-  /* Attempts left (five bars, the remaining ones filled) or the countdown of the lock */
-  .msg-extra {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px 10px;
-    padding-left: 44px;
-  }
-
-  .msg-extra.lock {
-    flex-wrap: nowrap;
-    gap: 10px;
-  }
-
   .tries {
     display: flex;
     gap: 4px;
@@ -793,44 +561,5 @@
   .extra-label {
     font-size: 12.5px;
     font-weight: 800;
-  }
-
-  .time {
-    flex-shrink: 0;
-    font-variant-numeric: tabular-nums;
-  }
-
-  .lock-bar {
-    flex: 1;
-    min-width: 0;
-    height: 6px;
-    border-radius: 9999px;
-    background: color-mix(in oklab, var(--errfg) 20%, transparent);
-    overflow: hidden;
-  }
-
-  .lock-bar span {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: var(--errfg);
-    transition: width 1s linear;
-  }
-
-  @keyframes suPop {
-    from {
-      opacity: 0;
-      transform: translateY(10px) scale(0.94);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
-  }
-
-  @keyframes suBlink {
-    50% {
-      opacity: 0;
-    }
   }
 </style>

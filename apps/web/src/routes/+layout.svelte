@@ -1851,7 +1851,7 @@
       mailbox: mailboxLocation && accounts.list ? appListView(mailboxLocation, scopeAccounts, scope.all).title : null,
       compose: compose.current ? composeTitle(compose.current) : null,
       loginTitle: loginTitleOf(session.branding),
-      setup: ui.setupTitle,
+      auth: ui.authTitle,
     }),
   );
 </script>

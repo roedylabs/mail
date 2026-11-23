@@ -41,8 +41,14 @@ describe('pageTitle', () => {
     expect(at('/password/forgot')).toBe('Reset password – Roedy Mail');
     expect(at('/password/reset/x')).toBe('Set a new password – Roedy Mail');
     expect(at('/setup')).toBe('Set up Roedy Mail');
-    expect(at('/setup', { setup: 'Setup token · Setup' })).toBe('Setup token · Setup');
-    expect(at('/setup', { setup: 'Setup token · Setup', error: 'offline' })).not.toBe('Setup token · Setup');
+    expect(at('/setup', { auth: 'Setup token · Setup' })).toBe('Setup token · Setup');
+    expect(at('/setup', { auth: 'Setup token · Setup', error: 'offline' })).not.toBe('Setup token · Setup');
+    expect(at('/login', { auth: 'Sign in · Roedy Mail' })).toBe('Sign in · Roedy Mail');
+    expect(at('/password/forgot', { auth: 'Reset password · Roedy Mail' })).toBe('Reset password · Roedy Mail');
+    expect(at('/password/reset/x', { auth: 'New password · Roedy Mail' })).toBe('New password · Roedy Mail');
+    expect(at('/invite/x', { auth: 'Invitation · Roedy Mail' })).toBe('Invitation · Roedy Mail');
+    // Elsewhere a title left behind does not count.
+    expect(at('/no-account', { auth: 'Setup token · Setup' })).toBe('Connect your first email account – Roedy Mail');
     expect(at('/invite/x')).toBe('Welcome to Roedy Mail');
     expect(at('/confirm-email/x')).toBe('Confirm new email address – Roedy Mail');
     expect(at('/no-account')).toBe('Connect your first email account – Roedy Mail');

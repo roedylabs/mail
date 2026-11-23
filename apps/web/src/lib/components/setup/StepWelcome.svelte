@@ -20,13 +20,14 @@
   import { accentInk, type HexColor } from '#lib/color.ts';
   import { ColorDraft, customName, editorStart } from '#lib/color-editor.svelte.ts';
   import Icon from '#lib/components/Icon.svelte';
-  import SetupShell from '#lib/components/setup/SetupShell.svelte';
+  import AuthShell from '#lib/components/auth/AuthShell.svelte';
+  import { setupFrame } from '#lib/components/setup/frame.ts';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
   import { fold, FOLD_MS, unfold } from '#lib/fold.ts';
   import type { IconName } from '#lib/icons.ts';
   import { browserLang } from '#lib/locale.ts';
   import { m } from '#lib/paraglide/messages.js';
-  import { DESK_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
+  import { DESK_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/auth-layout.ts';
   import {
     ACCENT_LABELS,
     accentHex,
@@ -448,9 +449,8 @@
 
 {#snippet code(c: string)}<span class="code">{c}</span>{/snippet}
 
-<SetupShell
-  email={flow.email.trim()}
-  step={1}
+<AuthShell
+  {...setupFrame(flow, 1)}
   sync={syncCols}
   docTitle={m.setup_doc_title({ step: m.setup_step_prefs() })}
   title={m.setup_welcome_title({ app: session.appName })}
@@ -469,7 +469,7 @@
   onsubmit={start}
   onblocked={blocked}
   reg={targets.reg}
-  slideBack={{ open: shut, onclick: closeMore }}
+  slideBack={{ open: shut, label: m.setup_back(), onclick: closeMore }}
   {cardH}
   frozen={draft !== null}
   bind:cardEl
@@ -691,7 +691,7 @@
       </div>
     </div>
   {/snippet}
-</SetupShell>
+</AuthShell>
 
 <style>
   .prefs {

@@ -158,8 +158,11 @@ export class Ui {
    * everything (desktop) or as a sheet (mobile).
    */
   pageDialog = $state.raw<(() => PageDialog | null) | null>(null);
-  /** Document title of the open setup step ("Setup token · Setup"); `null` outside the setup wizard. */
-  setupTitle = $state<string | null>(null);
+  /**
+   * Document title of the open guest page's screen ("Setup token · Setup"), set by its shell; `null` outside the
+   * guest pages (setup, sign-in, password reset, invitation).
+   */
+  authTitle = $state<string | null>(null);
   /** The setup has signed the administrator in and opens Administration › Mail servers: `/setup` stays until then. */
   setupLeaving = $state(false);
   /** "Add mail server" from the command palette: the page opens the dialog as soon as it is there. */
@@ -288,7 +291,7 @@ export class Ui {
     this.keepMenuAt = null;
     this.pick = null;
     this.pageDialog = null;
-    this.setupTitle = null;
+    this.authTitle = null;
     this.setupLeaving = false;
     this.serverAdd = false;
     this.pushOpen = false;

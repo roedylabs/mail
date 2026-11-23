@@ -1,7 +1,7 @@
 <!--
   Setup wizard: one route, the step comes from the wizard's state
   (`#lib/setup.svelte.ts`). Each step is its own component inside the shared
-  frame (`SetupShell`); the done screen signs in via `session.load()` and
+  frame (`AuthShell`); the done screen signs in via `session.load()` and
   opens Administration › Mail servers. "No connection" covers every step
   and the loading of the setup status before the first one.
 -->
@@ -9,7 +9,7 @@
   import { onDestroy, onMount, tick } from 'svelte';
   import { goto } from '$app/navigation';
   import { resolve } from '$app/paths';
-  import NoConnection from '#lib/components/setup/NoConnection.svelte';
+  import NoConnection from '#lib/components/auth/NoConnection.svelte';
   import SetupDone from '#lib/components/setup/SetupDone.svelte';
   import StepAdmin from '#lib/components/setup/StepAdmin.svelte';
   import StepCodes from '#lib/components/setup/StepCodes.svelte';
@@ -21,7 +21,7 @@
   import { SetupTargets } from '#lib/components/setup/targets.ts';
   import { NetworkError, api } from '#lib/api.ts';
   import { NET_PROBE_MS, Reconnect } from '#lib/no-connection.svelte.ts';
-  import { isMobileWidth } from '#lib/setup-layout.ts';
+  import { isMobileWidth } from '#lib/auth-layout.ts';
   import { choicesOf, SetupFlow, type Focus } from '#lib/setup.svelte.ts';
   import { shake } from '#lib/shake.ts';
   import { prefs } from '#lib/state/prefs.svelte.ts';
