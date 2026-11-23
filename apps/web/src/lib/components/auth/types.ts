@@ -23,6 +23,10 @@ export interface Primary {
   /** Background and ink instead of the accent's (a colour being chosen). */
   bg?: string | undefined;
   ink?: string | undefined;
+  /** Own padding on desktop and in the mobile bottom bar (default: 0 and 0 22px). */
+  pad?: { desk: string; mob: string } | undefined;
+  /** The label (and the busy label) stays on one line instead of wrapping. */
+  nowrap?: boolean | undefined;
 }
 
 /** "Back" that slides in left of the primary button while a screen's inline editor is open, and closes it. */

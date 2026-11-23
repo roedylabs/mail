@@ -801,7 +801,6 @@
   "login_newpw_label": "New password",
   "login_save": "Save password",
   "login_saving": "Saving …",
-  "login_save_locked": "Save password in {time}",
   "login_done_title": "Password changed",
   "login_done_text": "Your new password takes effect immediately. Sign in with it now.",
   "login_done_ended": "You’ve been signed out on all devices.",

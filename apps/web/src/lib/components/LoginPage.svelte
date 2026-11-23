@@ -3,20 +3,21 @@
   `/password/reset/[token]`: one persistent page whose screens come from the
   flow (`#lib/login.svelte.ts`), so switching between the routes keeps what
   was typed and running locks. The route comes in as `route`, screen changes
-  report it back via `navigate`. "Sign in", the code steps, "Hello", "Reset
-  password" and "Check your inbox" use the shared guest-page shell; the
-  other screens keep the old card
-  (`LoginLegacy`) until they move. "No connection" covers the page when a
-  request gets no answer or the window goes offline; everything typed stays.
+  report it back via `navigate`. Every screen is on the shared guest-page
+  shell, one component per screen in `signin/`. "No connection" covers the
+  page when a request gets no answer or the window goes offline; everything
+  typed stays.
 -->
 <script lang="ts">
   import { onDestroy, onMount, tick, untrack } from 'svelte';
   import NoConnection from '#lib/components/auth/NoConnection.svelte';
-  import LoginLegacy from '#lib/components/LoginLegacy.svelte';
   import SignInCode from '#lib/components/signin/SignInCode.svelte';
   import SignInForgot from '#lib/components/signin/SignInForgot.svelte';
   import SignInHello from '#lib/components/signin/SignInHello.svelte';
+  import SignInLinkInvalid from '#lib/components/signin/SignInLinkInvalid.svelte';
+  import SignInNewPassword from '#lib/components/signin/SignInNewPassword.svelte';
   import SignInPassword from '#lib/components/signin/SignInPassword.svelte';
+  import SignInPasswordChanged from '#lib/components/signin/SignInPasswordChanged.svelte';
   import SignInSent from '#lib/components/signin/SignInSent.svelte';
   import { SignInTargets } from '#lib/components/signin/targets.ts';
   import { NetworkError, api } from '#lib/api.ts';
@@ -43,13 +44,14 @@
   let netBox: HTMLDivElement | undefined = $state();
 
   /** Fields of the screens on the shared shell: on mobile entering one focuses the heading (no on-screen keyboard). */
-  const SHELL_FIELDS: readonly Field[] = ['id', 'pw', 'otp', 'bc', 'fg'];
+  const SHELL_FIELDS: readonly Field[] = ['id', 'pw', 'otp', 'bc', 'fg', 'np', 'np2'];
   /** Code boxes: on mobile a rejected code leaves the focus where it is. */
   const CODE_FIELDS: readonly Field[] = ['otp', 'bc'];
 
   /**
    * Moves the focus to `field` once the screen is there. `entering` a shell screen: desktop the field without
-   * scrolling, mobile the heading instead. A rejected field gets the focus on mobile too, except the code boxes.
+   * scrolling, mobile the heading instead. A rejected or missing field gets the focus on mobile too, except the code
+   * boxes.
    */
   function focus(field: Field, entering: boolean) {
     void tick().then(() => {
@@ -67,11 +69,13 @@
   const flow = new LoginFlow({
     fail: (field) => {
       void tick().then(() => {
-        shake(targets.get('card'), targets.get('tile'));
+        shake(targets.get('card'), undefined);
         if (field) focus(field, false);
       });
     },
     focus: (field) => focus(field, true),
+    // "Save password" on an incomplete screen: the field, without the shake.
+    missing: (field) => focus(field, false),
     // Only with a pointer and keyboard: on mobile the focus stays where it is.
     unlocked: (field) => {
       if (!isMobileWidth(ui.width)) focus(field, true);
@@ -125,12 +129,10 @@
   const values: LoginPageValues = $derived({
     fgAuthed,
     fgBackLabel: fgAuthed ? m.login_back_app({ app: session.appName }) : m.login_back(),
-    loginArt: session.branding.loginArt,
     loginMaint: session.config?.maintenance.on ?? false,
     loginText: loginTextOf(session.branding),
     loginTitle: loginTitleOf(session.branding),
     maintMsg: session.config?.maintenance.message || m.login_maint_default(),
-    themeDark: ui.dark,
   });
 </script>
 
@@ -148,7 +150,11 @@
   <SignInForgot {flow} {values} {targets} hidden={net.open} />
 {:else if flow.view === 'sent'}
   <SignInSent {flow} {values} {targets} hidden={net.open} />
+{:else if flow.view === 'newpw'}
+  <SignInNewPassword {flow} {targets} hidden={net.open} />
+{:else if flow.view === 'pwdone'}
+  <SignInPasswordChanged {flow} {targets} hidden={net.open} />
 {:else}
-  <LoginLegacy {flow} {values} {targets} hidden={net.open} />
+  <SignInLinkInvalid {flow} {targets} hidden={net.open} />
 {/if}
 {#if net.open}<NoConnection {net} bind:box={netBox} />{/if}

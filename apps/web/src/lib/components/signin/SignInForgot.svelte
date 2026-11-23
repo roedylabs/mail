@@ -52,6 +52,9 @@
   const err = $derived(flow.fgErr ?? '');
   /** Messages under the field: while locked always both (the lock is there), otherwise the error line once shown. */
   const described = $derived(flow.fgLocked ? 'ln-fg-err ln-fg-lock' : err ? 'ln-fg-err' : undefined);
+
+  /** The primary button's own padding (desktop, mobile bottom bar); its label stays on one line. */
+  const PRIMARY_PAD = { desk: '0 14px', mob: '0 18px' };
 </script>
 
 <AuthShell
@@ -73,6 +76,8 @@
     icon: 'ti-send',
     busy: flow.fgLoading,
     busyLabel: m.login_sending(),
+    pad: PRIMARY_PAD,
+    nowrap: true,
     disabled: flow.fgLocked,
   }}
   onsubmit={() => void flow.submitForgot()}

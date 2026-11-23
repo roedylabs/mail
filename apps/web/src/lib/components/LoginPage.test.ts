@@ -307,19 +307,6 @@ describe('page sign-in', () => {
     expect(view.getByLabelText('Email or username')).toHaveValue('max');
     expect(view.getByLabelText('Password')).toHaveValue('');
   });
-
-  it('hides the old card behind "No connection" as well', async () => {
-    mockApi({});
-    const view = show({ kind: 'newpw', token: TOKEN });
-    await type('New password', 'New-password-1');
-    await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
-    expect(await view.findByRole('alertdialog')).toBeInTheDocument();
-    const card = view.container.querySelector('.login') as HTMLElement;
-    expect(card).toHaveAttribute('aria-hidden', 'true');
-    expect(card.inert).toBe(true);
-    expect(view.getByLabelText('New password', { selector: 'input' })).toHaveValue('New-password-1');
-  });
-
   it('opens "Reset password" with the identifier and reports the route', async () => {
     mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });
     const view = show();
@@ -352,44 +339,6 @@ describe('page sign-in', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Back to Roedy Mail' }));
     expect(view.home).toHaveBeenCalledTimes(2);
   });
-
-  it('sets a new password via the link; signed in, this session ends too', async () => {
-    session.user = { ...ME, role: 'user' };
-    prefs.remote = true;
-    const { calls } = mockApi({
-      [`POST auth/password/reset/${TOKEN}`]: [{ body: { status: 'ok', sessions_ended: 3 } }],
-    });
-    const view = show({ kind: 'newpw', token: TOKEN });
-    expect(view.getByRole('heading', { name: 'Set a new password' })).toBeInTheDocument();
-    expect(view.getByRole('list', { name: 'Password requirements' })).toBeInTheDocument();
-    await type('New password', 'short');
-    await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
-    expect(view.getByText('The new password must be at least 10 characters long.')).toBeInTheDocument();
-    // Only this error line wraps with the icon at the top; the sign-in lines stay centred.
-    expect(view.container.querySelector('#ln-np-err')).toHaveClass('wrap');
-    await type('New password', 'New-password-1');
-    await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
-    expect(await view.findByRole('heading', { name: 'Password changed' })).toBeInTheDocument();
-    expect(view.getByText('You’ve been signed out on all devices.')).toBeInTheDocument();
-    expect(session.user).toBeNull();
-    // Guest afterwards: the theme switches only in the browser again.
-    expect(prefs.remote).toBe(false);
-    expect(calls.map((c) => c.path)).toEqual([`auth/password/reset/${TOKEN}`]);
-    await fireEvent.click(view.getByRole('button', { name: m.login_to_login() }));
-    expect(view.navigate).toHaveBeenCalledWith('login');
-  });
-
-  it('shows a shown password hidden again in the next step', async () => {
-    mockApi({ [`POST auth/password/reset/${TOKEN}`]: [{ body: { status: 'ok', sessions_ended: 0 } }] });
-    const view = show({ kind: 'newpw', token: TOKEN });
-    await fireEvent.click(view.getByRole('button', { name: 'Show password' }));
-    expect(view.getByLabelText('New password')).toHaveAttribute('type', 'text');
-    await type('New password', 'New-password-1');
-    await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
-    await fireEvent.click(await view.findByRole('button', { name: m.login_to_login() }));
-    expect(view.getByLabelText('Password')).toHaveAttribute('type', 'password');
-  });
-
   it('accepts pasted codes with spaces in full', async () => {
     const { calls } = mockApi({
       'POST auth/login': [{ body: { status: 'totp_required' } }],
@@ -403,17 +352,6 @@ describe('page sign-in', () => {
     expect(view.getByLabelText('Verification code')).not.toHaveAttribute('maxlength');
     await type('Verification code', '123 456');
     await vi.waitFor(() => expect(calls.at(-1)?.body).toEqual({ code: '123456' }));
-  });
-
-  it('shows an expired link with "Request a new link"', async () => {
-    mockApi({ [`POST auth/password/reset/${TOKEN}`]: [{ status: 422, body: { error: 'invalid_token' } }] });
-    const view = show({ kind: 'newpw', token: TOKEN });
-    await type('New password', 'New-password-1');
-    await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
-    expect(await view.findByRole('heading', { name: 'Link expired or invalid' })).toBeInTheDocument();
-    await fireEvent.click(view.getByRole('button', { name: 'Request a new link' }));
-    expect(view.navigate).toHaveBeenCalledWith('forgot');
-    expect(view.getByRole('heading', { name: 'Reset password' })).toBeInTheDocument();
   });
 });
 
@@ -678,6 +616,8 @@ describe('page reset password', () => {
     // Back sits left of "Send link".
     const send = view.getByRole('button', { name: 'Send link' });
     expect(back.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(send.style.padding).toBe('0px 18px');
+    expect(send.querySelector('.nowrap')).toHaveTextContent('Send link');
     // Entering on desktop: the field.
     await vi.waitFor(() => expect(document.activeElement).toBe(field));
   });
@@ -848,5 +788,271 @@ describe('page check your inbox', () => {
       const back = view.getByRole('button', { name: 'Back to sign-in' });
       expect(back.closest('.bottom')).not.toBeNull();
     });
+  });
+});
+
+/** Opens the link from the mail (`/password/reset/‹token›`). */
+function atNewPw(routes: Parameters<typeof mockApi>[0] = {}) {
+  const { calls } = mockApi(routes);
+  const view = show({ kind: 'newpw', token: TOKEN });
+  return { ...view, calls };
+}
+
+/** Both passwords filled in, "Save password" ready. */
+async function fillNewPw(pw = 'New-password-1', pw2 = pw) {
+  await type('New password', pw);
+  await type('Confirm password', pw2);
+}
+
+const save = () => screen.getByRole('button', { name: 'Save password' });
+
+describe('page set a new password', () => {
+  it('shows the check card, both fields, Back and "Save password" on the shared shell', async () => {
+    const view = atNewPw();
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set a new password');
+    expect(view.getByText(m.login_newpw_intro())).toBeInTheDocument();
+    expect(ui.authTitle).toBe('Set a new password · Roedy Mail');
+    expect(view.container.querySelector('.login')).toBeNull();
+    const rules = view.getByRole('list', { name: 'Password requirements' });
+    expect(rules).toHaveAttribute('id', 'ln-np-rules');
+    expect(rules).toHaveTextContent('At least 10 characters');
+    expect(rules).toHaveTextContent('Passwords match');
+    expect(view.getByText('Not set yet')).toBeInTheDocument();
+    const pw = view.getByLabelText('New password');
+    expect(pw).toHaveAttribute('id', 'ln-np');
+    expect(pw).toHaveAttribute('type', 'password');
+    expect(pw).toHaveAttribute('name', 'new-password');
+    expect(pw).toHaveAttribute('autocomplete', 'new-password');
+    expect(pw).toHaveAttribute('placeholder', 'New password');
+    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-rules');
+    const pw2 = view.getByLabelText('Confirm password');
+    expect(pw2).toHaveAttribute('id', 'ln-np2');
+    expect(pw2).toHaveAttribute('name', 'confirm-password');
+    expect(pw2).toHaveAttribute('autocomplete', 'new-password');
+    expect(pw2).toHaveAttribute('placeholder', 'Enter it again');
+    // The rules come before the fields; no hidden username field (the link does not name the account).
+    expect(rules.compareDocumentPosition(pw) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(view.container.querySelector('input[autocomplete="username"]')).toBeNull();
+    const back = view.getByRole('button', { name: 'Back to sign-in' });
+    expect(back).toHaveTextContent('Back');
+    expect(back.compareDocumentPosition(save()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    // Its own padding (here the mobile bottom bar's) and a label on one line.
+    expect(save().style.padding).toBe('0px 18px');
+    expect(save().querySelector('.nowrap')).toHaveTextContent('Save password');
+    // Entering on desktop: the new password.
+    await vi.waitFor(() => expect(document.activeElement).toBe(pw));
+  });
+
+  it('gives each field its own eye, out of the Tab order', async () => {
+    const view = atNewPw();
+    const eye = view.getByRole('button', { name: 'Show password' });
+    const eye2 = view.getByRole('button', { name: 'Show confirmed password' });
+    expect(eye).toHaveAttribute('tabindex', '-1');
+    expect(eye2).toHaveAttribute('tabindex', '-1');
+    await fireEvent.click(eye);
+    expect(view.getByLabelText('New password')).toHaveAttribute('type', 'text');
+    expect(view.getByLabelText('Confirm password')).toHaveAttribute('type', 'password');
+    await fireEvent.click(eye2);
+    expect(view.getByLabelText('Confirm password')).toHaveAttribute('type', 'text');
+    expect(view.getByRole('button', { name: 'Hide confirmed password' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('focuses the heading when entering on mobile', async () => {
+    await onPhone(async () => {
+      const view = atNewPw();
+      await vi.waitFor(() => expect(document.activeElement).toBe(view.getByRole('heading', { level: 1 })));
+    });
+  });
+
+  it('keeps "Save password" greyed out until complete; Enter moves to what is missing, on mobile too', async () => {
+    await onPhone(async () => {
+      const view = atNewPw();
+      const pw = view.getByLabelText('New password');
+      const pw2 = view.getByLabelText('Confirm password');
+      await fireEvent.click(save());
+      await vi.waitFor(() => expect(document.activeElement).toBe(pw));
+      await type('New password', 'New-password-1');
+      expect(save()).toHaveAttribute('aria-disabled', 'true');
+      await fireEvent.submit(pw.closest('form')!);
+      await vi.waitFor(() => expect(document.activeElement).toBe(pw2));
+      // Nothing to say yet: no error line, no request.
+      expect(view.container.querySelector('#ln-np2-err')).toBeNull();
+      await type('Confirm password', 'New-password-1');
+      expect(save()).toHaveAttribute('aria-disabled', 'false');
+      expect(view.container.querySelector('#ln-np2-ok')).toHaveTextContent('Passwords match');
+      expect(view.calls).toHaveLength(0);
+    });
+  });
+
+  it('shows the mismatch under the confirmation with the focus there', async () => {
+    const view = atNewPw();
+    await fillNewPw('New-password-1', 'New-password-2');
+    const pw2 = view.getByLabelText('Confirm password');
+    await fireEvent.click(save());
+    const err = view.container.querySelector('#ln-np2-err');
+    expect(err).toHaveTextContent('The passwords don’t match.');
+    expect(err).toHaveAttribute('role', 'alert');
+    expect(pw2).toHaveAttribute('aria-invalid', 'true');
+    expect(pw2).toHaveAttribute('aria-describedby', 'ln-np2-err ln-np2-ok');
+    await vi.waitFor(() => expect(document.activeElement).toBe(pw2));
+    await type('Confirm password', 'New-password-1');
+    expect(view.container.querySelector('#ln-np2-err')).toBeNull();
+    expect(view.calls).toHaveLength(0);
+  });
+
+  it('shows "too long" under the field while typing', async () => {
+    const view = atNewPw();
+    const pw = view.getByLabelText('New password');
+    await fillNewPw(`Aa1${'ü'.repeat(511)}`);
+    expect(view.container.querySelector('#ln-np-err')).toHaveTextContent('The password is too long.');
+    expect(pw).toHaveAttribute('aria-invalid', 'true');
+    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-err ln-np-rules');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    await type('New password', 'New-password-1');
+    expect(view.container.querySelector('#ln-np-err')).toBeNull();
+  });
+
+  it('shows the rules the server named under the field and as red chips; typing clears them', async () => {
+    const view = atNewPw({
+      [`POST auth/password/reset/${TOKEN}`]: [
+        { status: 422, body: { error: 'invalid', fields: { password: { code: 'policy', rules: ['num'] } } } },
+      ],
+    });
+    await fillNewPw();
+    const pw = view.getByLabelText('New password');
+    await fireEvent.click(save());
+    await vi.waitFor(() =>
+      expect(view.container.querySelector('#ln-np-err')).toHaveTextContent(
+        'The new password needs a number or special character.',
+      ),
+    );
+    const num = view.getByText('A number or special character').closest('li')!;
+    expect(num).toHaveClass('bad');
+    expect(num).toHaveTextContent('not met yet');
+    expect(pw).toHaveAttribute('aria-invalid', 'true');
+    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-err ln-np-rules');
+    expect(pw).toHaveValue('New-password-1');
+    expect(view.getByLabelText('Confirm password')).toHaveValue('New-password-1');
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    await vi.waitFor(() => expect(document.activeElement).toBe(pw));
+    await type('New password', 'New-password-12');
+    expect(view.container.querySelector('#ln-np-err')).toBeNull();
+    expect(view.getByText('A number or special character').closest('li')).not.toHaveClass('bad');
+  });
+
+  it('shows the save lock under the fields; they stay editable, "Save password" greyed out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = atNewPw({
+      [`POST auth/password/reset/${TOKEN}`]: [{ status: 429, body: { error: 'rate_limited', retry_after: 900 } }],
+    });
+    await fillNewPw();
+    await fireEvent.click(save());
+    const lock = await vi.waitFor(() => {
+      const el = view.container.querySelector('#ln-np-lock');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(lock).toHaveAttribute('role', 'alert');
+    expect(lock).toHaveTextContent('Too many requests.');
+    expect(lock).toHaveTextContent('Try again in 15 minutes.');
+    expect(lock).toHaveTextContent('15:00');
+    const pw2 = view.getByLabelText('Confirm password');
+    expect(pw2.compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(pw2).not.toBeDisabled();
+    expect(pw2).toHaveValue('New-password-1');
+    // The normal label, greyed out: the time left is only in the lock message.
+    expect(save()).toHaveAttribute('aria-disabled', 'true');
+    expect(view.queryByText(/Save password in/)).toBeNull();
+    vi.advanceTimersByTime(900_000);
+    await vi.waitFor(() => expect(view.container.querySelector('#ln-np-lock')).toBeNull());
+    expect(save()).toHaveAttribute('aria-disabled', 'false');
+  });
+
+  it('saves with a spinner and shows "No connection" without an answer, the passwords kept', async () => {
+    const view = atNewPw();
+    await fillNewPw();
+    await fireEvent.click(save());
+    expect(await view.findByRole('alertdialog')).toBeInTheDocument();
+    expect(view.getByLabelText('New password', { selector: 'input' })).toHaveValue('New-password-1');
+    expect(view.getByLabelText('Confirm password', { selector: 'input' })).toHaveValue('New-password-1');
+  });
+
+  it('goes back to sign-in', async () => {
+    const view = atNewPw();
+    await fillNewPw();
+    await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
+    expect(view.navigate).toHaveBeenLastCalledWith('login');
+    expect(view.getByLabelText('Email or username')).toBeInTheDocument();
+  });
+});
+
+describe('page password changed', () => {
+  it('shows the result with the signed-out chip; signed in, this session ends too', async () => {
+    session.user = { ...ME, role: 'user' };
+    prefs.remote = true;
+    const view = atNewPw({
+      [`POST auth/password/reset/${TOKEN}`]: [{ body: { status: 'ok', sessions_ended: 3 } }],
+    });
+    await fillNewPw();
+    await fireEvent.click(save());
+    const heading = await view.findByRole('heading', { name: 'Password changed' });
+    expect(ui.authTitle).toBe('Password changed · Roedy Mail');
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    const status = view.getByRole('status');
+    expect(status).toHaveTextContent(m.login_done_text());
+    expect(status).toHaveTextContent('You’ve been signed out on all devices.');
+    expect(session.user).toBeNull();
+    // Guest afterwards: the theme switches only in the browser again.
+    expect(prefs.remote).toBe(false);
+    expect(view.calls.map((c) => [c.path, c.body])).toEqual([
+      [`auth/password/reset/${TOKEN}`, { password: 'New-password-1' }],
+    ]);
+    await fireEvent.click(view.getByRole('button', { name: 'Go to sign-in' }));
+    expect(view.navigate).toHaveBeenCalledWith('login');
+    expect(view.getByLabelText('Email or username')).toHaveValue('');
+    expect(view.getByLabelText('Password')).toHaveValue('');
+    expect(view.getByLabelText('Password')).toHaveAttribute('type', 'password');
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Email or username')));
+  });
+
+  it('leaves the chip out when no session ended', async () => {
+    const view = atNewPw({ [`POST auth/password/reset/${TOKEN}`]: [{ body: { status: 'ok', sessions_ended: 0 } }] });
+    await fillNewPw();
+    await fireEvent.click(save());
+    await view.findByRole('heading', { name: 'Password changed' });
+    expect(view.queryByText('You’ve been signed out on all devices.')).toBeNull();
+  });
+});
+
+describe('page link expired or invalid', () => {
+  it('shows the dead end with "Request a new link"; the focus on the heading', async () => {
+    const view = atNewPw({
+      [`POST auth/password/reset/${TOKEN}`]: [{ status: 422, body: { error: 'invalid_token' } }],
+    });
+    await fillNewPw();
+    await fireEvent.click(save());
+    const heading = await view.findByRole('heading', { name: 'Link expired or invalid' });
+    expect(ui.authTitle).toBe('Link expired or invalid · Roedy Mail');
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(view.getByRole('alert')).toHaveTextContent(m.login_link_bad_text());
+    await fireEvent.click(view.getByRole('button', { name: 'Request a new link' }));
+    expect(view.navigate).toHaveBeenCalledWith('forgot');
+    expect(view.getByRole('heading', { name: 'Reset password' })).toBeInTheDocument();
+    expect(view.getByLabelText('Email address')).toHaveValue('');
+  });
+
+  it('goes back to sign-in with the identifier kept, the focus in the password', async () => {
+    mockApi({ [`POST auth/password/reset/${TOKEN}`]: [{ status: 422, body: { error: 'invalid_token' } }] });
+    const view = show();
+    await type('Email or username', 'max@example.net');
+    await view.rerender({ route: { kind: 'newpw', token: TOKEN } });
+    await fillNewPw();
+    await fireEvent.click(save());
+    await view.findByRole('heading', { name: 'Link expired or invalid' });
+    await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
+    expect(view.navigate).toHaveBeenLastCalledWith('login');
+    expect(view.getByLabelText('Email or username')).toHaveValue('max@example.net');
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Password')));
   });
 });
