@@ -25,7 +25,7 @@ export class InviteTargets {
     return this.els.get(key);
   }
 
-  /** For `bind:` of a component's element (`FormField`'s input). */
+  /** For `bind:` of a component's element (`CodeBoxes`' input). */
   put(key: InviteTarget, el: HTMLElement | undefined): void {
     if (el) this.els.set(key, el);
     else this.els.delete(key);
@@ -35,5 +35,13 @@ export class InviteTargets {
   input(key: InviteTarget): HTMLInputElement | undefined {
     const el = this.els.get(key);
     return el instanceof HTMLInputElement ? el : undefined;
+  }
+
+  /** Registers a component's bound element as `key` until the returned cleanup runs (for `$effect`). */
+  hold(key: InviteTarget, el: HTMLElement | undefined): () => void {
+    if (el) this.els.set(key, el);
+    return () => {
+      if (el && this.els.get(key) === el) this.els.delete(key);
+    };
   }
 }

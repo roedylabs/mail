@@ -507,7 +507,12 @@ test('accept invitations with MFA', async ({ browser }) => {
     // 2 Account
     await expect(page.getByRole('heading', { name: 'Set up your account' })).toBeVisible();
     await page.getByLabel('Your name').fill(invitee.name);
-    await page.getByLabel('Choose a password', { exact: true }).fill(password());
+    // Continue is greyed out until the confirmation matches
+    const pw = password();
+    await page.getByLabel('Choose a password', { exact: true }).fill(pw);
+    await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+    await page.getByLabel('Confirm password', { exact: true }).fill(pw);
+    await expect(next(page)).toHaveAttribute('aria-disabled', 'false');
     await next(page).click();
 
     // 3 MFA with the displayed key; six digits submit on their own

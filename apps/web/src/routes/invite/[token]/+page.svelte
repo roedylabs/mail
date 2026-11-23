@@ -25,7 +25,8 @@
   import InviteWelcome from '#lib/components/invite/InviteWelcome.svelte';
   import { InviteTargets } from '#lib/components/invite/targets.ts';
   import { NetworkError, api } from '#lib/api.ts';
-  import { InviteFlow } from '#lib/invite.svelte.ts';
+  import { isMobileWidth } from '#lib/auth-layout.ts';
+  import { InviteFlow, type InviteField } from '#lib/invite.svelte.ts';
   import { Reconnect } from '#lib/no-connection.svelte.ts';
   import { shake } from '#lib/shake.ts';
   import { forgetAccount, loadSignedIn } from '#lib/state/account.ts';
@@ -44,14 +45,33 @@
     return loadSignedIn();
   }
 
+  /** Fields of the screens on the shared shell: on mobile entering one focuses the heading (no on-screen keyboard). */
+  const SHELL_FIELDS: readonly InviteField[] = ['name', 'pw', 'pw2'];
+
+  /**
+   * Moves the focus to `field` once the screen is there. `entering` a shell screen: desktop the field without
+   * scrolling, mobile the heading instead. A rejected or missing field gets the focus on mobile too.
+   */
+  function focus(field: InviteField, entering: boolean) {
+    void tick().then(() => {
+      // "No connection" keeps the focus until it closes.
+      if (net.open) return;
+      const shell = SHELL_FIELDS.includes(field);
+      const mobile = isMobileWidth(ui.width);
+      const el = targets.get(shell && mobile && entering ? 'heading' : field);
+      el?.focus(shell && !mobile ? { preventScroll: true } : undefined);
+    });
+  }
+
   const flow = new InviteFlow({
     fail: (field) => {
       void tick().then(() => {
         shake(targets.get('card'), undefined);
-        if (field) targets.get(field)?.focus();
+        if (field) focus(field, false);
       });
     },
-    focus: (field) => void tick().then(() => targets.get(field)?.focus()),
+    focus: (field) => focus(field, true),
+    missing: (field) => focus(field, false),
     // A previous session of this browser has ended.
     accepted: (left) => {
       if (session.authed) forgetAccount();
