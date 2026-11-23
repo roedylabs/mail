@@ -31,6 +31,14 @@ export class SetupTargets {
     else this.els.delete(key);
   }
 
+  /** Registers a component's bound element as `key` until the returned cleanup runs (for `$effect`). */
+  hold(key: SetupTarget, el: HTMLElement | undefined): () => void {
+    if (el) this.els.set(key, el);
+    return () => {
+      if (el && this.els.get(key) === el) this.els.delete(key);
+    };
+  }
+
   /** The input registered as `key` (getter of a function binding). */
   input(key: SetupTarget): HTMLInputElement | undefined {
     const el = this.els.get(key);

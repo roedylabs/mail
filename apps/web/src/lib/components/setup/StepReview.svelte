@@ -10,10 +10,11 @@
 -->
 <script lang="ts">
   import Icon from '#lib/components/Icon.svelte';
-  import SetupShell from '#lib/components/setup/SetupShell.svelte';
+  import AuthShell from '#lib/components/auth/AuthShell.svelte';
+  import { setupFrame } from '#lib/components/setup/frame.ts';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
   import { m } from '#lib/paraglide/messages.js';
-  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
+  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/auth-layout.ts';
   import type { SetupFlow } from '#lib/setup.svelte.ts';
   import { ui } from '#lib/state/ui.svelte.ts';
 
@@ -58,9 +59,8 @@
   </div>
 {/snippet}
 
-<SetupShell
-  email={flow.email.trim()}
-  step={7}
+<AuthShell
+  {...setupFrame(flow, 7)}
   docTitle={m.setup_doc_title({ step: m.setup_step_review() })}
   title={m.setup_review_title()}
   {intro}
@@ -68,8 +68,6 @@
   {mob}
   contentKey={flow.finishErr ? 'err' : ''}
   {hidden}
-  canBack={flow.canBack}
-  onback={() => flow.back()}
   primary={{ label: m.setup_finish(), icon: 'ti-check', busy, busyLabel: m.setup_finishing() }}
   onsubmit={() => void flow.finish()}
   reg={targets.reg}
@@ -133,7 +131,7 @@
       </div>
     {/if}
   {/snippet}
-</SetupShell>
+</AuthShell>
 
 <style>
   .summary {

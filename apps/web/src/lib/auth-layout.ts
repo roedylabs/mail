@@ -1,6 +1,7 @@
 /**
- * Layout of the setup wizard: width tiers, two-column threshold and the
- * height levels the card steps down through until it fits the window.
+ * Layout of the guest pages (setup, sign-in, invitation): width tiers,
+ * two-column threshold and the height levels the card steps down through
+ * until it fits the window.
  *
  * Tiers (full page width `w`): below 520 px the mobile layout (top bar, the
  * card as a scrolling panel, actions in a bottom bar); 520–999 px "mid", one
@@ -9,10 +10,20 @@
  * actions right). From 800 px a window lower than 760 px gets two columns
  * too; once in two columns they stay until 40 px above that threshold.
  *
- * Within a tier the height level sets sizes and what shows. Each step has
- * its own tables (it adds its own values to the shared ones below); the
- * done screen has one column only. Touch targets stay ≥ 44 px at every level.
+ * Within a tier the height level sets sizes and what shows. Each screen has
+ * its own tables (it adds its own values to the shared ones below); result
+ * screens have one column only. Touch targets stay ≥ 44 px at every level.
  */
+
+/** An intro in three parts, the middle one bold (such as the administrator's email). */
+export type IntroParts = readonly [string, string, string];
+
+/** Heading and intro of one screen in one language, for the space the shell keeps for them (`AuthShell`'s `heads`). */
+export interface StepHead {
+  title: string;
+  long: IntroParts;
+  short: IntroParts;
+}
 
 export const MOBILE_MAX = 520;
 export const WIDE = 1000;
@@ -69,13 +80,16 @@ export interface MobLevel {
   fieldsTop?: string;
 }
 
-/** Desktop height level of the done screen (one column). */
+/** Desktop height level of a result screen (one column). */
 export interface DoneLevel {
   h1: string;
   pad: string;
   gap: string;
   gapM: string;
   main: string;
+  /** Height of the primary button and the space above the actions. */
+  ctl: string;
+  btn: string;
   stepM: string;
   pfs: string;
   pm: string;
@@ -213,10 +227,12 @@ export const MOB_LEVELS: readonly MobLevel[] = [
   { h1: '24px', gap: '14px', gapM: '12px', gapF: '12px', cpad: '18px 14px 16px', intro: 'none' },
 ];
 
-/** Desktop levels of the done screen. */
+/** Desktop levels of the result screens (the setup's done screen, sign-in and invitation results). */
 export const DONE_LEVELS: readonly DoneLevel[] = [
   {
     h1: '44px',
+    ctl: '56px',
+    btn: '28px',
     pad: '44px 44px 40px',
     gap: '28px',
     gapM: '22px',
@@ -228,6 +244,8 @@ export const DONE_LEVELS: readonly DoneLevel[] = [
   },
   {
     h1: '40px',
+    ctl: '52px',
+    btn: '24px',
     pad: '36px 38px 32px',
     gap: '22px',
     gapM: '18px',
@@ -239,6 +257,8 @@ export const DONE_LEVELS: readonly DoneLevel[] = [
   },
   {
     h1: '36px',
+    ctl: '48px',
+    btn: '20px',
     pad: '28px 30px 26px',
     gap: '18px',
     gapM: '14px',
@@ -250,6 +270,8 @@ export const DONE_LEVELS: readonly DoneLevel[] = [
   },
   {
     h1: '30px',
+    ctl: '44px',
+    btn: '16px',
     pad: '20px 24px 18px',
     gap: '14px',
     gapM: '12px',
@@ -261,11 +283,12 @@ export const DONE_LEVELS: readonly DoneLevel[] = [
   },
 ];
 
-/** Mobile levels of the done screen. */
+/** Mobile levels of the result screens. */
 export const DONE_MOB_LEVELS: readonly MobLevel[] = [
   { h1: '32px', gap: '26px', gapM: '20px', cpad: '28px 22px 26px', intro: 'block' },
   { h1: '30px', gap: '20px', gapM: '16px', cpad: '24px 18px 22px', intro: 'block' },
   { h1: '28px', gap: '16px', gapM: '14px', cpad: '20px 16px 18px', intro: 'block' },
+  { h1: '26px', gap: '14px', gapM: '12px', cpad: '18px 14px 16px', intro: 'block' },
 ];
 
 export type Tier = 'mob' | 'mid' | 'wide';
@@ -280,13 +303,20 @@ export function fitTier(w: number, two: boolean): FitTier {
 }
 
 /**
- * One level for all seven steps: per tier the window height each level needs (`need`, px of the page; on mobile of
+ * Window heights and card heights per level of a page family (`SHARED_FIT` or a family's own table): per tier the
+ * window height each level needs and the card's height at that level.
+ */
+export type FitTable = Record<FitTier, { need: readonly number[]; card: readonly number[] }>;
+
+/**
+ * One level for all seven setup steps (the sign-in uses it too, so setup and sign-in cards have the same size in one
+ * window): per tier the window height each level needs (`need`, px of the page; on mobile of
  * the page around the panel) and the card's height at that level (`card`, desktop). Both are the largest of the
  * steps in the longer language, measured on the real steps at the narrowest width of the tier. Every step starts its
  * fit at the level the window allows, so heading, sizes and card are the same on every step; a step only goes denser
  * on its own when its content still overflows (an error message).
  */
-export const SHARED_FIT: Record<FitTier, { need: readonly number[]; card: readonly number[] }> = {
+export const SHARED_FIT: FitTable = {
   mob: { need: [964, 916, 730, 640, 484], card: [1156, 814, 766, 580, 490] },
   narrow: { need: [1054, 934, 826, 688, 628, 508, 484], card: [954, 881, 794, 674, 617, 496, 466] },
   mid: { need: [1072, 946, 808, 688, 634, 514, 484], card: [970, 893, 782, 678, 621, 500, 470] },
@@ -311,16 +341,16 @@ export function wideCardW(L: DeskLevel): number {
 }
 
 /** Level all steps share at width `w`, height `h` and column layout `two`; at most `levels - 1`. */
-export function sharedLevel(w: number, h: number, two: boolean, levels: number): number {
-  const { need } = SHARED_FIT[fitTier(w, two)];
+export function sharedLevel(w: number, h: number, two: boolean, levels: number, table: FitTable = SHARED_FIT): number {
+  const { need } = table[fitTier(w, two)];
   const i = need.findIndex((n) => h >= n);
   return Math.min(levels - 1, i < 0 ? need.length - 1 : i);
 }
 
 /** Desktop card height (px) at `level`: the largest step's, so the card has the same size on every step; `null` on mobile. */
-export function sharedCardH(w: number, two: boolean, level: number): number | null {
+export function sharedCardH(w: number, two: boolean, level: number, table: FitTable = SHARED_FIT): number | null {
   if (isMobileWidth(w)) return null;
-  const { card } = SHARED_FIT[fitTier(w, two)];
+  const { card } = table[fitTier(w, two)];
   return card[Math.min(level, card.length - 1)] ?? null;
 }
 
@@ -459,7 +489,7 @@ export function codesCols(look: Look, cols3: boolean, row: number, pad: number, 
   return (inner - gap) / 2 >= row ? 2 : 1;
 }
 
-/** Values of the done screen: one column in a card of up to 560 px. */
+/** Values of a result screen: one column in a card of up to 560 px. */
 export function doneLook(
   w: number,
   level: number,
@@ -482,7 +512,7 @@ export function doneLook(
     gapL: L.gap,
     gapM: L.gapM,
     gapF: L.gapM,
-    ctl: '56px',
+    ctl: L.ctl,
     stepM: L.stepM,
     intro: true,
     introShort: false,
@@ -491,7 +521,7 @@ export function doneLook(
     cols: 'minmax(0, 1fr)',
     colGap: '0',
     fieldsTop: '0',
-    btnTop: '0',
+    btnTop: L.btn,
     listTop: '0',
     listGap: '0',
     btnLeft: false,

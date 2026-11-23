@@ -1,6 +1,6 @@
 import { flushSync } from 'svelte';
 import { describe, expect, it, vi } from 'vitest';
-import { SetupFit } from './setup-fit.svelte.ts';
+import { AuthFit } from './auth-fit.svelte.ts';
 
 /** Page whose content is `content` px high in a window of `height` px. */
 function page() {
@@ -14,7 +14,7 @@ function page() {
       return this.height;
     },
   };
-  const fit = new SetupFit({
+  const fit = new AuthFit({
     root: () => root as unknown as HTMLElement,
     card: () => undefined,
     levels: () => 7,
@@ -25,7 +25,7 @@ function page() {
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0));
 
-describe('SetupFit', () => {
+describe('AuthFit', () => {
   it('refits after gradual resizing of 1 px steps', async () => {
     const { root, fit } = page();
     fit.relayout(1280, 800);
@@ -161,7 +161,7 @@ describe('SetupFit', () => {
         },
       };
       const shown: ('en' | 'de')[] = [];
-      const fit: SetupFit = new SetupFit({
+      const fit: AuthFit = new AuthFit({
         root: () => root as unknown as HTMLElement,
         card: () => undefined,
         levels: () => 7,
@@ -184,7 +184,7 @@ describe('SetupFit', () => {
 
   it('starts at the level the steps share and only goes denser from there', async () => {
     const { root, fit } = page();
-    const shared = new SetupFit({
+    const shared = new AuthFit({
       root: () => root as unknown as HTMLElement,
       card: () => undefined,
       levels: () => 7,
@@ -212,7 +212,7 @@ describe('SetupFit', () => {
       clientHeight: 620,
     };
     let typing = false;
-    const fit = new SetupFit({
+    const fit = new AuthFit({
       root: () => root as unknown as HTMLElement,
       card: () => card as unknown as HTMLElement,
       levels: () => 5,

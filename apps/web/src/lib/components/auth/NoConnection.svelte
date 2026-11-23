@@ -1,5 +1,6 @@
 <!--
-  "No connection" of the setup wizard (`Reconnect`): the screen behind blurs
+  "No connection" of the guest pages (`Reconnect`; the page passes its own
+  probe: the setup status, or `public/config`): the screen behind blurs
   softly, the message sits centred in front of it and covers everything, so
   nothing behind it takes input. Calm, not alarming: a neutral tile inside a
   ring that runs empty towards the next attempt and spins while checking; a
@@ -24,7 +25,7 @@
   const dash = $derived(busy ? `${(C * 0.22).toFixed(1)} ${C.toFixed(1)}` : `${C.toFixed(1)} ${C.toFixed(1)}`);
   const dashOff = $derived(busy ? '0' : (C * (1 - net.left / net.total)).toFixed(1));
   const ringTr = $derived(busy || net.left >= net.total || !prefs.motion ? 'none' : 'stroke-dashoffset 1s linear');
-  const status = $derived(busy ? m.setup_net_checking() : m.setup_net_next({ time: waitText(Math.max(1, net.left)) }));
+  const status = $derived(busy ? m.net_checking() : m.net_next({ time: waitText(Math.max(1, net.left)) }));
 
   onMount(() => {
     const before = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -34,7 +35,7 @@
     };
   });
 
-  /** Keys never reach the step behind it (its Enter); Tab stays on "Try now". */
+  /** Keys never reach the screen behind it (its Enter); Tab stays on "Try now". */
   function onKey(e: KeyboardEvent) {
     e.stopPropagation();
     if (e.key === 'Tab') {
@@ -51,8 +52,8 @@
     class="box"
     role="alertdialog"
     aria-modal="true"
-    aria-labelledby="su-net-t"
-    aria-describedby="su-net-d"
+    aria-labelledby="net-t"
+    aria-describedby="net-d"
   >
     <div class="ring" aria-hidden="true">
       <svg viewBox="0 0 96 96" width="96" height="96" class:spin={busy}>
@@ -70,9 +71,9 @@
       </svg>
       <span class="tile"><Icon name="ti-wifi-off" /></span>
     </div>
-    <h2 id="su-net-t">{m.setup_net_title()}</h2>
-    <p id="su-net-d">{m.setup_net_text()} <span class="sr-only">{m.setup_net_kept()}</span></p>
-    <span class="kept" aria-hidden="true"><Icon name="ti-circle-check" />{m.setup_net_kept()}</span>
+    <h2 id="net-t">{m.net_title()}</h2>
+    <p id="net-d">{m.net_text()} <span class="sr-only">{m.net_kept()}</span></p>
+    <span class="kept" aria-hidden="true"><Icon name="ti-circle-check" />{m.net_kept()}</span>
     <span class="status">{status}</span>
     <button
       bind:this={button}
@@ -82,7 +83,7 @@
       aria-busy={busy ? 'true' : 'false'}
       onclick={() => void net.attempt(true)}
     >
-      <span class="bi"><Icon name="ti-refresh" /></span><span>{m.setup_net_retry()}</span>
+      <span class="bi"><Icon name="ti-refresh" /></span><span>{m.net_retry()}</span>
     </button>
   </div>
 </div>

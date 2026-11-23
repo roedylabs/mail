@@ -1,6 +1,6 @@
 /**
- * Swipe back in the setup wizard on mobile: dragging the page to the right
- * from steps 2–7 moves it along (a rubber band to the left), an arrow chip
+ * Swipe back on the guest pages (setup, sign-in, invitation) on mobile:
+ * dragging the page to the right from a screen with "Back" moves it along (a rubber band to the left), an arrow chip
  * fades in at the left edge and turns to the accent colour once the gesture
  * would go back. Released at 30 % of the width or flicked (faster than
  * 0.35 px/ms after more than 48 px), the page slides out and "Back" runs;
@@ -10,7 +10,7 @@
 import type { Attachment } from 'svelte/attachments';
 import { rubber } from '#lib/swipe.ts';
 
-export interface SetupSwipe {
+export interface AuthSwipe {
   /** Motion on: without it the page jumps instead of sliding. */
   motion: boolean;
   /** "Back" of the step. */
@@ -46,10 +46,10 @@ export const swipeOffset = (dx: number): number => (dx > 0 ? dx : -rubber(-dx, 2
 
 /**
  * Attachment on the page (`touch-action: pan-y`); the arrow chip is the
- * page's next sibling with `data-setup-chip`. `get` returns `null` while the
- * gesture is off (desktop, the first step, a request running).
+ * page's next sibling with `data-auth-chip`. `get` returns `null` while the
+ * gesture is off (desktop, a screen without "Back", a request running).
  */
-export function setupSwipe(get: () => SetupSwipe | null): Attachment<HTMLElement> {
+export function authSwipe(get: () => AuthSwipe | null): Attachment<HTMLElement> {
   return (el) => {
     let active = false;
     /** Ends a running gesture (listeners, styles); set while one runs. */
@@ -64,7 +64,7 @@ export function setupSwipe(get: () => SetupSwipe | null): Attachment<HTMLElement
       if (!o) return;
       const win = el.ownerDocument.defaultView ?? window;
       const chip =
-        el.nextElementSibling instanceof HTMLElement && el.nextElementSibling.dataset.setupChip !== undefined
+        el.nextElementSibling instanceof HTMLElement && el.nextElementSibling.dataset.authChip !== undefined
           ? el.nextElementSibling
           : null;
       const ms = (n: number) => (o.motion ? n : 0);

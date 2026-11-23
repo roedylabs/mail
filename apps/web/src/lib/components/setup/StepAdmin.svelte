@@ -8,12 +8,15 @@
   then moves to the first empty or invalid field (`SetupFlow.submitAdmin`).
 -->
 <script lang="ts">
+  import AuthShell from '#lib/components/auth/AuthShell.svelte';
+  import MessageBox from '#lib/components/auth/MessageBox.svelte';
+  import PreviewCard from '#lib/components/auth/PreviewCard.svelte';
   import Icon from '#lib/components/Icon.svelte';
-  import SetupShell from '#lib/components/setup/SetupShell.svelte';
+  import { setupFrame } from '#lib/components/setup/frame.ts';
   import type { SetupTargets } from '#lib/components/setup/targets.ts';
   import { MAX_NAME, NAME_WARN, initials, limitNameEdit, nameError, nameLength, normalizeName } from '#lib/name.ts';
   import { m } from '#lib/paraglide/messages.js';
-  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/setup-layout.ts';
+  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/auth-layout.ts';
   import type { SetupFlow } from '#lib/setup.svelte.ts';
   import { session } from '#lib/state/session.svelte.ts';
 
@@ -63,13 +66,8 @@
     ? m.setup_admin_intro_short({ app: session.appName })
     : m.setup_admin_intro()}{/snippet}
 
-{#snippet role(cls: string)}
-  <span class="chip {cls}"><Icon name="ti-shield-check" /><span>{m.setup_admin_role()}</span></span>
-{/snippet}
-
-<SetupShell
-  email={flow.email.trim()}
-  step={3}
+<AuthShell
+  {...setupFrame(flow, 3)}
   docTitle={m.setup_doc_title({ step: m.setup_step_admin() })}
   title={m.setup_admin_title()}
   {intro}
@@ -77,8 +75,6 @@
   {mob}
   contentKey={[nameErr ? 'n' : '', emailErr ? 'e' : ''].join('|')}
   {hidden}
-  canBack={flow.canBack}
-  onback={() => flow.back()}
   primary={{ label: m.setup_next(), icon: 'ti-arrow-right', disabled: !flow.adminReady }}
   onsubmit={() => flow.submitAdmin()}
   onblocked={() => flow.submitAdmin()}
@@ -88,32 +84,20 @@
     {@const table = look.mobile ? mob : desk}
     {@const x = table[Math.min(level, table.length - 1)]!}
     <!-- How the new account will look, filled live while typing (the fields say the same to screen readers). -->
-    <div
-      class="acct"
-      aria-hidden="true"
-      style:--av="{x.av}px"
-      style:--av-r="{Math.round(x.av * 0.34)}px"
-      style:--av-fs="{Math.round(x.av * 0.4)}px"
-      style:--av-icon="{Math.round(x.av * 0.46)}px"
-    >
-      <div class="acct-main" style:padding={x.av >= 50 ? '16px 18px' : '12px 14px'}>
-        <span class="avatar">
-          {#if ini}<span>{ini}</span>{:else}<span class="avatar-icon"><Icon name="ti-user" /></span>{/if}
-        </span>
-        <div class="who">
-          <span class="who-name" class:empty={!name}>{name || m.setup_admin_preview_name()}</span>
-          <span class="who-email" class:empty={!email}>{email || m.setup_email_placeholder()}</span>
-          {#if look.mobile}{@render role('in')}{/if}
-        </div>
-        {#if !look.mobile}{@render role('top')}{/if}
-      </div>
-      {#if x.rights}
-        <div class="rights">
-          <span><Icon name="ti-users" /><span>{m.setup_admin_right_users()}</span></span>
-          <span><Icon name="ti-settings" /><span>{m.setup_admin_right_settings()}</span></span>
-        </div>
-      {/if}
-    </div>
+    <PreviewCard
+      avatar={{ initials: ini, icon: 'ti-user' }}
+      first={{ text: name || m.setup_admin_preview_name(), empty: !name }}
+      second={{ text: email || m.setup_email_placeholder(), empty: !email }}
+      chip={{ icon: 'ti-shield-check', label: m.setup_admin_role() }}
+      lower={x.rights
+        ? [
+            { icon: 'ti-users', text: m.setup_admin_right_users() },
+            { icon: 'ti-settings', text: m.setup_admin_right_settings() },
+          ]
+        : undefined}
+      size={x.av}
+      narrow={look.mobile}
+    />
 
     <div class="flds">
       <div class="fld">
@@ -150,13 +134,13 @@
         </div>
         {#if nameErr}
           <!-- Invalid name: a message card like the invalid token on step 2 -->
-          <div class="msg" id="su-name-err" role="alert">
-            <span class="msg-icon" aria-hidden="true"><Icon name="ti-user-x" /></span>
-            <div class="msg-text">
-              <strong>{m.setup_name_invalid_title()}</strong>
-              <span>{nameErr}</span>
-            </div>
-          </div>
+          <MessageBox
+            id="su-name-err"
+            role="alert"
+            icon="ti-user-x"
+            title={m.setup_name_invalid_title()}
+            text={nameErr}
+          />
         {/if}
       </div>
       <div class="fld">
@@ -185,145 +169,9 @@
       </div>
     </div>
   {/snippet}
-</SetupShell>
+</AuthShell>
 
 <style>
-  /* Account preview */
-  .acct {
-    border-radius: 22px;
-    background: var(--surface2);
-    box-shadow: var(--sh-edge), var(--sh1);
-    overflow: hidden;
-    transition: background-color 300ms;
-  }
-
-  .acct-main {
-    display: flex;
-    align-items: center;
-    gap: 14px;
-  }
-
-  .avatar {
-    width: var(--av);
-    height: var(--av);
-    flex-shrink: 0;
-    border-radius: var(--av-r);
-    background: var(--acc);
-    color: var(--accink);
-    display: grid;
-    place-items: center;
-    /* fixed value (tile edge) */
-    box-shadow:
-      inset 0 -3px 0 rgba(0, 0, 0, 0.08),
-      var(--sh1);
-    transform: rotate(-4deg);
-    font-family: var(--font-serif);
-    font-size: var(--av-fs);
-    line-height: 1;
-    transition: background-color 300ms;
-  }
-
-  .avatar-icon {
-    display: grid;
-    font-size: var(--av-icon);
-    opacity: 0.85;
-  }
-
-  .who {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 2px;
-  }
-
-  .who-name,
-  .who-email {
-    max-width: 100%;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-
-  .who-name {
-    font-size: 16px;
-    font-weight: 800;
-    line-height: 1.3;
-    color: var(--fg);
-  }
-
-  .who-name.empty {
-    color: var(--mfg);
-  }
-
-  .who-email {
-    font-size: 13.5px;
-    line-height: 1.4;
-    color: var(--mfg);
-  }
-
-  /* A little fainter than an address: --dim alone stays under 4.5 : 1 on --surface2 (3.3 : 1 in both themes) */
-  .who-email.empty {
-    color: color-mix(in oklab, var(--dim) 25%, var(--mfg));
-  }
-
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    border-radius: 9999px;
-    background: var(--accsoft);
-    color: var(--deep);
-    font-weight: 800;
-  }
-
-  .chip.top {
-    flex-shrink: 0;
-    gap: 5px;
-    height: 28px;
-    padding: 0 11px 0 8px;
-    font-size: 12.5px;
-  }
-
-  .chip.top :global(svg) {
-    font-size: 15px;
-  }
-
-  .chip.in {
-    margin-top: 5px;
-    gap: 5px;
-    height: 24px;
-    padding: 0 10px 0 7px;
-    font-size: 12px;
-  }
-
-  .chip.in :global(svg) {
-    font-size: 14px;
-  }
-
-  .rights {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 6px 16px;
-    padding: 10px 18px 11px;
-    border-top: 1px solid var(--bd);
-    font-size: 13px;
-    font-weight: 700;
-    color: var(--mfg);
-  }
-
-  .rights > span {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-  }
-
-  .rights :global(svg) {
-    font-size: 16px;
-    color: var(--fbd);
-  }
-
   /* Fields */
   .flds {
     margin-top: var(--f-gap-m);
@@ -428,54 +276,6 @@
       var(--sh1);
   }
 
-  /* Message card under the name: tilted icon tile, title and hint, soft red */
-  .msg {
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 12px 16px 12px 12px;
-    border-radius: 18px;
-    background: var(--errsoft);
-    color: var(--errfg);
-    animation: suPop 340ms cubic-bezier(0.2, 1.2, 0.3, 1);
-  }
-
-  .msg-icon {
-    width: 32px;
-    height: 32px;
-    flex-shrink: 0;
-    border-radius: 11px;
-    background: var(--errfg);
-    color: var(--errsoft);
-    display: grid;
-    place-items: center;
-    transform: rotate(-6deg);
-    box-shadow: var(--sh1);
-    font-size: 17px;
-  }
-
-  .msg-text {
-    min-width: 0;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    padding-top: 1px;
-  }
-
-  .msg-text strong {
-    font-size: 14.5px;
-    font-weight: 800;
-    line-height: 1.35;
-  }
-
-  .msg-text span {
-    font-size: 13.5px;
-    font-weight: 600;
-    line-height: 1.45;
-    text-wrap: pretty;
-  }
-
   /* Rejected by the server only (`setup/complete`) */
   .err {
     display: flex;
@@ -490,16 +290,5 @@
   .err :global(svg) {
     flex-shrink: 0;
     font-size: 15px;
-  }
-
-  @keyframes suPop {
-    from {
-      opacity: 0;
-      transform: translateY(10px) scale(0.94);
-    }
-    to {
-      opacity: 1;
-      transform: none;
-    }
   }
 </style>

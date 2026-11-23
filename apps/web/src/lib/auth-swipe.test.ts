@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { releaseVelocity, swipeGoes, swipeOffset, swipeProgress } from './setup-swipe.ts';
+import { releaseVelocity, swipeGoes, swipeOffset, swipeProgress } from './auth-swipe.ts';
 
-describe('setup swipe back', () => {
+describe('swipe back of the guest pages', () => {
   it('goes back from 30 % of the width or a flick', () => {
     expect(swipeGoes(118, 0, 390)).toBe(true);
     expect(swipeGoes(116, 0, 390)).toBe(false);
