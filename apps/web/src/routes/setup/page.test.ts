@@ -1715,7 +1715,7 @@ describe('Step 4: password', () => {
     await type(/^Password$/, `Safe-enough1${'ä'.repeat(507)}`);
     expect(view.getByRole('alert')).toHaveTextContent('The password is too long (1024 bytes at most).');
     expect(pw).toHaveAttribute('aria-invalid', 'true');
-    expect(pw).toHaveAttribute('aria-describedby', 'su-pw-err su-pw-rules');
+    expect(pw).toHaveAttribute('aria-describedby', 'su-pw-err su-pw-rules su-pw-kbd');
     await type(/^Password$/, 'Safe-enough1');
     expect(view.queryByRole('alert')).toBeNull();
     // Incomplete: Enter moves to the field that is missing something, no message.

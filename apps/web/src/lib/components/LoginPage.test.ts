@@ -824,7 +824,7 @@ describe('page set a new password', () => {
     expect(pw).toHaveAttribute('name', 'new-password');
     expect(pw).toHaveAttribute('autocomplete', 'new-password');
     expect(pw).toHaveAttribute('placeholder', 'New password');
-    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-rules');
+    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-rules ln-np-kbd');
     const pw2 = view.getByLabelText('Confirm password');
     expect(pw2).toHaveAttribute('id', 'ln-np2');
     expect(pw2).toHaveAttribute('name', 'confirm-password');
@@ -894,7 +894,7 @@ describe('page set a new password', () => {
     expect(err).toHaveTextContent('The passwords don’t match.');
     expect(err).toHaveAttribute('role', 'alert');
     expect(pw2).toHaveAttribute('aria-invalid', 'true');
-    expect(pw2).toHaveAttribute('aria-describedby', 'ln-np2-err ln-np2-ok');
+    expect(pw2).toHaveAttribute('aria-describedby', 'ln-np2-err ln-np2-ok ln-np2-kbd');
     await vi.waitFor(() => expect(document.activeElement).toBe(pw2));
     await type('Confirm password', 'New-password-1');
     expect(view.container.querySelector('#ln-np2-err')).toBeNull();
@@ -907,7 +907,7 @@ describe('page set a new password', () => {
     await fillNewPw(`Aa1${'ü'.repeat(511)}`);
     expect(view.container.querySelector('#ln-np-err')).toHaveTextContent('The password is too long.');
     expect(pw).toHaveAttribute('aria-invalid', 'true');
-    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-err ln-np-rules');
+    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-err ln-np-rules ln-np-kbd');
     expect(save()).toHaveAttribute('aria-disabled', 'true');
     await type('New password', 'New-password-1');
     expect(view.container.querySelector('#ln-np-err')).toBeNull();
@@ -931,7 +931,7 @@ describe('page set a new password', () => {
     expect(num).toHaveClass('bad');
     expect(num).toHaveTextContent('not met yet');
     expect(pw).toHaveAttribute('aria-invalid', 'true');
-    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-err ln-np-rules');
+    expect(pw).toHaveAttribute('aria-describedby', 'ln-np-err ln-np-rules ln-np-kbd');
     expect(pw).toHaveValue('New-password-1');
     expect(view.getByLabelText('Confirm password')).toHaveValue('New-password-1');
     expect(save()).toHaveAttribute('aria-disabled', 'true');

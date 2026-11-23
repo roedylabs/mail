@@ -368,7 +368,7 @@ describe('Invitation page', () => {
       expect(pw).toHaveAttribute('id', 'in-pw');
       expect(pw).toHaveAttribute('name', 'new-password');
       expect(pw).toHaveAttribute('autocomplete', 'new-password');
-      expect(pw).toHaveAttribute('aria-describedby', 'in-pw-rules');
+      expect(pw).toHaveAttribute('aria-describedby', 'in-pw-rules in-pw-kbd');
       expect(pw2).toHaveAttribute('id', 'in-pw2');
       expect(pw2).toHaveAttribute('name', 'confirm-password');
       expect(pw2).toHaveAttribute('placeholder', 'Enter it again');
@@ -411,7 +411,7 @@ describe('Invitation page', () => {
       // Too long while typing; “Passwords match” for screen readers, no mark in the field.
       await type('Choose a password', 'aA1' + '€'.repeat(400));
       expect(view.getByRole('alert')).toHaveTextContent('The password is too long.');
-      expect(pw).toHaveAttribute('aria-describedby', 'in-pw-err in-pw-rules');
+      expect(pw).toHaveAttribute('aria-describedby', 'in-pw-err in-pw-rules in-pw-kbd');
       await type('Choose a password', 'Safe-enough1');
       expect(view.container.querySelector('#in-pw2-ok')).toHaveTextContent(/^$/);
       await type('Confirm password', 'Safe-enough1');

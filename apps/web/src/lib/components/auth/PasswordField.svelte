@@ -5,7 +5,10 @@
   Lock hint while it has the focus (physical keyboard only) and the error
   line. The eye is out of the Tab order (pointer, touch and screen readers
   reach it) and a mouse click on it keeps the focus in the field; showing
-  one password never reveals another.
+  one password never reveals another. From the keyboard, Alt+Shift+P
+  (Option+Shift+P on macOS) in the field shows or hides its password; a
+  visually hidden hint (`{id}-kbd`, last in `aria-describedby`) and the
+  eye's tooltip name the shortcut.
 
   Caps Lock is known only from key events (`#lib/caps-lock.ts`). The page's
   password fields share what they learnt: moving the focus to the other
@@ -18,7 +21,9 @@
   import Icon from '#lib/components/Icon.svelte';
   import MessageBox from '#lib/components/auth/MessageBox.svelte';
   import type { IconName } from '#lib/icons.ts';
+  import { isApple } from '#lib/keys.ts';
   import { m } from '#lib/paraglide/messages.js';
+  import { tick } from 'svelte';
 
   interface Props {
     id: string;
@@ -64,16 +69,45 @@
   }: Props = $props();
 
   let shown = $state(false);
-  /** The page's ids, and the error line while it shows (once). */
+  /** The page's ids, the error line while it shows and the shortcut hint (each once). */
   const described = $derived(
-    [...new Set([...(describedby ?? '').split(' '), ...(error ? [`${id}-err`] : [])])].filter(Boolean).join(' ') ||
-      undefined,
+    [...new Set([...(describedby ?? '').split(' '), ...(error ? [`${id}-err`] : []), `${id}-kbd`])]
+      .filter(Boolean)
+      .join(' '),
   );
   const toggle = $derived(shown ? (hideLabel ?? m.password_hide()) : (showLabel ?? m.password_show()));
+  /** The shortcut as the system names it: Option (de "Wahltaste") on macOS. */
+  const keys = $derived(isApple() ? m.password_kbd_keys_mac() : m.password_kbd_keys());
   const capsHere = $derived(capsLockAt() === id);
 
   function onKey(event: KeyboardEvent) {
     caps.state = capsAfter(caps.state, event);
+  }
+
+  /**
+   * Alt+Shift+P (Option+Shift+P on macOS) shows or hides this field's password.
+   * Matched on `code` (Option changes `key` on macOS), without Ctrl or Meta; no
+   * character is typed, held-key repeats do nothing, the caret stays.
+   */
+  function onKeyDown(event: KeyboardEvent & { currentTarget: HTMLInputElement }) {
+    if (event.code === 'KeyP' && event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
+      event.preventDefault();
+      if (!event.repeat) void flip(event.currentTarget);
+    }
+    onKey(event);
+  }
+
+  /** Switches the type and puts the selection back, which the switch may reset. */
+  async function flip(el: HTMLInputElement) {
+    const { selectionStart: start, selectionEnd: end, selectionDirection: dir } = el;
+    shown = !shown;
+    await tick();
+    if (start === null || end === null) return;
+    try {
+      el.setSelectionRange(start, end, dir ?? undefined);
+    } catch {
+      // The field no longer supports a selection.
+    }
   }
 
   /** Leaving the field forgets Caps Lock (it is only known from key events), except towards another password field. */
@@ -127,7 +161,7 @@
       {placeholder}
       {value}
       oninput={(e) => oninput(e.currentTarget.value)}
-      onkeydown={onKey}
+      onkeydown={onKeyDown}
       onkeyup={onKey}
       onfocus={() => (caps.at = id)}
       onblur={onBlur}
@@ -141,11 +175,12 @@
       onmousedown={keepFocus}
       onclick={() => (shown = !shown)}
       aria-label={toggle}
-      title={toggle}
+      title="{toggle} ({keys})"
       aria-pressed={shown ? 'true' : 'false'}
     >
       <Icon name={shown ? 'ti-eye-off' : 'ti-eye'} />
     </button>
+    <span id="{id}-kbd" class="sr-only">{m.password_kbd_hint({ keys })}</span>
   </div>
   <!-- The hint is read by the page's status region instead -->
   {#if capsHere}<MessageBox
