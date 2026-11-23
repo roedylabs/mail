@@ -98,6 +98,8 @@ async function ensureTheme(page, mode) {
     }
     if (!(await toggle.count())) return;
     await toggle.first().click();
+    // Without the pointer on it, the toggle shows no hover ring.
+    await page.mouse.move(0, 0);
     await settle(page, 400);
   }
 }
@@ -213,6 +215,19 @@ const SHOTS = [
     },
   },
   { name: 'login', path: '/login', opts: { guest: true }, prepare: lightTheme },
+  {
+    name: 'login-code',
+    path: '/login',
+    opts: { guest: true, totp: true },
+    prepare: async (p) => {
+      await lightTheme(p);
+      await p.getByLabel('Email or username').fill('alex@example.com');
+      await p.getByLabel('Password', { exact: true }).fill('Lakeside-Harbor-2026!');
+      await p.getByRole('button', { name: 'Sign in', exact: true }).click();
+      await p.getByLabel('Verification code').waitFor();
+      await settle(p, 600);
+    },
+  },
   {
     name: 'add-account',
     path: '/account/mail-accounts/new',
