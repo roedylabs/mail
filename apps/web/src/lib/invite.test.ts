@@ -2,7 +2,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { normalizeName } from '#lib/name.ts';
 import { BRAND0, session, type PublicConfig } from '#lib/state/session.svelte.ts';
-import { DONE_MS, InviteFlow, STEP_REQUEST_MS, type InviteField, type InviteInfo } from './invite.svelte.ts';
+import {
+  CODE_LOCK_S,
+  DONE_MS,
+  InviteFlow,
+  STEP_REQUEST_MS,
+  type InviteField,
+  type InviteInfo,
+} from './invite.svelte.ts';
 
 const TOKEN = 'b'.repeat(43);
 const INFO: InviteInfo = {
@@ -41,6 +48,8 @@ function hooks() {
     fail: vi.fn<(field?: InviteField) => void>(),
     focus: vi.fn<(field: InviteField) => void>(),
     missing: vi.fn<(field: InviteField) => void>(),
+    refocus: vi.fn<(field: InviteField) => void>(),
+    unlocked: vi.fn<() => void>(),
     accepted: vi.fn<(left: boolean) => void>(),
     signedIn: vi.fn(() => Promise.resolve(true)),
     error: vi.fn<(text: string) => void>(),
@@ -292,13 +301,12 @@ describe('step name and password', () => {
     expect(calls.map((c) => c.method)).toEqual(['GET']);
   });
 
-  it('fetches the secret on Continue and shows it in groups of four with a QR code', async () => {
+  it('fetches the secret on Continue for the QR code and the key', async () => {
     const { flow, h, calls } = await atMfa();
     expect(calls.at(-1)?.method).toBe('POST');
     expect(flow.showS3).toBe(true);
-    expect(flow.secretLabel).toBe('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP');
-    expect(flow.qr?.size).toBeGreaterThanOrEqual(21);
-    expect(flow.qr?.d.startsWith('M0 0h7v1h-7z')).toBe(true);
+    expect(flow.secret).toBe(SECRET);
+    expect(flow.uri).toBe(ENROLL.uri);
     expect(h.focus).toHaveBeenLastCalledWith('otp');
   });
 
@@ -315,7 +323,8 @@ describe('step name and password', () => {
     expect(flow.pw2).toBe('Safe-enough1');
     await flow.submitName();
     expect(flow.showS3).toBe(true);
-    expect(flow.secretLabel).toBe('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP');
+    expect(flow.secret).toBe(SECRET);
+    expect(flow.uri).toBe(ENROLL.uri);
     expect(h.focus).toHaveBeenLastCalledWith('otp');
     expect(calls.filter((c) => c.path.endsWith('/totp'))).toHaveLength(1);
   });
@@ -439,9 +448,13 @@ describe('step multi-factor', () => {
     flow.editOtp('123 4');
     expect(flow.otp).toBe('1234');
     await flow.submitOtp();
-    expect(flow.otpShort).toBe(true);
+    expect(flow.otpErr).toBe('short');
     expect(h.fail).toHaveBeenLastCalledWith('otp');
+    // Fewer than six digits send nothing.
+    expect(calls.filter((c) => c.path.endsWith('/accept'))).toHaveLength(0);
     flow.editOtp('123 456');
+    expect(flow.otpErr).toBeNull();
+    expect(flow.otpLoading).toBe(true);
     await vi.waitFor(() => expect(flow.showS4).toBe(true));
     expect(calls.at(-1)?.body).toEqual({ name: 'Jordan Hale', password: 'Safe-enough1', code: '123456' });
     expect(h.accepted).toHaveBeenCalledExactlyOnceWith(false);
@@ -453,27 +466,91 @@ describe('step multi-factor', () => {
     expect(flow.canBack).toBe(false);
   });
 
-  it('reports a wrong code and locks after too many', async () => {
+  it('keeps digits only, at most six, and confirms the sixth digit once', async () => {
+    let answer: (value: { status: number; body: unknown }) => void = () => {};
+    const { flow, calls } = await atMfa({ [accept]: [() => new Promise((resolve) => (answer = resolve))] });
+    flow.editOtp('12a-3 45');
+    expect(flow.otp).toBe('12345');
+    flow.editOtp('1234567');
+    expect(flow.otp).toBe('123456');
+    expect(flow.otpLoading).toBe(true);
+    // While the check runs the field takes no edits and Confirm sends nothing more.
+    flow.editOtp('654321');
+    await flow.submitOtp();
+    expect(flow.otp).toBe('123456');
+    expect(calls.filter((c) => c.path.endsWith('/accept'))).toHaveLength(1);
+    answer({ status: 201, body: { user: USER, recovery_codes: CODES } });
+    await vi.waitFor(() => expect(flow.showS4).toBe(true));
+  });
+
+  it('clears a wrong code and shows the message until the next edit', async () => {
     const h = hooks();
     const { flow } = await atMfa(
       {
         [accept]: [
           { status: 422, body: { error: 'invalid_code' } },
-          { status: 429, body: { error: 'rate_limited', retry_after: 900 } },
+          { status: 422, body: { error: 'code_used' } },
+          { status: 422, body: { error: 'invalid', fields: { code: { code: 'invalid' } } } },
         ],
       },
       h,
     );
-    flow.editOtp('000000');
-    await vi.waitFor(() => expect(flow.otpBad).toBe(true));
-    expect(flow.otp).toBe('');
-    expect(h.fail).toHaveBeenLastCalledWith('otp');
+    for (const code of ['000000', '111111', '222222']) {
+      h.fail.mockClear();
+      flow.editOtp(code);
+      await vi.waitFor(() => expect(flow.otpErr).toBe('invalid'));
+      expect(flow.otp).toBe('');
+      expect(h.fail).toHaveBeenCalledExactlyOnceWith('otp');
+      expect(flow.showS3).toBe(true);
+      // Any edit clears the message.
+      flow.editOtp('1');
+      expect(flow.otpErr).toBeNull();
+      flow.editOtp('');
+    }
+  });
+
+  it('locks the code after 429 with a countdown from retry_after until it runs out', async () => {
+    vi.useFakeTimers();
+    const h = hooks();
+    const { flow, calls } = await atMfa(
+      { [accept]: [{ status: 429, body: { error: 'rate_limited', retry_after: 120 } }] },
+      h,
+    );
     flow.editOtp('111111');
     await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
-    expect(flow.codeLockText).toBe('Try again in 15 minutes.');
-    // Only "Invalid code." shows the error icon, not the lock.
-    expect(flow.codeLockBtn).toBe('Confirm in 15:00');
-    expect(flow.otpDis).toBe(true);
+    expect(flow.otp).toBe('');
+    expect(flow.otpErr).toBeNull();
+    expect(flow.codeLock).toEqual({ left: 120, total: 120 });
+    // The shake, but no field to focus: it is disabled.
+    expect(h.fail).toHaveBeenLastCalledWith();
+    // Locked: the field takes nothing and Confirm sends nothing.
+    flow.editOtp('2');
+    expect(flow.otp).toBe('');
+    await flow.submitOtp();
+    expect(calls.filter((c) => c.path.endsWith('/accept'))).toHaveLength(1);
+    vi.advanceTimersByTime(60_000);
+    expect(flow.codeLock).toEqual({ left: 60, total: 120 });
+    // Back and forward again: the lock still runs, without a new key.
+    flow.back();
+    expect(flow.showS2).toBe(true);
+    await flow.submitName();
+    expect(flow.showS3).toBe(true);
+    expect(flow.codeLock).toEqual({ left: 60, total: 120 });
+    expect(calls.filter((c) => c.path.endsWith('/totp'))).toHaveLength(1);
+    expect(h.unlocked).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(60_000);
+    expect(flow.codeLocked).toBe(false);
+    expect(flow.codeLock).toBeNull();
+    expect(h.unlocked).toHaveBeenCalledTimes(1);
+    flow.dispose();
+  });
+
+  it('locks the code for 15 minutes when the 429 names no time', async () => {
+    vi.useFakeTimers();
+    const { flow } = await atMfa({ [accept]: [{ status: 429, body: { error: 'rate_limited' } }] });
+    flow.editOtp('111111');
+    await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
+    expect(flow.codeLock).toEqual({ left: CODE_LOCK_S, total: CODE_LOCK_S });
     flow.dispose();
   });
 
@@ -630,11 +707,35 @@ describe('step multi-factor', () => {
     flow.editOtp('123456');
     await vi.waitFor(() => expect(flow.maint).toEqual({ message: 'Until 6 pm' }));
     expect(flow.otp).toBe('');
-    // A notice, not a mistake: the card does not shake.
+    // A notice, not a mistake: the card does not shake, the field gets the focus back.
     expect(h.fail).not.toHaveBeenCalled();
+    expect(h.refocus).toHaveBeenCalledExactlyOnceWith('otp');
+    // The notice stays while typing and goes with the next attempt.
+    flow.editOtp('65432');
+    expect(flow.maint).toEqual({ message: 'Until 6 pm' });
     flow.editOtp('654321');
+    expect(flow.maint).toBeNull();
     await vi.waitFor(() => expect(flow.showExpired).toBe(true));
     expect(flow.info?.expired).toBe(true);
+  });
+
+  it('shows the error page for a withdrawn invitation and a toast for other answers', async () => {
+    const h = hooks();
+    const { flow } = await atMfa(
+      {
+        [accept]: [
+          { status: 422, body: { error: 'totp_required' } },
+          { status: 404, body: { error: 'not_found' } },
+        ],
+      },
+      h,
+    );
+    flow.editOtp('123456');
+    await vi.waitFor(() => expect(h.error).toHaveBeenCalledWith('That didn’t work. Please try again.'));
+    expect(flow.showS3).toBe(true);
+    expect(flow.otpLoading).toBe(false);
+    flow.editOtp('654321');
+    await vi.waitFor(() => expect(flow.status).toBe('missing'));
   });
 
   it('waits with “Back” while the check is running', async () => {

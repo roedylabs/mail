@@ -80,6 +80,26 @@ function renderPage() {
   return render(Page);
 }
 
+/** Invitation with a name and a key for step 3 (fresh answers for each test). */
+function mfaRoutes() {
+  return {
+    'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],
+    'POST invites/tok/totp': [{ body: { secret: SECRET, uri: `otpauth://totp/x?secret=${SECRET}` } }],
+  };
+}
+
+/** Through steps 1 and 2 to step 3. */
+async function toStep3() {
+  const view = renderPage();
+  await view.findByRole('heading', { level: 1 });
+  await click('Accept invitation');
+  await type('Choose a password', 'Safe-enough1');
+  await type('Confirm password', 'Safe-enough1');
+  await click('Continue');
+  await view.findByRole('heading', { name: MFA_TITLE });
+  return view;
+}
+
 describe('Invitation page', () => {
   it('shows “Welcome” with inviter, details and progress', async () => {
     mockApi({ 'GET invites/tok': [{ body: INFO }] });
@@ -237,40 +257,125 @@ describe('Invitation page', () => {
     expect(session.user?.email).toBe('jonas.schulz@example.com');
   });
 
-  it('reports a wrong code and locks after too many with a countdown', async () => {
-    mockApi({
-      'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],
-      'POST invites/tok/totp': [{ body: { secret: SECRET, uri: `otpauth://totp/x?secret=${SECRET}` } }],
-      'POST invites/tok/accept': [
-        { status: 422, body: { error: 'invalid_code' } },
-        { status: 429, body: { error: 'rate_limited', retry_after: 900 } },
-      ],
-    });
-    const view = renderPage();
-    await view.findByRole('heading', { level: 1 });
-    await click('Accept invitation');
-    // Name from the invitation is prefilled
-    expect(view.getByLabelText('Your name')).toHaveValue('Jonas Schulz');
-    await type('Choose a password', 'Safe-enough1');
-    await type('Confirm password', 'Safe-enough1');
-    await click('Continue');
-    await view.findByRole('heading', { name: MFA_TITLE });
-    await type('Verification code', '000000');
-    expect(await view.findByText('Invalid code.')).toBeInTheDocument();
-    // Under the code boxes, as the setup token's messages.
-    const bad = view.container.querySelector('#in-code-alert');
-    expect(bad).not.toBeNull();
+  it('builds step 3 with the authenticator box, the code field and Confirm', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1280);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(860);
+    const { calls } = mockApi(mfaRoutes());
+    const view = await toStep3();
+    expect(ui.authTitle).toBe('Authenticator app · Invitation');
+    expect(view.getByRole('img', { name: 'Step 3 of 4' })).toBeInTheDocument();
     expect(
-      view.getByLabelText('Verification code').compareDocumentPosition(bad!) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+      view.getByText('Scan the QR code with your authenticator app and enter the code it shows.'),
+    ).toBeInTheDocument();
+    const steps = view.getByRole('list', { name: 'Invitation steps' });
+    expect(within(steps).getAllByRole('listitem')[2]).toHaveAttribute('aria-current', 'step');
+    // The QR code on its white tile, the key in groups of four.
+    const qr = view.getByRole('img', { name: 'QR code for the authenticator app' });
+    expect(qr.querySelector('path')?.getAttribute('d')).toMatch(/^M0 0h7v1h-7z/);
+    expect(view.getByText('Or enter the key manually')).toBeInTheDocument();
+    expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    const input = view.getByLabelText('Verification code');
+    expect(input).toHaveAttribute('id', 'in-otp');
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveAttribute('name', 'otp');
+    expect(input).toHaveAttribute('inputmode', 'numeric');
+    expect(input).toHaveAttribute('autocomplete', 'one-time-code');
+    // Entering: the code field on desktop.
+    await vi.waitFor(() => expect(document.activeElement).toBe(input));
+    // Focus order: Copy key → code → Back → Confirm.
+    const form = input.closest('form')!;
+    const order = [...form.querySelectorAll<HTMLElement>('button, input:not([hidden])')]
+      .filter((el) => el.tabIndex >= 0)
+      .map((el) => el.getAttribute('aria-label') ?? el.getAttribute('name') ?? el.textContent?.trim());
+    expect(order.slice(-4)).toEqual(['Copy key', 'otp', 'Back', 'Confirm']);
+    // Confirm is a real submit button, not greyed out for an empty code.
+    const confirm = view.getByRole('button', { name: 'Confirm' });
+    expect(confirm).toHaveAttribute('type', 'submit');
+    expect(confirm).toHaveAttribute('aria-disabled', 'false');
+    expect(calls.filter((c) => c.path === 'invites/tok/totp')).toHaveLength(1);
+  });
+
+  it('asks for all six digits on Confirm or Enter with fewer, without a request', async () => {
+    const { calls } = mockApi(mfaRoutes());
+    const view = await toStep3();
+    await type('Verification code', '12a3');
+    const input = view.getByLabelText('Verification code');
+    expect(input).toHaveValue('123');
+    await click('Confirm');
+    const short = view.getByRole('alert');
+    expect(short).toHaveAttribute('id', 'in-otp-err');
+    expect(short).toHaveTextContent('Please enter all 6 digits.');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', 'in-otp-err');
+    expect(document.activeElement).toBe(input);
+    // Any edit clears it; Enter on the step does the same as Confirm.
+    await type('Verification code', '1234');
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+    await fireEvent.keyDown(view.getByRole('heading', { name: MFA_TITLE }), { key: 'Enter' });
+    expect(view.getByRole('alert')).toHaveTextContent('Please enter all 6 digits.');
+    expect(calls.filter((c) => c.path === 'invites/tok/accept')).toHaveLength(0);
+  });
+
+  it('shows “Checking …” and locks Back while the code is checked', async () => {
+    let answer: (value: { status: number; body: unknown }) => void = () => {};
+    mockApi({ ...mfaRoutes(), 'POST invites/tok/accept': [() => new Promise((resolve) => (answer = resolve))] });
+    const view = await toStep3();
+    await type('Verification code', '123456');
+    const busy = view.getByRole('button', { name: 'Checking …' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(view.getByRole('button', { name: 'Back' })).toHaveAttribute('aria-disabled', 'true');
+    await click('Back');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(MFA_TITLE);
+    answer({ status: 201, body: { user: USER, recovery_codes: CODES } });
+    expect(await view.findByRole('heading', { name: 'Recovery codes' })).toBeInTheDocument();
+  });
+
+  it('reports a wrong code under the code boxes until the next edit', async () => {
+    mockApi({ ...mfaRoutes(), 'POST invites/tok/accept': [{ status: 422, body: { error: 'invalid_code' } }] });
+    const view = await toStep3();
+    await type('Verification code', '000000');
+    const bad = await view.findByRole('alert');
+    expect(bad).toHaveAttribute('id', 'in-code-alert');
+    expect(bad).toHaveTextContent(/^Invalid code\.\s*Check the current code in your app and try again\.$/);
+    const input = view.getByLabelText('Verification code');
+    expect(input.compareDocumentPosition(bad) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(input).toHaveValue('');
+    expect(input).toHaveAttribute('aria-invalid', 'true');
+    expect(input).toHaveAttribute('aria-describedby', 'in-code-alert');
+    expect(document.activeElement).toBe(input);
+    await type('Verification code', '1');
+    expect(view.queryByRole('alert')).toBeNull();
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+  });
+
+  it('locks the code after too many with a greyed-out Confirm until the time has run out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mockApi({
+      ...mfaRoutes(),
+      'POST invites/tok/accept': [{ status: 429, body: { error: 'rate_limited', retry_after: 900 } }],
+    });
+    const view = await toStep3();
     await type('Verification code', '111111');
-    expect(await view.findByText('Too many incorrect codes.')).toBeInTheDocument();
-    expect(view.getByRole('button', { name: 'Confirm in 15:00' })).toBeDisabled();
-    expect(view.getByRole('button', { name: 'Confirm in 15:00' }).style.opacity).toBe('0.55');
+    const lock = await view.findByRole('alert');
+    expect(lock).toHaveAttribute('id', 'in-code-alert');
+    expect(lock).toHaveTextContent(/^Too many incorrect codes\.\s*Try again in 15 minutes\./);
+    // The bar and m:ss are not read.
+    expect(within(lock).getByText('15:00').closest('[aria-hidden="true"]')).not.toBeNull();
+    // Confirm greyed out, without a time on it.
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'true');
+    expect(view.queryByRole('button', { name: /Confirm in/ })).toBeNull();
     const input = view.getByLabelText('Verification code');
     expect(input).toBeDisabled();
-    // Only field and button are locked, the boxes stay opaque.
-    expect(input.closest<HTMLElement>('.code-ctl')?.style.opacity).toBe('1');
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+    expect(input).toHaveAttribute('aria-describedby', 'in-code-alert');
+    expect(input.closest('.code-ctl')?.querySelector<HTMLElement>('.boxes')?.style.opacity).toBe('0.5');
+    // When it runs out: the field is usable again and gets the focus, the message goes.
+    await vi.advanceTimersByTimeAsync(900_000);
+    await vi.waitFor(() => expect(view.queryByRole('alert')).toBeNull());
+    expect(input).toBeEnabled();
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'false');
+    await vi.waitFor(() => expect(document.activeElement).toBe(input));
   });
 
   it('shows the same key again after “Back” from step 3, without a second request', async () => {
@@ -296,22 +401,50 @@ describe('Invitation page', () => {
     expect(calls.filter((c) => c.path === 'invites/tok/totp')).toHaveLength(1);
   });
 
-  it('shows maintenance mode as a status rather than an alert', async () => {
+  it('shows maintenance mode above the code as a status rather than an alert', async () => {
     mockApi({
-      'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],
-      'POST invites/tok/totp': [{ body: { secret: SECRET, uri: `otpauth://totp/x?secret=${SECRET}` } }],
-      'POST invites/tok/accept': [{ status: 503, body: { error: 'maintenance', message: 'Back at 6 pm.' } }],
+      ...mfaRoutes(),
+      'POST invites/tok/accept': [
+        { status: 503, body: { error: 'maintenance', message: 'Back at 6 pm.' } },
+        { status: 503, body: { error: 'maintenance' } },
+      ],
     });
-    const view = renderPage();
-    await view.findByRole('heading', { level: 1 });
-    await click('Accept invitation');
-    await type('Choose a password', 'Safe-enough1');
-    await type('Confirm password', 'Safe-enough1');
-    await click('Continue');
-    await view.findByRole('heading', { name: MFA_TITLE });
+    const view = await toStep3();
     await type('Verification code', '123456');
-    expect(await view.findByRole('status')).toHaveTextContent('Back at 6 pm.');
+    const notice = await vi.waitFor(() => {
+      const el = view.container.querySelector<HTMLElement>('#in-code-alert');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(notice).toHaveAttribute('role', 'status');
+    expect(notice).toHaveTextContent(/^Maintenance\s*Back at 6 pm\.$/);
     expect(view.queryByRole('alert')).not.toBeInTheDocument();
+    const input = view.getByLabelText('Verification code');
+    expect(input.compareDocumentPosition(notice) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(input).toHaveValue('');
+    expect(input).toHaveAttribute('aria-invalid', 'false');
+    expect(input).toHaveAttribute('aria-describedby', 'in-code-alert');
+    expect(document.activeElement).toBe(input);
+    // It stays while typing; without the administrator's notice the default text.
+    await type('Verification code', '12345');
+    expect(view.getByText('Back at 6 pm.')).toBeInTheDocument();
+    await type('Verification code', '123456');
+    expect(
+      await view.findByText('We’re performing maintenance right now. Please try again in an hour.'),
+    ).toBeInTheDocument();
+  });
+
+  it('shows the error toast when copying the key fails, without “Copied”', async () => {
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: { writeText: vi.fn(() => Promise.reject(new Error('no'))) },
+    });
+    mockApi(mfaRoutes());
+    const view = await toStep3();
+    await click('Copy key');
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t copy.', error: true }));
+    expect(view.getByRole('button', { name: 'Copy key' })).toBeInTheDocument();
+    expect(view.queryByRole('button', { name: 'Copied' })).toBeNull();
   });
 
   it('greys out “Continue” after 429 and shows the lock under the confirmation', async () => {
@@ -441,6 +574,27 @@ describe('Invitation page', () => {
       await type('Your name', 'Jonas Schulz');
       await click('Continue');
       await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Choose a password')));
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+      window.dispatchEvent(new Event('resize'));
+    }
+  });
+
+  it('focuses the heading when entering step 3 on mobile and leaves the keyboard alone after a wrong code', async () => {
+    mockApi({ ...mfaRoutes(), 'POST invites/tok/accept': [{ status: 422, body: { error: 'invalid_code' } }] });
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 393, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    try {
+      const view = await toStep3();
+      const heading = view.getByRole('heading', { name: MFA_TITLE });
+      await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+      await click('Confirm');
+      expect(view.getByRole('alert')).toHaveTextContent('Please enter all 6 digits.');
+      expect(document.activeElement).not.toBe(view.getByLabelText('Verification code'));
+      // Back in the bottom bar goes to step 2.
+      await click('Back');
+      expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up your account');
     } finally {
       Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
       window.dispatchEvent(new Event('resize'));
