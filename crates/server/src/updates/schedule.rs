@@ -66,12 +66,12 @@ pub fn next(every: Every, day: Day, time: Time, tz: &TimeZone, last: Timestamp) 
         Every::Daily => None,
         Every::Weekly => Some(day.weekday()),
     };
-    let mut date = last.to_zoned(tz.clone()).date();
+    let mut date = last.to_zoned_datetime(tz.clone()).date();
     // By the ninth day at the latest, every weekday lies after `last`.
     for _ in 0..9 {
         if weekday.is_none_or(|weekday| date.weekday() == weekday)
             // In a daylight saving gap, the time after it applies.
-            && let Ok(slot) = date.to_datetime(time).to_zoned(tz.clone())
+            && let Ok(slot) = date.to_datetime(time).to_zoned_datetime(tz.clone())
             && slot.timestamp() > last
         {
             return slot.timestamp();
