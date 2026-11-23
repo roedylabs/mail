@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { normalizeName } from '#lib/name.ts';
 import { BRAND0, session, type PublicConfig } from '#lib/state/session.svelte.ts';
-import { DONE_MS, InviteFlow, type InviteField, type InviteInfo } from './invite.svelte.ts';
+import { DONE_MS, InviteFlow, STEP_REQUEST_MS, type InviteField, type InviteInfo } from './invite.svelte.ts';
 
 const TOKEN = 'b'.repeat(43);
 const INFO: InviteInfo = {
@@ -400,6 +400,28 @@ describe('step multi-factor', () => {
     expect(flow.showS3).toBe(true);
     expect(flow.otp).toBe('123456');
     expect(flow.pw).toBe('Safe-enough1');
+  });
+
+  it('reports “No connection” when Continue gets no answer in time', async () => {
+    const ctrl = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(ctrl.signal);
+    const h = hooks();
+    const hang = () =>
+      new Promise<never>((_, reject) =>
+        ctrl.signal.addEventListener('abort', () => reject(new DOMException('No answer', 'TimeoutError'))),
+      );
+    const { flow } = await opened({ [totp]: [hang] }, INFO, h);
+    flow.accept();
+    flow.editPw('Safe-enough1');
+    const done = flow.submitName();
+    expect(flow.loading).toBe(true);
+    expect(timeout).toHaveBeenCalledWith(STEP_REQUEST_MS);
+    ctrl.abort(new DOMException('No answer', 'TimeoutError'));
+    await done;
+    expect(h.offline).toHaveBeenCalledTimes(1);
+    expect(flow.loading).toBe(false);
+    expect(flow.showS2).toBe(true);
+    timeout.mockRestore();
   });
 
   it('reports “No connection” when Continue gets no answer', async () => {

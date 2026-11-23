@@ -7,6 +7,7 @@
   registered? Sign in" links to the sign-in. No Back on this step.
 -->
 <script lang="ts">
+  import { MA_COLORS } from '@roedy/tokens';
   import { resolve } from '$app/paths';
   import Icon from '#lib/components/Icon.svelte';
   import AuthShell from '#lib/components/auth/AuthShell.svelte';
@@ -19,6 +20,9 @@
   import { session } from '#lib/state/session.svelte.ts';
 
   let { flow, targets, hidden = false }: { flow: InviteFlow; targets: InviteTargets; hidden?: boolean } = $props();
+
+  /** The inviter's avatar: lavender, as on the old page (the "lilac" of the account and tag colours). */
+  const [, AV_BG, AV_INK] = MA_COLORS.find(([name]) => name === 'lilac')!;
 
   /** Role, with the organisation's name "User · ‹organisation›". */
   const roleLine = $derived(
@@ -35,7 +39,7 @@
 
 {#snippet from(look: Look)}
   <div class="from" style:margin-top={look.gapM}>
-    <span class="ini" aria-hidden="true">{flow.fromInitials}</span>
+    <span class="ini" aria-hidden="true" style:background={AV_BG} style:color={AV_INK}>{flow.fromInitials}</span>
     <span class="from-name">{m.invite_from({ from: flow.inviteFrom })}</span>
   </div>
 {/snippet}
@@ -101,7 +105,6 @@
     transition: background-color 300ms;
   }
 
-  /* fixed colours (lavender) */
   .ini {
     width: 32px;
     height: 32px;
@@ -109,8 +112,6 @@
     border-radius: 9999px;
     display: grid;
     place-items: center;
-    background: #b0a2f2;
-    color: #21134d;
     font-size: 12.5px;
     font-weight: 800;
     letter-spacing: 0.02em;

@@ -34,6 +34,12 @@ import { session } from '#lib/state/session.svelte.ts';
 /** Duration from "Welcome, ‹first name›" to the start page (bar `inBar` 2.6 s). */
 export const DONE_MS = 2700;
 
+/**
+ * Longest wait for the answer of `totp` and `request`: a server that keeps the connection open without answering
+ * counts as no answer ("No connection"). Not for `accept`, which may have created the account by then.
+ */
+export const STEP_REQUEST_MS = 15_000;
+
 export type InviteStep = 1 | 2 | 3 | 4;
 /** Form, "Welcome" after "Activate account" or "Request sent". */
 export type InviteView = 'form' | 'done' | 'requested';
@@ -348,7 +354,12 @@ export class InviteFlow {
     this.loading = true;
     const req = ++this.req;
     try {
-      const res = await api<{ secret: string; uri: string }>('POST', `invites/${encodeURIComponent(this.token)}/totp`);
+      const res = await api<{ secret: string; uri: string }>(
+        'POST',
+        `invites/${encodeURIComponent(this.token)}/totp`,
+        undefined,
+        { signal: AbortSignal.timeout(STEP_REQUEST_MS) },
+      );
       if (req !== this.req) return;
       this.loading = false;
       this.clearMfa();
@@ -432,7 +443,9 @@ export class InviteFlow {
     this.reqLoading = true;
     const req = ++this.req;
     try {
-      await api('POST', `invites/${encodeURIComponent(this.token)}/request`);
+      await api('POST', `invites/${encodeURIComponent(this.token)}/request`, undefined, {
+        signal: AbortSignal.timeout(STEP_REQUEST_MS),
+      });
       if (req !== this.req) return;
       this.reqLoading = false;
       this.view = 'requested';
