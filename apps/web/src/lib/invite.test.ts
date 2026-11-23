@@ -406,16 +406,21 @@ describe('step multi-factor', () => {
     const ctrl = new AbortController();
     const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(ctrl.signal);
     const h = hooks();
-    const hang = () =>
-      new Promise<never>((_, reject) =>
-        ctrl.signal.addEventListener('abort', () => reject(new DOMException('No answer', 'TimeoutError'))),
+    // The request ends through the signal `fetch` got, so the deadline must reach it.
+    let sent: AbortSignal | null | undefined;
+    const hang = () => {
+      sent = vi.mocked(fetch).mock.calls.at(-1)?.[1]?.signal;
+      return new Promise<never>((_, reject) =>
+        sent?.addEventListener('abort', () => reject(new DOMException('No answer', 'TimeoutError'))),
       );
+    };
     const { flow } = await opened({ [totp]: [hang] }, INFO, h);
     flow.accept();
     flow.editPw('Safe-enough1');
     const done = flow.submitName();
     expect(flow.loading).toBe(true);
     expect(timeout).toHaveBeenCalledWith(STEP_REQUEST_MS);
+    expect(sent).toBe(ctrl.signal);
     ctrl.abort(new DOMException('No answer', 'TimeoutError'));
     await done;
     expect(h.offline).toHaveBeenCalledTimes(1);
