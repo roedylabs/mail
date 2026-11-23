@@ -9,7 +9,8 @@
  *
  * Unexpected responses show "Something went wrong"; a request of a step
  * without an answer shows "No connection" (`offline`); locks and maintenance
- * mode work like sign-in.
+ * mode work like sign-in. Back from step 3 keeps the key, so step 3 shows the
+ * same QR code again without a second `totp`.
  */
 import {
   ApiError,
@@ -27,7 +28,6 @@ import { formatOtp } from '#lib/login.svelte.ts';
 import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
 import { PW_RULES, meetsPolicy, tooLong, type PasswordRuleId } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
-import { qrSymbol, type QrSymbol } from '#lib/qr.ts';
 import { clockText, waitText } from '#lib/wait.ts';
 import { intlLocale } from '#lib/locale.ts';
 import { session } from '#lib/state/session.svelte.ts';
@@ -40,6 +40,9 @@ export const DONE_MS = 2700;
  * counts as no answer ("No connection"). Not for `accept`, which may have created the account by then.
  */
 export const STEP_REQUEST_MS = 15_000;
+
+/** Length of the code lock when a `429` names none: 5 wrong codes within 15 minutes lock it for 15 minutes. */
+export const CODE_LOCK_S = 900;
 
 export type InviteStep = 1 | 2 | 3 | 4;
 /** Form, "Welcome" after "Activate account" or "Request sent". */
@@ -79,6 +82,10 @@ export interface InviteHooks {
   fail?: (field?: InviteField) => void;
   /** New step: focus the field. */
   focus?: (field: InviteField) => void;
+  /** A notice without a mistake (maintenance): the field gets the focus back, no shake. */
+  refocus?: (field: InviteField) => void;
+  /** The code lock ran out on step 3: the field is usable again (the page focuses it on desktop). */
+  unlocked?: () => void;
   /** Continue on an incomplete step 2: the field that is missing something gets the focus (no message, no shake). */
   missing?: (field: InviteField) => void;
   /**
@@ -148,7 +155,7 @@ export class InviteFlow {
   pw2Err = $state(false);
   loading = $state(false);
 
-  // Step 3: multi-factor
+  // Step 3: multi-factor (the key stays in memory until the account exists, the invitation expires or a new link opens)
   secret = $state('');
   uri = $state('');
   otp = $state('');
@@ -167,6 +174,8 @@ export class InviteFlow {
 
   /** Length of the running link lock in seconds (`retry_after`), for the bar that runs empty. */
   private linkTotal = $state(0);
+  /** The same for the code lock of step 3. */
+  private codeTotal = $state(0);
 
   readonly locks = new Countdown<LockKind>((kind) => this.freed(kind));
   readonly hooks: InviteHooks;
@@ -230,17 +239,10 @@ export class InviteFlow {
   /** "The passwords don’t match." under the confirmation. */
   pw2Msg = $derived(this.pw2Err ? m.setup_pw2_mismatch() : null);
 
-  qr = $derived<QrSymbol | null>(this.uri ? qrSymbol(this.uri) : null);
-  /** Secret in groups of four (`secretLabel`). */
-  secretLabel = $derived((this.secret.match(/.{1,4}/g) ?? []).join(' '));
-  otpBad = $derived(this.otpErr === 'invalid');
-  otpShort = $derived(this.otpErr === 'short');
-
+  /** Too many wrong codes: the field is disabled and Confirm greyed out until `retry_after` has run out. */
   codeLocked = $derived(this.codeLeft > 0);
-  codeLockText = $derived(this.codeLeft ? m.limit_text({ wait: waitText(this.codeLeft) }) : '');
-  codeLockBtn = $derived(this.codeLeft ? m.login_confirm_locked({ time: clockText(this.codeLeft) }) : '');
-  otpReady = $derived(!this.otpLoading && !this.codeLocked);
-  otpDis = $derived(this.otpLoading || this.codeLocked);
+  /** The code lock as a bar running empty: seconds `left` of `total`. */
+  codeLock = $derived(this.codeLeft ? { left: this.codeLeft, total: Math.max(this.codeTotal, this.codeLeft) } : null);
 
   linkLocked = $derived(this.linkLeft > 0);
   linkLockText = $derived(this.linkLeft ? m.limit_text({ wait: waitText(this.linkLeft) }) : '');
@@ -416,13 +418,23 @@ export class InviteFlow {
 
   // ---- Step 3 ----
 
+  /**
+   * Digits only, at most six. An edit clears the wrong-code and the short message (the lock and the maintenance
+   * notice stay until the next attempt); the sixth digit confirms by itself.
+   */
   editOtp(value: string): void {
-    this.otp = formatOtp(value);
+    if (this.otpLoading || this.codeLocked) return;
+    const otp = formatOtp(value);
+    const changed = otp !== this.otp;
+    this.otp = otp;
     this.otpErr = null;
-    if (this.otp.length === 6) void this.submitOtp();
+    if (changed && otp.length === 6) void this.submitOtp();
   }
 
-  /** "Confirm": creates the account with app and codes (`POST …/accept`). */
+  /**
+   * "Confirm" (and Enter): under six digits "Please enter all 6 digits." with the shake and the focus; otherwise
+   * creates the account with its first authenticator app and the recovery codes (`POST …/accept`).
+   */
   async submitOtp(): Promise<void> {
     if (this.otpLoading || this.codeLocked) return;
     if (this.otp.length < 6) {
@@ -544,7 +556,8 @@ export class InviteFlow {
       this.hooks.fail?.('otp');
     } else if (isApiError(error, 429)) {
       this.otp = '';
-      this.locks.start('code', retryAfter(error));
+      this.codeTotal = retryAfter(error, CODE_LOCK_S);
+      this.locks.start('code', this.codeTotal);
       this.hooks.fail?.();
     } else if (isApiError(error, 422, 'invite_expired')) {
       this.toExpired();
@@ -554,6 +567,7 @@ export class InviteFlow {
       // A notice, not a mistake: no shake.
       this.maint = { message: maintenanceMessage(error) };
       this.otp = '';
+      this.hooks.refocus?.('otp');
     } else if (isApiError(error, 422, 'invalid')) {
       this.fieldsFailed(fieldsOf(error));
     } else if (error instanceof NetworkError) {
@@ -632,6 +646,6 @@ export class InviteFlow {
 
   /** A lock has expired: the code field is ready again. */
   private freed(kind: LockKind): void {
-    if (kind === 'code' && this.step === 3) this.hooks.focus?.('otp');
+    if (kind === 'code' && this.form && this.step === 3) this.hooks.unlocked?.();
   }
 }

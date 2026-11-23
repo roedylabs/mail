@@ -1,6 +1,6 @@
 <!--
   Frame of the invitation screens that keep their previous content until
-  they move to the new design (steps 2–4, Welcome, Invitation expired and
+  they move to the new design (step 4, Welcome, Invitation expired and
   Request sent): the shell's frame (brand row with the step bars and the
   light/dark button, the mobile top bar, the height fit) around the
   screen's previous markup, in a card of up to 480 px with the previous
@@ -41,10 +41,7 @@
     const narrow = look.mobile;
     return {
       row: ['36px', '34px', '30px', '27px'][f]!,
-      qr: ['136px', '120px', '104px', '92px'][f]!,
       codeCols: f >= 3 && !narrow ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))',
-      otpGap: narrow ? '8px' : '10px',
-      otpBoxH: f >= 2 ? '48px' : narrow ? '56px' : '64px',
     };
   }
 </script>
@@ -91,45 +88,9 @@
     cursor: default;
   }
 
-  .legacy :global(.back:hover),
   .legacy :global(.quiet:hover) {
     background: var(--hov);
     color: var(--fg);
-  }
-
-  /* Header of the steps: inviter or "Back" and progress */
-
-  .legacy :global(.steps) {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    min-height: 40px;
-  }
-
-  .legacy :global(.steps-start) {
-    min-width: 0;
-    display: flex;
-  }
-
-  .legacy :global(.back) {
-    margin-left: -10px;
-    height: 40px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 14px 0 10px;
-    border-radius: 9999px;
-    font-size: 14px;
-    font-weight: 700;
-    color: var(--mfg);
-    transition:
-      background-color 220ms,
-      color 220ms;
-  }
-
-  .legacy :global(.back svg) {
-    font-size: 18px;
   }
 
   .legacy :global(.step) {
@@ -184,61 +145,6 @@
     box-shadow: inset 0 0 0 1.5px var(--err);
   }
 
-  /* QR code and key */
-
-  .legacy :global(.mfa) {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: center;
-    gap: 16px 20px;
-    padding: 14px;
-    border-radius: 24px;
-    background: var(--surface2);
-  }
-
-  /* white area and dark modules fixed so that every app reads the code */
-
-  .legacy :global(.qr) {
-    flex-shrink: 0;
-    padding: 10px;
-    border-radius: 18px;
-    background: #fff;
-    box-shadow: var(--sh1);
-  }
-
-  .legacy :global(.qr svg) {
-    display: block;
-    width: 100%;
-    height: 100%;
-  }
-
-  .legacy :global(.qr path) {
-    fill: #2b221c;
-  }
-
-  .legacy :global(.key) {
-    flex: 1 1 160px;
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .legacy :global(.key-label) {
-    font-size: 12.5px;
-    font-weight: 700;
-    color: var(--mfg);
-  }
-
-  .legacy :global(.key-value) {
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 15px;
-    font-weight: 700;
-    line-height: 1.5;
-    letter-spacing: 0.04em;
-    overflow-wrap: anywhere;
-  }
-
   .legacy :global(.copy) {
     height: 40px;
     display: flex;
@@ -256,27 +162,10 @@
     font-size: 18px;
   }
 
-  .legacy :global(.copy.key-copy) {
-    align-self: flex-start;
-    margin-left: -6px;
-    height: 36px;
-    gap: 7px;
-    padding: 0 12px 0 8px;
-    font-size: 13.5px;
-  }
-
-  .legacy :global(.copy.key-copy svg) {
-    font-size: 17px;
-  }
-
   .legacy :global(.copy:hover),
   .legacy :global(.link:hover),
   .legacy :global(.saved:hover) {
     background: var(--hov);
-  }
-
-  .legacy :global(.alert-under) {
-    margin-top: 4px;
   }
 
   .legacy :global(.alert) {
@@ -312,46 +201,6 @@
 
   .legacy :global(.alert-text strong) {
     font-weight: 800;
-  }
-
-  /* Maintenance mode like `loginMaint` of the login */
-
-  .legacy :global(.maint) {
-    margin-top: 20px;
-    display: flex;
-    align-items: flex-start;
-    gap: 12px;
-    padding: 14px 16px;
-    border-radius: 22px;
-    background: var(--accsoft);
-  }
-
-  .legacy :global(.maint-icon) {
-    display: grid;
-    flex-shrink: 0;
-    margin-top: 1px;
-    font-size: 20px;
-    color: var(--deep);
-  }
-
-  .legacy :global(.maint-text) {
-    flex: 1;
-    min-width: 0;
-    font-size: 14.5px;
-    line-height: 1.5;
-    text-wrap: pretty;
-  }
-
-  .legacy :global(.code) {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .legacy :global(.code label) {
-    padding: 0 4px;
-    font-size: 13.5px;
-    font-weight: 700;
   }
 
   .legacy :global(.field-err) {

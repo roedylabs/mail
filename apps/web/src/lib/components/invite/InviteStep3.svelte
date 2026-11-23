@@ -1,140 +1,137 @@
 <!--
-  Step 3 of the invitation: QR code and key for the authenticator app, the
-  six-digit code; "Confirm" creates the account (`POST invites/:token/accept`).
-  Its previous content inside the shell's frame (`LegacyFrame`).
+  Step 3 of the invitation: the authenticator app. The setup's authenticator
+  box with the QR code of the `otpauth://` URI from `POST invites/:token/totp`
+  (always dark modules on white, in both themes) and the key in groups of
+  four with "Copy key"; below it the code in six boxes (one invisible input
+  on top: digits only, pasting "123 456" works). The sixth digit confirms by
+  itself; Confirm is never greyed out for an incomplete code ("Please enter
+  all 6 digits."), only while the code is locked. Confirm creates the account
+  (`POST invites/:token/accept`). The maintenance notice sits above the code;
+  a wrong code and the lock with its countdown sit under it. Back keeps the
+  key in memory, so Continue on step 2 shows the same QR code again.
 -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import CodeBoxes from '#lib/components/CodeBoxes.svelte';
-  import Icon from '#lib/components/Icon.svelte';
-  import { inviteFrame, type LegacyValues } from '#lib/components/invite/frame.ts';
-  import LegacyFrame from '#lib/components/invite/LegacyFrame.svelte';
+  import AuthShell from '#lib/components/auth/AuthShell.svelte';
+  import AuthenticatorBox from '#lib/components/auth/AuthenticatorBox.svelte';
+  import CodeField from '#lib/components/auth/CodeField.svelte';
+  import MessageBox from '#lib/components/auth/MessageBox.svelte';
+  import { INVITE_FIT, inviteFrame } from '#lib/components/invite/frame.ts';
   import type { InviteTargets } from '#lib/components/invite/targets.ts';
-  import { Copied } from '#lib/clipboard.svelte.ts';
-  import type { IconName } from '#lib/icons.ts';
   import type { InviteFlow } from '#lib/invite.svelte.ts';
+  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/auth-layout.ts';
   import { m } from '#lib/paraglide/messages.js';
+  import { waitText } from '#lib/wait.ts';
 
   let { flow, targets, hidden = false }: { flow: InviteFlow; targets: InviteTargets; hidden?: boolean } = $props();
 
-  let active = $state(false);
+  /** Per level: size of the QR code in px and height of the code boxes, as on the setup's authenticator step. */
+  type Extra = { qr: number; otH: string };
+  const x = (qr: number, otH: number): Extra => ({ qr, otH: `${otH}px` });
+  const DESK_X = [x(136, 60), x(124, 56), x(112, 52), x(104, 50), x(96, 48), x(92, 46), x(88, 44)];
+  const MOB_X = [x(120, 52), x(112, 50), x(100, 48), x(92, 46)];
+  /** In one column the authenticator box starts one section gap (`gap`) below the intro. */
+  const desk: (DeskLevel & Extra)[] = DESK_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...DESK_X[i]! }));
+  const mob: (MobLevel & Extra)[] = MOB_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...MOB_X[i]! }));
 
-  // "Copied" for two seconds, only if it worked.
-  const copied = new Copied<'key'>();
-  onDestroy(() => copied.stop());
+  let otpInput: HTMLInputElement | undefined = $state();
+  $effect(() => targets.hold('otp', otpInput));
 
-  function submit(event: SubmitEvent) {
-    event.preventDefault();
-    void flow.submitOtp();
-  }
-
-  const contentKey = $derived([flow.otpErr, flow.codeLocked, flow.maint !== null, copied.key === null].join('|'));
+  const err = $derived(flow.otpErr);
+  /** The message under the code: the lock or a wrong code. */
+  const note = $derived(flow.codeLock ? 'locked' : err === 'invalid' ? 'invalid' : null);
+  /** The message the field points to: the short one, the one under the code or the maintenance notice. */
+  const described = $derived(err === 'short' ? 'in-otp-err' : note || flow.maint ? 'in-code-alert' : undefined);
 </script>
 
-{#snippet alert(icon: IconName, title: string, text: string)}
-  <div class="alert" role="alert" id="in-code-alert">
-    <span class="alert-icon"><Icon name={icon} /></span>
-    <div class="alert-text"><strong>{title}</strong> {text}</div>
-  </div>
-{/snippet}
-
-<LegacyFrame
+<AuthShell
+  {...inviteFrame(flow, 3)}
   docTitle={m.invite_doc_title({ step: m.invite_step_mfa() })}
-  bars={inviteFrame(flow, 3).bars}
-  {targets}
+  title={m.invite_mfa_title()}
+  intro={m.invite_mfa_intro()}
+  themeToggle
+  {desk}
+  {mob}
+  fit={INVITE_FIT}
+  contentKey={[note ?? '', err === 'short' ? 's' : '', flow.maint ? 'm' : ''].join('|')}
   {hidden}
-  {contentKey}
+  back={{ label: m.invite_back(), onback: () => flow.back() }}
+  primary={{
+    label: m.invite_confirm(),
+    icon: 'ti-arrow-right',
+    busy: flow.otpLoading,
+    busyLabel: m.invite_checking(),
+    disabled: flow.codeLocked,
+  }}
+  onsubmit={() => void flow.submitOtp()}
+  bottomBar="stack"
+  reg={targets.reg}
 >
-  {#snippet children(F: LegacyValues)}
-    <div class="steps" style:margin="0 0 12px">
-      <div class="steps-start">
-        <button type="button" class="back" disabled={flow.busy} onclick={() => flow.back()}>
-          <Icon name="ti-arrow-left" /><span>{m.invite_back()}</span>
-        </button>
-      </div>
-    </div>
-    <form class="step" onsubmit={submit} novalidate>
-      <h1>{m.invite_mfa_title()}</h1>
-      <p class="intro">{m.invite_mfa_intro()}</p>
-      <div class="mfa gap-m">
-        <span class="qr" style:width={F.qr} style:height={F.qr}>
-          {#if flow.qr}
-            <svg
-              viewBox="0 0 {flow.qr.size} {flow.qr.size}"
-              shape-rendering="crispEdges"
-              aria-label={m.invite_qr_label()}
-              role="img"
-            >
-              <path d={flow.qr.d} />
-            </svg>
-          {/if}
-        </span>
-        <div class="key">
-          <span class="key-label">{m.invite_key_manual()}</span>
-          <span class="key-value">{flow.secretLabel}</span>
-          <button type="button" class="copy key-copy" onclick={() => void copied.copy(flow.secret, 'key')}>
-            <Icon name={copied.key === 'key' ? 'ti-check' : 'ti-copy'} />
-            <span>{copied.key === 'key' ? m.invite_copied() : m.invite_key_copy()}</span>
-          </button>
-        </div>
-      </div>
+  {#snippet fields(look: Look, level: number)}
+    {@const table = look.mobile ? mob : desk}
+    {@const lv = table[Math.min(level, table.length - 1)]!}
+    {@const narrow = look.mobile}
+    <AuthenticatorBox uri={flow.uri} secret={flow.secret} state="ready" onretry={() => {}} size={lv.qr} {narrow} />
 
-      {#if flow.maint}
-        <div class="maint" role="status">
-          <span class="maint-icon"><Icon name="ti-tool" /></span>
-          <span class="maint-text">{flow.maint.message ?? m.login_maint_default()}</span>
-        </div>
-      {/if}
+    <!-- A notice, not a mistake: above the code, in the accent's tint -->
+    {#if flow.maint}
+      <MessageBox
+        id="in-code-alert"
+        role="status"
+        tone="soft"
+        icon="ti-tool"
+        title={m.login_maint_title()}
+        text={flow.maint.message ?? m.login_maint_default()}
+        top={look.gapM}
+      />
+    {/if}
 
-      <div class="code gap-m">
-        <label for="in-otp">{m.invite_otp_label()}</label>
-        <CodeBoxes
-          id="in-otp"
-          kind="otp"
-          bind:input={() => targets.input('otp'), (el: HTMLInputElement | undefined) => targets.put('otp', el)}
-          value={flow.otp}
-          oninput={(v: string) => flow.editOtp(v)}
-          active={active && !flow.otpLoading}
-          bad={!!flow.otpErr}
-          locked={flow.codeLocked}
-          fadeLocked={false}
-          describedby={flow.otpShort ? 'in-otp-err' : flow.otpBad || flow.codeLocked ? 'in-code-alert' : undefined}
-          gap={F.otpGap}
-          height={F.otpBoxH}
-          onfocus={() => (active = true)}
-          onblur={() => (active = false)}
+    <div class="code">
+      <CodeField
+        id="in-otp"
+        name="otp"
+        label={m.invite_otp_label()}
+        groups={[3, 3]}
+        filter="digits"
+        value={flow.otp}
+        inputmode="numeric"
+        autocomplete="one-time-code"
+        invalid={!!err}
+        locked={flow.codeLocked}
+        busy={flow.otpLoading}
+        describedby={described}
+        height={lv.otH}
+        {narrow}
+        oninput={(value: string) => flow.editOtp(value)}
+        bind:input={otpInput}
+      />
+      <!-- Under the code: the lock with a bar running empty and m:ss (hidden from screen readers; the text names the
+           wait), or a wrong code -->
+      {#if note}
+        <MessageBox
+          id="in-code-alert"
+          role="alert"
+          icon={note === 'locked' ? 'ti-lock' : 'ti-shield-x'}
+          title={note === 'locked' ? m.login_code_locked_title() : m.invite_code_bad_title()}
+          text={note === 'locked'
+            ? m.limit_text({ wait: waitText(Math.max(1, flow.codeLock?.left ?? 1)) })
+            : m.invite_code_bad_text()}
+          lock={flow.codeLock}
+          top="4px"
         />
-        {#if flow.otpShort}
-          <div class="field-err" id="in-otp-err">
-            <span class="fe-icon"><Icon name="ti-alert-circle" /></span><span>{m.invite_otp_short()}</span>
-          </div>
-        {/if}
-        <!-- Wrong code and lock: under the code boxes, like the setup token's messages; the maintenance notice stays above -->
-        {#if flow.otpBad}
-          <div class="alert-under">
-            {@render alert('ti-shield-x', m.invite_code_bad_title(), m.invite_code_bad_text())}
-          </div>
-        {/if}
-        {#if flow.codeLocked}
-          <div class="alert-under">{@render alert('ti-lock', m.login_code_locked_title(), flow.codeLockText)}</div>
-        {/if}
-      </div>
-
-      <button
-        type="submit"
-        class="primary"
-        disabled={flow.otpDis}
-        aria-busy={flow.otpLoading ? 'true' : 'false'}
-        style:opacity={flow.codeLocked ? 0.55 : 1}
-      >
-        {#if flow.otpLoading}
-          <span class="spin"><Icon name="ti-loader-2" /></span><span>{m.invite_checking()}</span>
-        {:else if flow.otpReady || !flow.codeLockBtn}
-          <span>{m.invite_confirm()}</span><span class="bi"><Icon name="ti-arrow-right" /></span>
-        {:else}
-          <span class="bi"><Icon name="ti-lock" /></span><span class="clock">{flow.codeLockBtn}</span>
-        {/if}
-      </button>
-    </form>
+      {/if}
+      {#if err === 'short'}
+        <MessageBox variant="line" id="in-otp-err" role="alert" icon="ti-shield-x" text={m.invite_otp_short()} />
+      {/if}
+    </div>
   {/snippet}
-</LegacyFrame>
+</AuthShell>
+
+<style>
+  /* Code from the app: six boxes in two groups of three, one invisible input over them */
+  .code {
+    margin-top: var(--f-gap-m);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+</style>

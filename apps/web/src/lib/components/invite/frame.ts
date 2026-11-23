@@ -89,8 +89,5 @@ export function detailRows(mobile: boolean, level: number): DetailRows {
 /** Previous sizes of the screens that keep their previous content (`LegacyFrame`), at their level (0–3). */
 export interface LegacyValues {
   row: string;
-  qr: string;
   codeCols: string;
-  otpGap: string;
-  otpBoxH: string;
 }
