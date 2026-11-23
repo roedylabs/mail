@@ -31,7 +31,7 @@
     oninput: (value: string) => void;
     /** Red border (an error, also one whose text shows elsewhere). */
     invalid?: boolean | undefined;
-    /** Error line under the field (`{id}-err`). */
+    /** Error line under the field (`{id}-err`, added to `aria-describedby`). */
     error?: string | undefined;
     describedby?: string | undefined;
     /** Names of the eye ("Show password" / "Hide password"). */
@@ -64,6 +64,11 @@
   }: Props = $props();
 
   let shown = $state(false);
+  /** The page's ids, and the error line while it shows (once). */
+  const described = $derived(
+    [...new Set([...(describedby ?? '').split(' '), ...(error ? [`${id}-err`] : [])])].filter(Boolean).join(' ') ||
+      undefined,
+  );
   const toggle = $derived(shown ? (hideLabel ?? m.password_hide()) : (showLabel ?? m.password_show()));
   const capsHere = $derived(capsLockAt() === id);
 
@@ -120,7 +125,7 @@
       onfocus={() => (caps.at = id)}
       onblur={onBlur}
       aria-invalid={invalid ? 'true' : 'false'}
-      aria-describedby={describedby}
+      aria-describedby={described}
     />
     <button
       type="button"
