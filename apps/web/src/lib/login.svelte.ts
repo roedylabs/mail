@@ -535,12 +535,14 @@ export class LoginFlow {
   async resend(): Promise<void> {
     if (this.resendBlocked || this.resending) return;
     this.resending = true;
+    const req = this.req;
     try {
       await api('POST', 'auth/password/forgot', { email: this.ident.trim() });
       this.cool(RESEND_S, false);
     } catch (error) {
       if (isApiError(error, 429)) this.cool(retryAfter(error), true);
-      else this.failed(error);
+      // Left "Email sent" meanwhile: no toast or "No connection" over another screen.
+      else if (req === this.req && this.view === 'sent') this.failed(error);
     } finally {
       this.resending = false;
     }

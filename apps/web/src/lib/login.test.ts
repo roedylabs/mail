@@ -342,6 +342,39 @@ describe('step password', () => {
   });
 });
 
+describe('resend', () => {
+  it('reports a resend without an answer only while “Email sent” is open', async () => {
+    mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });
+    const h = hooks();
+    const flow = new LoginFlow(h);
+    flow.openForgot();
+    flow.editEmail('max@example.net');
+    await flow.submitForgot();
+    expect(flow.view).toBe('sent');
+    flow.locks.clear('resend');
+    let fail: (error: Error) => void = () => undefined;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => new Promise((_, reject) => (fail = reject))),
+    );
+    const sent = flow.resend();
+    flow.backToLogin();
+    fail(new TypeError('Failed to fetch'));
+    await sent;
+    expect(h.offline).not.toHaveBeenCalled();
+    expect(h.error).not.toHaveBeenCalled();
+    // Still on "Email sent": "No connection".
+    flow.openForgot();
+    flow.editEmail('max@example.net');
+    mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });
+    await flow.submitForgot();
+    flow.locks.clear('resend');
+    mockApi({});
+    await flow.resend();
+    expect(h.offline).toHaveBeenCalledOnce();
+  });
+});
+
 describe('steps code and recovery code', () => {
   it('requires six digits and sends by itself on the sixth', async () => {
     const { flow, h } = await atCode();
