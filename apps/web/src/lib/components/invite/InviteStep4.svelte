@@ -10,7 +10,7 @@
   focuses the heading (reading the codes comes first).
 -->
 <script lang="ts">
-  import { onMount, tick } from 'svelte';
+  import { tick } from 'svelte';
   import AuthShell from '#lib/components/auth/AuthShell.svelte';
   import CodesSaved from '#lib/components/auth/CodesSaved.svelte';
   import RecoveryCodes from '#lib/components/auth/RecoveryCodes.svelte';
@@ -27,8 +27,12 @@
   const desk: (DeskLevel & CodesLevel)[] = DESK_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...CODES_DESK[i]! }));
   const mob: (MobLevel & CodesLevel)[] = MOB_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...CODES_MOB[i]! }));
 
-  // Entering (after "Confirm", or back from "Welcome" without a session): the heading, without scrolling.
-  onMount(() => {
+  // Entering (after "Confirm", or back from "Welcome" without a session): the heading, without scrolling. Once, as soon
+  // as the step is visible: if "No connection" covered it on arrival, when the message closes.
+  let entered = false;
+  $effect(() => {
+    if (hidden || entered) return;
+    entered = true;
     void tick().then(() => {
       if (!hidden) targets.get('heading')?.focus({ preventScroll: true });
     });

@@ -969,6 +969,28 @@ describe('Invitation page', () => {
     expect(view.getByLabelText('Choose a password')).toHaveValue('Safe-enough1');
   });
 
+  it('focuses the heading of step 4 once “No connection” closes when the codes arrived behind it', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let answer: (reply: { status: number; body: unknown }) => void = () => {};
+    mockApi({
+      ...mfaRoutes(),
+      'POST invites/tok/accept': [() => new Promise((resolve) => (answer = resolve))],
+      'GET public/config': [{ body: CONFIG }],
+    });
+    const view = await toStep3();
+    await type('Verification code', '123456');
+    // The window goes offline while the code is checked; the codes arrive behind the message.
+    await fireEvent(window, new Event('offline'));
+    const dialog = await view.findByRole('alertdialog', { name: 'No connection' });
+    answer({ status: 201, body: { user: USER, recovery_codes: CODES } });
+    const heading = await view.findByRole('heading', { name: CODES_TITLE, hidden: true });
+    await vi.advanceTimersByTimeAsync(50);
+    expect(document.activeElement).not.toBe(heading);
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Try now' }));
+    await vi.waitFor(() => expect(view.queryByRole('alertdialog')).toBeNull());
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+  });
+
   it('shows “No connection” when the window goes offline, but not for a server error', async () => {
     mockApi({
       'GET invites/tok': [{ body: { ...INFO, expired: true } }],
