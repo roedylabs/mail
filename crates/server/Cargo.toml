@@ -76,7 +76,7 @@ maxminddb = "0.33.0"
 # decoders are the same versions resvg brings (checking the upload like
 # rendering).
 resvg = { version = "0.50.0", default-features = false, features = ["raster-images"] }
-usvg = { version = "0.49.0", default-features = false, features = ["writer"] }
+usvg = { version = "0.50.0", default-features = false, features = ["writer"] }
 roxmltree = "0.21.2"
 imagesize = "0.15.0"
 zune-jpeg = "0.5.15"
