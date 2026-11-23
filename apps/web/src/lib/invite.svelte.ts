@@ -28,7 +28,7 @@ import { formatOtp } from '#lib/login.svelte.ts';
 import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
 import { PW_RULES, meetsPolicy, tooLong, type PasswordRuleId } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
-import { clockText, waitText } from '#lib/wait.ts';
+import { waitText } from '#lib/wait.ts';
 import { intlLocale } from '#lib/locale.ts';
 import { session } from '#lib/state/session.svelte.ts';
 
@@ -247,14 +247,13 @@ export class InviteFlow {
   /** The code lock as a bar running empty: seconds `left` of `total`. */
   codeLock = $derived(this.codeLeft ? { left: this.codeLeft, total: Math.max(this.codeTotal, this.codeLeft) } : null);
 
+  /** Continue on step 2 and "Request a new invitation" share the lock of the links (`totp`, `request`). */
   linkLocked = $derived(this.linkLeft > 0);
   linkLockText = $derived(this.linkLeft ? m.limit_text({ wait: waitText(this.linkLeft) }) : '');
   /** The link lock as a bar running empty: seconds `left` of `total`. */
   linkLock = $derived(this.linkLeft ? { left: this.linkLeft, total: Math.max(this.linkTotal, this.linkLeft) } : null);
   /** Step 2 complete: Continue is greyed out until the name is valid, all four chips are met and no lock runs. */
   s2Ready = $derived(this.nameOk && this.pwOk && this.pwMatch && !this.linkLocked);
-  /** "Request a new invitation" with a countdown; it shares the lock of the links with Continue on step 2. */
-  reqLockBtn = $derived(this.linkLeft ? m.invite_request_locked({ time: clockText(this.linkLeft) }) : '');
 
   /** "Confirm that you’ve saved the codes." (`savedErr && !saved`). */
   savedShown = $derived(this.savedErr && !this.saved);
@@ -495,7 +494,11 @@ export class InviteFlow {
 
   // ---- Expired ----
 
-  /** "Request a new invitation" (`POST …/request`, always 202). */
+  /**
+   * "Request a new invitation" (`POST …/request`, always 202 → "Request sent"). 429 locks it (shared with Continue on
+   * step 2), 422 `invite_valid` (sent again meanwhile) loads the invitation again, 404 is "Page not found", no answer
+   * "No connection", anything else the error toast.
+   */
   async request(): Promise<void> {
     if (this.reqLoading || this.linkLocked) return;
     this.reqLoading = true;

@@ -819,9 +819,17 @@ describe('Invitation page', () => {
     const view = renderPage();
     await view.findByRole('heading', { name: 'Invitation expired' });
     await click('Request a new invitation');
-    const button = await view.findByRole('button', { name: 'Request a new invitation in 6:00' });
-    expect(button).toBeDisabled();
-    expect(button.style.opacity).toBe('0.55');
+    const lock = await view.findByRole('alert');
+    expect(lock).toHaveAttribute('id', 'iv-lock');
+    expect(lock).toHaveTextContent(/^Too many requests\.\s*Try again in 6 minutes\./);
+    // The bar and m:ss are not read (the alert would be announced every second).
+    expect(within(lock).getByText('6:00').closest('[aria-hidden="true"]')).not.toBeNull();
+    // Greyed out with its normal label: no time on the button.
+    const button = view.getByRole('button', { name: 'Request a new invitation' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveClass('off');
+    expect(lock.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(view.queryByRole('button', { name: /in 6:00/ })).toBeNull();
   });
 
   it('ends a previous session of the browser on accepting', async () => {
@@ -857,15 +865,23 @@ describe('Invitation page', () => {
       'POST invites/tok/request': [{ status: 202 }],
     });
     const view = renderPage();
-    expect(await view.findByRole('heading', { level: 1 })).toHaveTextContent('Invitation expired');
+    const expired = await view.findByRole('heading', { level: 1 });
+    expect(expired).toHaveTextContent('Invitation expired');
+    expect(ui.authTitle).toBe('Welcome to Roedy Mail');
+    // Screen readers start at the result.
+    await vi.waitFor(() => expect(document.activeElement).toBe(expired));
     expect(view.getByText('jonas.schulz@example.com').closest('p')).toHaveTextContent(
       /^The invitation for jonas\.schulz@example\.com was valid until .+\. Ask Anna Becker for a new one\.$/,
     );
     expect(view.queryByRole('img', { name: /^Step / })).toBeNull();
+    expect(view.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
     await click('Request a new invitation');
-    expect(await view.findByRole('heading', { name: 'Request sent' })).toBeInTheDocument();
+    const sent = await view.findByRole('heading', { name: 'Request sent' });
+    await vi.waitFor(() => expect(document.activeElement).toBe(sent));
     expect(calls.at(-1)).toMatchObject({ method: 'POST', path: 'invites/tok/request' });
-    expect(view.getByText(/Anna Becker has been notified/)).toBeInTheDocument();
+    expect(view.getByRole('status')).toHaveTextContent(
+      /Anna Becker has been notified\. The new invitation will be sent to jonas\.schulz@example\.com\./,
+    );
     await click('Go to sign-in');
     expect(nav.goto).toHaveBeenCalledWith('/login');
   });

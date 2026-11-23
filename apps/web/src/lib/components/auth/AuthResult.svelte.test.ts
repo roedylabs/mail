@@ -77,6 +77,71 @@ describe('AuthResult', () => {
     expect(acted.container.querySelector('.end')).toBeNull();
   });
 
+  it('shows a running primary with its spinner and a locked one greyed out; neither takes a press', async () => {
+    const onclick = vi.fn();
+    const primary = { label: 'Request a new invitation', icon: 'ti-send' as const, busyLabel: 'Sending …', onclick };
+    const view = render(AuthResult, { ...base, icon: 'ti-clock-x', primary: { ...primary, busy: true } });
+    const busy = view.getByRole('button', { name: 'Sending …' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy).toHaveAttribute('aria-disabled', 'true');
+    await fireEvent.click(busy);
+    await view.rerender({ ...base, icon: 'ti-clock-x', primary: { ...primary, busy: false, disabled: true } });
+    const locked = view.getByRole('button', { name: 'Request a new invitation' });
+    expect(locked).toHaveClass('off');
+    expect(locked).toHaveAttribute('aria-disabled', 'true');
+    expect(locked).toHaveAttribute('aria-busy', 'false');
+    await fireEvent.click(locked);
+    expect(onclick).not.toHaveBeenCalled();
+    await view.rerender({ ...base, icon: 'ti-clock-x', primary: { ...primary, busy: false, disabled: false } });
+    const ready = view.getByRole('button', { name: 'Request a new invitation' });
+    expect(ready).not.toHaveClass('off');
+    expect(ready).not.toHaveAttribute('aria-disabled');
+    await fireEvent.click(ready);
+    expect(onclick).toHaveBeenCalledOnce();
+  });
+
+  it('shows the quiet action as a button, a notice under the result, and no role when asked', () => {
+    const notice = createRawSnippet(() => ({ render: () => '<div id="lock">Too many requests.</div>' }));
+    const extra = createRawSnippet(() => ({ render: () => '<p id="reg">Already registered?</p>' }));
+    const view = render(AuthResult, {
+      ...base,
+      icon: 'ti-clock-x',
+      tone: 'muted',
+      tileShadow: 'edge',
+      role: null,
+      notice,
+      extra,
+      inside: true,
+      quiet: { label: 'Go to sign-in', icon: 'ti-arrow-left', look: 'button', onclick: () => {} },
+    });
+    expect(view.queryByRole('status')).toBeNull();
+    const block = view.container.querySelector('.done');
+    expect(block).toHaveClass('muted', 'edge');
+    expect(block).not.toHaveAttribute('role');
+    // Inside the result block, above its bottom padding.
+    expect(block?.querySelector('#lock')).toHaveTextContent('Too many requests.');
+    expect(block?.querySelector('#reg')).toHaveTextContent('Already registered?');
+    expect(view.getByRole('button', { name: 'Go to sign-in' })).toHaveClass('quiet', 'btn');
+  });
+
+  it('keeps the label while busy without a busy label', () => {
+    const view = render(AuthResult, {
+      ...base,
+      icon: 'ti-check',
+      primary: { label: 'Go on', icon: 'ti-arrow-right', busy: true, onclick: () => {} },
+    });
+    expect(view.getByRole('button', { name: 'Go on' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('focuses the heading once it shows when mounted under “No connection”', async () => {
+    const view = render(AuthResult, { ...base, icon: 'ti-check', hidden: true });
+    const heading = view.getByRole('heading', { level: 1, hidden: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(heading).not.toHaveFocus();
+    await view.rerender({ ...base, icon: 'ti-check', hidden: false });
+    await vi.waitFor(() => expect(heading).toHaveFocus());
+  });
+
   it('moves the focus to the heading unless the page does', async () => {
     const view = render(AuthResult, { ...base, icon: 'ti-check' });
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());

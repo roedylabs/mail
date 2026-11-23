@@ -1245,7 +1245,6 @@
   "invite_expired_before": "The invitation for ",
   "invite_expired_after": " was valid until {until}. Ask {from} for a new one.",
   "invite_request": "Request a new invitation",
-  "invite_request_locked": "Request a new invitation in {time}",
   "invite_requesting": "Sending …",
   "invite_requested_title": "Request sent",
   "invite_requested_before": "{from} has been notified. The new invitation will be sent to ",
