@@ -15,7 +15,7 @@
   import { page } from '$app/state';
   import { parallax } from '#lib/actions/parallax.ts';
   import Icon from '#lib/components/Icon.svelte';
-  import InviteArt from '#lib/components/InviteArt.svelte';
+  import EmailConfirmArt from '#lib/components/EmailConfirmArt.svelte';
   import Logo from '#lib/components/Logo.svelte';
   import { EmailConfirmFlow, checkFailValues, emailConfirmValues } from '#lib/email-confirm.svelte.ts';
   import type { IconName } from '#lib/icons.ts';
@@ -86,7 +86,7 @@
 {/snippet}
 
 <div bind:clientWidth={width} use:parallax={showArt} class="confirm-page no-scrollbar" {@attach scrollbar}>
-  {#if showArt}<InviteArt mail={artIcon} />{/if}
+  {#if showArt}<EmailConfirmArt mail={artIcon} />{/if}
 
   <div class="column">
     <header>

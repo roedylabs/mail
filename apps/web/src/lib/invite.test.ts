@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { mockApi } from '#lib/state/fetch-mock.ts';
 import { normalizeName } from '#lib/name.ts';
 import { BRAND0, session, type PublicConfig } from '#lib/state/session.svelte.ts';
-import { DONE_MS, InviteFlow, type InviteField, type InviteInfo } from './invite.svelte.ts';
+import { DONE_MS, InviteFlow, STEP_REQUEST_MS, type InviteField, type InviteInfo } from './invite.svelte.ts';
 
 const TOKEN = 'b'.repeat(43);
 const INFO: InviteInfo = {
@@ -43,6 +43,7 @@ function hooks() {
     accepted: vi.fn<(left: boolean) => void>(),
     signedIn: vi.fn(() => Promise.resolve(true)),
     error: vi.fn<(text: string) => void>(),
+    offline: vi.fn<() => void>(),
   };
 }
 
@@ -79,10 +80,8 @@ describe('loading', () => {
     expect(flow.inviteEmail).toBe('jordan.hale@example.com');
     expect(flow.roleName).toBe('User');
     expect(flow.untilLabel).toMatch(/2 November/);
-    expect(flow.stepLabel).toBe('Step 1 of 4');
     // Name prefilled from the invitation
     expect(flow.name).toBe('Jordan Hale');
-    expect(flow.phase(null, false)).toBe('idle');
   });
 
   it('names “Your administrator” without an inviter and administrators as such', async () => {
@@ -125,8 +124,7 @@ describe('loading', () => {
   it('shows expired invitations without steps', async () => {
     const { flow } = await opened({}, { ...INFO, expired: true });
     expect(flow.showExpired).toBe(true);
-    expect(flow.showSteps).toBe(false);
-    expect(flow.phase(null, false)).toBe('expired');
+    expect(flow.form).toBe(false);
   });
 
   it('distinguishes unknown links, server errors and a missing connection', async () => {
@@ -195,7 +193,6 @@ describe('step name and password', () => {
       ['num', false, true],
     ]);
     expect(h.fail).toHaveBeenCalledWith('name');
-    expect(flow.phase(null, false)).toBe('error');
     // The rules stay red until all are met (`onPw`).
     flow.editPw('shortandsmall');
     expect(flow.pwErr).toBe('rules');
@@ -215,12 +212,10 @@ describe('step name and password', () => {
     const { flow, h, calls } = await atMfa();
     expect(calls.at(-1)?.method).toBe('POST');
     expect(flow.showS3).toBe(true);
-    expect(flow.stepLabel).toBe('Step 3 of 4');
     expect(flow.secretLabel).toBe('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP');
     expect(flow.qr?.size).toBeGreaterThanOrEqual(21);
     expect(flow.qr?.d.startsWith('M0 0h7v1h-7z')).toBe(true);
     expect(h.focus).toHaveBeenLastCalledWith('otp');
-    expect(flow.phase(null, false)).toBe('mfa');
   });
 
   it('fetches a new secret on the next Continue after “Back”', async () => {
@@ -304,13 +299,11 @@ describe('step multi-factor', () => {
     flow.editOtp('000000');
     await vi.waitFor(() => expect(flow.otpBad).toBe(true));
     expect(flow.otp).toBe('');
-    expect(flow.phase(null, false)).toBe('error');
     expect(h.fail).toHaveBeenLastCalledWith('otp');
     flow.editOtp('111111');
     await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
     expect(flow.codeLockText).toBe('Try again in 15 minutes.');
     // Only "Invalid code." shows the error icon, not the lock.
-    expect(flow.phase(null, false)).toBe('mfa');
     expect(flow.codeLockBtn).toBe('Confirm in 15:00');
     expect(flow.otpDis).toBe(true);
     flow.dispose();
@@ -396,13 +389,56 @@ describe('step multi-factor', () => {
     expect(calls).toHaveLength(1);
   });
 
-  it('reports “No connection” without a connection', async () => {
+  it('reports “No connection” for a request without an answer and keeps what was entered', async () => {
     const h = hooks();
     const { flow } = await atMfa({}, h);
     // No response for `accept`: `fetch` fails.
     flow.editOtp('123456');
-    await vi.waitFor(() => expect(h.error).toHaveBeenCalledWith('No connection. Please try again.'));
+    await vi.waitFor(() => expect(h.offline).toHaveBeenCalledTimes(1));
+    expect(h.error).not.toHaveBeenCalled();
+    expect(h.fail).not.toHaveBeenCalled();
     expect(flow.showS3).toBe(true);
+    expect(flow.otp).toBe('123456');
+    expect(flow.pw).toBe('Safe-enough1');
+  });
+
+  it('reports “No connection” when Continue gets no answer in time', async () => {
+    const ctrl = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(ctrl.signal);
+    const h = hooks();
+    // The request ends through the signal `fetch` got, so the deadline must reach it.
+    let sent: AbortSignal | null | undefined;
+    const hang = () => {
+      sent = vi.mocked(fetch).mock.calls.at(-1)?.[1]?.signal;
+      return new Promise<never>((_, reject) =>
+        sent?.addEventListener('abort', () => reject(new DOMException('No answer', 'TimeoutError'))),
+      );
+    };
+    const { flow } = await opened({ [totp]: [hang] }, INFO, h);
+    flow.accept();
+    flow.editPw('Safe-enough1');
+    const done = flow.submitName();
+    expect(flow.loading).toBe(true);
+    expect(timeout).toHaveBeenCalledWith(STEP_REQUEST_MS);
+    expect(sent).toBe(ctrl.signal);
+    ctrl.abort(new DOMException('No answer', 'TimeoutError'));
+    await done;
+    expect(h.offline).toHaveBeenCalledTimes(1);
+    expect(flow.loading).toBe(false);
+    expect(flow.showS2).toBe(true);
+    timeout.mockRestore();
+  });
+
+  it('reports “No connection” when Continue gets no answer', async () => {
+    const h = hooks();
+    const { flow } = await opened({ [totp]: [() => Promise.reject(new TypeError('Failed to fetch'))] }, INFO, h);
+    flow.accept();
+    flow.editPw('Safe-enough1');
+    await flow.submitName();
+    expect(h.offline).toHaveBeenCalledTimes(1);
+    expect(h.error).not.toHaveBeenCalled();
+    expect(flow.showS2).toBe(true);
+    expect(flow.loading).toBe(false);
   });
 
   it('shows maintenance mode and expiry when confirming', async () => {
@@ -422,7 +458,6 @@ describe('step multi-factor', () => {
     expect(flow.otp).toBe('');
     // A notice, not a mistake: the card does not shake.
     expect(h.fail).not.toHaveBeenCalled();
-    expect(flow.phase(null, false)).toBe('mfa');
     flow.editOtp('654321');
     await vi.waitFor(() => expect(flow.showExpired).toBe(true));
     expect(flow.info?.expired).toBe(true);
@@ -435,7 +470,6 @@ describe('step multi-factor', () => {
     expect(flow.busy).toBe(true);
     flow.back();
     expect(flow.showS3).toBe(true);
-    expect(flow.phase(null, false)).toBe('loading');
     answer({ status: 201, body: { user: USER, recovery_codes: CODES } });
     await vi.waitFor(() => expect(flow.showS4).toBe(true));
   });
@@ -479,14 +513,12 @@ describe('step recovery codes', () => {
     const before = calls.length;
     flow.finish();
     expect(flow.savedShown).toBe(true);
-    expect(flow.phase(null, false)).toBe('error');
     expect(h.fail).toHaveBeenCalled();
     flow.toggleSaved();
     expect(flow.savedShown).toBe(false);
     flow.finish();
     expect(flow.showDone).toBe(true);
     expect(flow.firstName).toBe('Jordan');
-    expect(flow.phase(null, false)).toBe('success');
     await vi.advanceTimersByTimeAsync(DONE_MS);
     expect(h.signedIn).toHaveBeenCalledOnce();
     // "Activate account" no longer asks the server: the account already exists.
@@ -512,7 +544,6 @@ describe('expired', () => {
     await flow.request();
     expect(calls.at(-1)).toMatchObject({ method: 'POST', path: `invites/${TOKEN}/request` });
     expect(flow.showRequested).toBe(true);
-    expect(flow.phase(null, false)).toBe('requested');
   });
 
   it('reloads if the invitation applies again meanwhile, and reports locks', async () => {

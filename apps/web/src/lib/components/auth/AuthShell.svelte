@@ -42,6 +42,8 @@
      */
     intro?: string | Snippet<[short: boolean]> | undefined;
     introShort?: string | undefined;
+    /** Under the intro, in the heading's cell (the invitation's "Invitation from …"); the other screens' heads leave no room for it. */
+    headExtra?: Snippet<[look: Look]> | undefined;
     /** Step bars in the brand row and the mobile top bar; none without. */
     bars?: Bars | undefined;
     /** Light/dark button at the end of the brand row and the mobile top bar. */
@@ -104,6 +106,7 @@
     title = '',
     intro,
     introShort,
+    headExtra,
     bars,
     themeToggle = false,
     heads,
@@ -282,6 +285,7 @@
           <div class="head-now">
             <h1 tabindex="-1" {@attach reg('heading')}>{title}</h1>
             {#if intro && look.intro}<p class="intro">{@render introBody(look.introShort)}</p>{/if}
+            {#if headExtra}{@render headExtra(look)}{/if}
           </div>
           {#if look.two}
             {#each heads as h, i (i)}
