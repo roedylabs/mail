@@ -2,15 +2,18 @@ name: Scorecard
 
 # OpenSSF Scorecard: supply-chain security checks, published to the
 # Security tab and to the public Scorecard API (badge in the README).
+#
+# Triggers: changes to branch protection, main, weekly and manually.
 
 on:
   branch_protection_rule:
   push:
     branches: [main]
   schedule:
-    - cron: "11 6 * * 3"
+    - cron: "11 6 * * 3" # Wednesdays 06:11 UTC
   workflow_dispatch:
 
+# Scorecard reads the repository settings with the default token.
 permissions: read-all
 
 jobs:
@@ -22,19 +25,23 @@ jobs:
       security-events: write
       id-token: write # publish results
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+      - name: Run analysis
+        uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
         with:
           results_file: results.sarif
           results_format: sarif
           publish_results: true
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload results as artifact
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: scorecard
           path: results.sarif
           retention-days: 5
-      - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+      - name: Upload results to code scanning
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: results.sarif

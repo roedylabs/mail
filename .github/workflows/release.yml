@@ -8,6 +8,9 @@ name: Release
 #   image → GitHub release with notes and binaries.
 # - Pull requests that change the image or this pipeline: build and check
 #   only, publish nothing, so that errors show up before the tag.
+#
+# Jobs: "Build and check" (read-only) → "Publish" (tags only; the only job
+# with write permissions).
 
 on:
   push:
@@ -21,16 +24,18 @@ on:
       - Cargo.lock # new crates must also build for musl with Zig
       - justfile
       - scripts/image-smoke.sh
+      - .github/actions/**
       - .github/workflows/release.yml
   workflow_dispatch:
 
 permissions: {}
 
 concurrency:
-  group: release-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
+  CARGO_TERM_COLOR: always
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
@@ -44,7 +49,8 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       prerelease: ${{ steps.version.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # git-cliff and the check "tag is on main"
           persist-credentials: false
@@ -89,23 +95,19 @@ jobs:
             echo "ROEDY_BUILD_DATE=$(git log -1 --format=%cI)"
           } >>"$GITHUB_ENV"
 
-      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 26
-          cache: pnpm
-      - run: pnpm install --frozen-lockfile
-
-      # No rust-cache: tag runs cannot read the cache of another tag, and a
+      - name: Set up Node.js
+        uses: ./.github/actions/setup-node
+      # No build cache: tag runs cannot read the cache of another tag, and a
       # cold build of the release binaries only takes a few minutes.
-      - uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      - name: Set up Rust
+        uses: ./.github/actions/setup-rust
         with:
-          toolchain: stable
           targets: x86_64-unknown-linux-musl, aarch64-unknown-linux-musl
+          cache: "false"
       # Zig for cargo-zigbuild straight from ziglang.org, checked against the
       # SHA-256 from https://ziglang.org/download/index.json (no setup action
       # that still runs on Node 20).
-      - name: Zig
+      - name: Install Zig
         env:
           ZIG_VERSION: 0.17.0
           ZIG_SHA256: 1cbe9df9f27e6b78d14ccbca43b6703a404ef79ef1c463de901d7f088d4e2026
@@ -117,7 +119,8 @@ jobs:
           tar -xJf "$archive" -C "$RUNNER_TEMP/zig" --strip-components=1
           echo "$RUNNER_TEMP/zig" >>"$GITHUB_PATH"
           "$RUNNER_TEMP/zig/zig" version
-      - uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
+      - name: Install cargo-zigbuild, cargo-auditable and cargo-about
+        uses: taiki-e/install-action@ab49d3c64680143e184118bed66a46419fc15519 # v2.90.5
         with:
           tool: cargo-zigbuild@0.24.0,cargo-auditable@0.7.7,cargo-about@0.9.2
 
@@ -137,20 +140,9 @@ jobs:
           check dist/amd64/roedy-mail x86-64
           check dist/arm64/roedy-mail aarch64
 
-      # BuildKit pinned by digest instead of the moby/buildkit tag that
-      # setup-buildx-action would pull; Dependabot maintains the FROM line.
-      - name: BuildKit image
-        id: buildkit
-        run: |
-          image=$(sed -n 's/^FROM //p' .github/buildkit/Dockerfile)
-          if ! printf '%s\n' "$image" | grep -Eqx 'moby/buildkit:[^@ ]+@sha256:[0-9a-f]{64}'; then
-            echo "::error::.github/buildkit/Dockerfile has no FROM moby/buildkit:<tag>@sha256:<digest> (found '$image')"
-            exit 1
-          fi
-          echo "image=$image" >>"$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          driver-opts: image=${{ steps.buildkit.outputs.image }}
+      # BuildKit pinned by digest (.github/buildkit/Dockerfile).
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx
       - name: Build image for amd64
         uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
@@ -199,8 +191,9 @@ jobs:
           done
           (cd dist/assets && sha256sum -- *.tar.gz >SHA256SUMS)
           cat dist/assets/SHA256SUMS
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      - name: Upload release files
         if: github.ref_type == 'tag'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: dist
           path: dist/
@@ -223,29 +216,21 @@ jobs:
       VERSION: ${{ needs.build.outputs.version }}
       PRERELEASE: ${{ needs.build.outputs.prerelease }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      - name: Download release files
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
         with:
           name: dist
           path: dist
 
-      # BuildKit pinned by digest instead of the moby/buildkit tag that
-      # setup-buildx-action would pull; Dependabot maintains the FROM line.
-      - name: BuildKit image
-        id: buildkit
-        run: |
-          image=$(sed -n 's/^FROM //p' .github/buildkit/Dockerfile)
-          if ! printf '%s\n' "$image" | grep -Eqx 'moby/buildkit:[^@ ]+@sha256:[0-9a-f]{64}'; then
-            echo "::error::.github/buildkit/Dockerfile has no FROM moby/buildkit:<tag>@sha256:<digest> (found '$image')"
-            exit 1
-          fi
-          echo "image=$image" >>"$GITHUB_OUTPUT"
-      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
-        with:
-          driver-opts: image=${{ steps.buildkit.outputs.image }}
-      - uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
+      # BuildKit pinned by digest (.github/buildkit/Dockerfile).
+      - name: Set up Docker Buildx
+        uses: ./.github/actions/setup-buildx
+      - name: Log in to ghcr.io
+        uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -316,7 +301,8 @@ jobs:
           provenance: mode=max
           sbom: true
 
-      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+      - name: Install cosign
+        uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Sign image (cosign)
         env:
           DIGEST: ${{ steps.push.outputs.digest || steps.published.outputs.digest }}

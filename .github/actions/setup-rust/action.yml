@@ -1,0 +1,30 @@
+name: Set up Rust
+description: >-
+  Stable Rust toolchain, optionally with the build cache. The cache is only
+  written on main, so pull requests read it without filling it.
+
+inputs:
+  components:
+    description: Extra components, comma-separated (e.g. clippy, rustfmt)
+    default: ""
+  targets:
+    description: Extra targets, comma-separated
+    default: ""
+  cache:
+    description: Restore and (on main) save the cargo build cache
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Rust toolchain
+      uses: dtolnay/rust-toolchain@b725eda525362e7cf34af9a7243cac1e3f01a7ec # stable
+      with:
+        toolchain: stable
+        components: ${{ inputs.components }}
+        targets: ${{ inputs.targets }}
+    - name: Cargo cache
+      if: inputs.cache == 'true'
+      uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
+      with:
+        save-if: ${{ github.ref == 'refs/heads/main' }}

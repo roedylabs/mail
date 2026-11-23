@@ -1,13 +1,15 @@
-name: Retention
+name: Image retention
 
 # Remove untagged, orphaned and partial image versions from ghcr.io. Released
 # (tagged) versions always stay available. The action understands multi-arch
 # images, attestations and cosign signatures and deletes nothing a tagged
 # image still needs.
+#
+# Triggers: monthly (deletes) and manually (dry run by default).
 
 on:
   schedule:
-    - cron: "17 4 1 * *" # monthly on the 1st at 04:17 UTC
+    - cron: "17 4 1 * *" # 1st of the month 04:17 UTC
   workflow_dispatch:
     inputs:
       dry-run:
@@ -17,6 +19,9 @@ on:
 
 permissions: {}
 
+concurrency:
+  group: ${{ github.workflow }}
+
 jobs:
   cleanup:
     name: Delete untagged images
@@ -25,7 +30,8 @@ jobs:
     permissions:
       packages: write
     steps:
-      - uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
+      - name: Clean up ghcr.io
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1.2.2
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           package: mail
