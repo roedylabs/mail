@@ -124,6 +124,24 @@ describe('AuthResult', () => {
     expect(view.getByRole('button', { name: 'Go to sign-in' })).toHaveClass('quiet', 'btn');
   });
 
+  it('keeps the label while busy without a busy label', () => {
+    const view = render(AuthResult, {
+      ...base,
+      icon: 'ti-check',
+      primary: { label: 'Go on', icon: 'ti-arrow-right', busy: true, onclick: () => {} },
+    });
+    expect(view.getByRole('button', { name: 'Go on' })).toHaveAttribute('aria-busy', 'true');
+  });
+
+  it('focuses the heading once it shows when mounted under “No connection”', async () => {
+    const view = render(AuthResult, { ...base, icon: 'ti-check', hidden: true });
+    const heading = view.getByRole('heading', { level: 1, hidden: true });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(heading).not.toHaveFocus();
+    await view.rerender({ ...base, icon: 'ti-check', hidden: false });
+    await vi.waitFor(() => expect(heading).toHaveFocus());
+  });
+
   it('moves the focus to the heading unless the page does', async () => {
     const view = render(AuthResult, { ...base, icon: 'ti-check' });
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());

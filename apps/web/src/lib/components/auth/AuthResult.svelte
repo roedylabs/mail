@@ -106,9 +106,19 @@
       if (typeof off === 'function') off();
     };
   };
+  const focusNow = () =>
+    void tick().then(() => heading?.focus(isMobileWidth(ui.width) ? undefined : { preventScroll: true }));
+  /** Mounted under "No connection" (inert): the heading gets the focus once the screen shows. */
+  let focusLater = false;
   onMount(() => {
     if (!focusHeading) return;
-    void tick().then(() => heading?.focus(isMobileWidth(ui.width) ? undefined : { preventScroll: true }));
+    if (hidden) focusLater = true;
+    else focusNow();
+  });
+  $effect(() => {
+    if (hidden || !focusLater) return;
+    focusLater = false;
+    focusNow();
   });
 
   const actions = $derived(!!primary || !!quiet);
@@ -127,7 +137,7 @@
     }}
   >
     {#if p.busy}
-      <span class="spin-b" aria-hidden="true"><Icon name="ti-loader-2" /></span><span>{p.busyLabel}</span>
+      <span class="spin-b" aria-hidden="true"><Icon name="ti-loader-2" /></span><span>{p.busyLabel ?? p.label}</span>
     {:else}
       {#if p.iconLeft}<span class="bi"><Icon name={p.icon} /></span>{/if}
       <span class="ell">{p.label}</span>
