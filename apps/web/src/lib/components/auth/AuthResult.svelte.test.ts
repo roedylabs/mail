@@ -57,6 +57,26 @@ describe('AuthResult', () => {
     expect(button.firstElementChild).toHaveClass('bi');
   });
 
+  it('keeps the space under the mobile panel without actions only when asked', () => {
+    // jsdom has no layout: the frame measures width 0, the mobile layout.
+    const plain = render(AuthResult, { ...base, icon: 'ti-check' });
+    expect(plain.container.querySelector('.end')).toBeNull();
+    plain.unmount();
+    const view = render(AuthResult, { ...base, icon: 'ti-check', endGap: 10 });
+    const end = view.container.querySelector<HTMLElement>('.end');
+    expect(end?.style.height).toBe('10px');
+    expect(end).toHaveAttribute('aria-hidden', 'true');
+    // With actions the bottom bar takes its place.
+    view.unmount();
+    const acted = render(AuthResult, {
+      ...base,
+      icon: 'ti-check',
+      endGap: 10,
+      primary: { label: 'Go on', icon: 'ti-arrow-right', onclick: () => {} },
+    });
+    expect(acted.container.querySelector('.end')).toBeNull();
+  });
+
   it('moves the focus to the heading unless the page does', async () => {
     const view = render(AuthResult, { ...base, icon: 'ti-check' });
     await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveFocus());

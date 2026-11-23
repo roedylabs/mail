@@ -43,6 +43,8 @@
     actionsTop?: 'btn' | 'gap' | undefined;
     /** The heading gets the focus on entering (desktop without scrolling). */
     focusHeading?: boolean | undefined;
+    /** Mobile without actions: space (px) under the panel in place of the bottom bar (default none). */
+    endGap?: number | undefined;
   }
 
   let {
@@ -65,6 +67,7 @@
     extra,
     actionsTop = 'btn',
     focusHeading = true,
+    endGap = 0,
   }: Props = $props();
 
   /** Per level: chips shown, ring, tile and icon size in px, padding of the column (desktop). */
@@ -168,6 +171,8 @@
       {#if primary}{@render primaryBtn(primary, 'press')}{/if}
       {#if quiet}{@render quietBtn(quiet, 'press')}{/if}
     </div>
+  {:else if endGap}
+    <div class="end" aria-hidden="true" style:height="{endGap}px"></div>
   {/if}
 {/snippet}
 
@@ -428,6 +433,10 @@
     height: 48px;
     padding: 0 16px;
     font-size: 15.5px;
+  }
+
+  .end {
+    flex-shrink: 0;
   }
 
   .extra {

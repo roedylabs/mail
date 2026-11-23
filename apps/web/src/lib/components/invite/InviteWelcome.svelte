@@ -5,7 +5,8 @@
   welcome, "Your account is set up.", what was set up as chips (hidden at
   the denser levels), then a bar that fills once and "Redirecting you to
   ‹app› …". Afterwards the page loads the signed-in account and opens the
-  start page (`DONE_MS`). The heading gets the focus on entering.
+  start page (`DONE_MS`). The heading gets the focus on entering. Mobile:
+  no bottom bar, only 10 px under the panel.
 -->
 <script lang="ts">
   import AuthResult from '#lib/components/auth/AuthResult.svelte';
@@ -36,4 +37,5 @@
     ],
   }}
   progress={{ text: m.login_redirect({ app: session.appName }), ms: 2600 }}
+  endGap={10}
 />
