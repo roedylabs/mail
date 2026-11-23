@@ -68,7 +68,7 @@ zstd = { version = "0.14.3", default-features = false, features = ["no_asm"] }
 ulid = { version = "3.0.0", default-features = false }
 url = { version = "2.5.8", features = ["serde"] }
 totp-rs = { version = "6.0.0", default-features = false, features = ["otpauth"] }
-maxminddb = "0.32.0"
+maxminddb = "0.33.0"
 # Branding logo: resvg renders the mail logo and push icon,
 # without text, system fonts and SVGZ – letters come as paths from Young
 # Serif via skrifa (ttf-parser is unmaintained, RUSTSEC-2026-0192). usvg
