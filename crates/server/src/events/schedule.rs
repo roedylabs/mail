@@ -69,7 +69,7 @@ impl Schedule {
     /// Whether sending is allowed at `now`: outside the quiet hours.
     pub fn open(&self, now: Timestamp) -> bool {
         self.quiet
-            .is_none_or(|quiet| !quiet.contains(now.to_zoned(self.tz.clone()).time()))
+            .is_none_or(|quiet| !quiet.contains(now.to_zoned_datetime(self.tz.clone()).time()))
     }
 
     /// Time of the digest: 07:00, within the quiet hours their
@@ -92,12 +92,12 @@ impl Schedule {
             Digest::Weekly => true,
         };
         let time = self.digest_at();
-        let mut day = at.to_zoned(self.tz.clone()).date();
+        let mut day = at.to_zoned_datetime(self.tz.clone()).date();
         // By the eighth day at the latest there is a Monday after `at`.
         for _ in 0..8 {
             if !weekly || day.weekday() == Weekday::Monday {
                 // In a daylight saving gap the time after it applies.
-                if let Ok(slot) = day.to_datetime(time).to_zoned(self.tz.clone())
+                if let Ok(slot) = day.to_datetime(time).to_zoned_datetime(self.tz.clone())
                     && slot.timestamp() >= at
                 {
                     return slot.timestamp();
@@ -135,7 +135,7 @@ mod tests {
         local
             .parse::<civil::DateTime>()
             .unwrap()
-            .to_zoned(TimeZone::get("Europe/Berlin").unwrap())
+            .to_zoned_datetime(TimeZone::get("Europe/Berlin").unwrap())
             .unwrap()
             .timestamp()
     }

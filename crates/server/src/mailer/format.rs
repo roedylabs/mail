@@ -95,7 +95,7 @@ impl Format {
 
     /// Date, e.g. "30 October 2026".
     pub fn date(&self, at: Timestamp) -> String {
-        let at = at.to_zoned(self.tz.clone());
+        let at = at.to_zoned_datetime(self.tz.clone());
         let (year, month, day) = (at.year(), at.month(), at.day());
         match self.date {
             DateFormat::De => tf(
@@ -114,7 +114,7 @@ impl Format {
 
     /// Time, e.g. "15:57" or "3:57 PM".
     pub fn time(&self, at: Timestamp) -> String {
-        let at = at.to_zoned(self.tz.clone());
+        let at = at.to_zoned_datetime(self.tz.clone());
         let (hour, minute) = (at.hour(), at.minute());
         match self.time {
             TimeFormat::H24 => tf(
@@ -136,7 +136,8 @@ impl Format {
     /// Point in time: "Today, 15:57", on another day "23 October 2026,
     /// 14:28" (day in the recipient's time zone, compared with `now`).
     pub fn when(&self, at: Timestamp, now: Timestamp) -> String {
-        let today = at.to_zoned(self.tz.clone()).date() == now.to_zoned(self.tz.clone()).date();
+        let today = at.to_zoned_datetime(self.tz.clone()).date()
+            == now.to_zoned_datetime(self.tz.clone()).date();
         let day = if today {
             t(self.lang, "format.today").to_owned()
         } else {

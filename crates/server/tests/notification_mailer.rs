@@ -131,12 +131,12 @@ fn berlin() -> TimeZone {
 
 /// `time` on the day after `at` in Berlin.
 fn next_day(at: Timestamp, time: civil::Time) -> Timestamp {
-    at.to_zoned(berlin())
+    at.to_zoned_datetime(berlin())
         .date()
         .tomorrow()
         .unwrap()
         .to_datetime(time)
-        .to_zoned(berlin())
+        .to_zoned_datetime(berlin())
         .unwrap()
         .timestamp()
 }
@@ -203,7 +203,7 @@ async fn daily_digest_at_seven_in_local_time() {
     assert_eq!(pending.len(), 2);
     let due = Schedule::of(&Settings::default()).due(created(&pending[0]));
     assert_eq!(
-        due.to_zoned(berlin()).time(),
+        due.to_zoned_datetime(berlin()).time(),
         civil::time(7, 0, 0, 0),
         "07:00 in Berlin"
     );

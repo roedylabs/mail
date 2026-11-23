@@ -153,7 +153,7 @@ impl Backup {
         let [at, kind, id]: [&str; 3] = rest.split('-').collect::<Vec<_>>().try_into().ok()?;
         let at = DateTime::strptime(NAME_TIME, at)
             .ok()?
-            .to_zoned(TimeZone::UTC)
+            .to_zoned_datetime(TimeZone::UTC)
             .ok()?
             .timestamp();
         let auto = match kind {
