@@ -28,23 +28,6 @@ export type View = 'login' | 'otp' | 'backup' | 'forgot' | 'sent' | 'newpw' | 'p
 /** Route of the page: `/login`, `/password/forgot` or `/password/reset/[token]`. */
 export type LoginRoute = { kind: 'login' } | { kind: 'forgot' } | { kind: 'newpw'; token: string };
 export type Field = 'id' | 'pw' | 'otp' | 'bc' | 'fg' | 'np' | 'np2';
-/** Icon of the tile in the background (`PHASE_ICON`); `idle` shows the logo. */
-export type Phase =
-  | 'idle'
-  | 'id'
-  | 'pw'
-  | 'peek'
-  | 'loading'
-  | 'error'
-  | 'locked'
-  | 'success'
-  | 'otp'
-  | 'backup'
-  | 'forgot'
-  | 'sent'
-  | 'newpw'
-  | 'pwdone'
-  | 'linkbad';
 
 /** Steps of `/password/forgot` (`FG_VIEWS`) and from the link in the mail (`LINK_VIEWS`). */
 const FG_VIEWS: readonly View[] = ['forgot', 'sent'];
@@ -273,35 +256,6 @@ export class LoginFlow {
     const local = id.split('@')[0] || id;
     return local ? local.charAt(0).toUpperCase() + local.slice(1) : '';
   });
-
-  /** Icon of the tile like `phase()`; focus and "Show password" come from the page. */
-  phase(focus: Field | null, showPw: boolean): Phase {
-    const v = this.view;
-    if (v === 'sent' || v === 'pwdone' || v === 'linkbad') return v;
-    if (v === 'newpw') {
-      if (this.npLoading) return 'loading';
-      if (this.npLocked) return 'locked';
-      if (this.npMsg) return 'error';
-      return focus === 'np' && showPw ? 'peek' : 'newpw';
-    }
-    if (v === 'forgot') return this.fgLoading ? 'loading' : this.fgLocked ? 'locked' : 'forgot';
-    if (v === 'backup' && !this.done) {
-      if (this.bcLoading) return 'loading';
-      if (this.codeLocked) return 'locked';
-      return this.bcErr === 'invalid' ? 'error' : 'backup';
-    }
-    if (v === 'otp' && !this.done) {
-      if (this.otpLoading) return 'loading';
-      if (this.codeLocked) return 'locked';
-      return this.otpErr === 'invalid' || this.otpErr === 'used' ? 'error' : 'otp';
-    }
-    if (this.done) return 'success';
-    if (this.loading) return 'loading';
-    if (this.pwLocked) return 'locked';
-    if (this.authErr && !this.pw) return 'error';
-    if (focus === 'pw') return showPw ? 'peek' : 'pw';
-    return focus === 'id' ? 'id' : 'idle';
-  }
 
   // ---- Route ----
 

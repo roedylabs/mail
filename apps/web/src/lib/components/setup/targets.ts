@@ -25,7 +25,7 @@ export class SetupTargets {
     return this.els.get(key);
   }
 
-  /** For `bind:` of a component's element (`FormField`'s input). */
+  /** For `bind:` of a component's element (a field's input). */
   put(key: SetupTarget, el: HTMLElement | undefined): void {
     if (el) this.els.set(key, el);
     else this.els.delete(key);
