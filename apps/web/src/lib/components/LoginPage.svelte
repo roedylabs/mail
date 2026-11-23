@@ -134,6 +134,6 @@
 {:else if flow.view === 'login'}
   <SignInPassword {flow} {values} {targets} hidden={net.open} />
 {:else}
-  <LoginLegacy {flow} {values} {targets} />
+  <LoginLegacy {flow} {values} {targets} hidden={net.open} />
 {/if}
 {#if net.open}<NoConnection {net} bind:box={netBox} />{/if}

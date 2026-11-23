@@ -230,6 +230,7 @@
         class="remember"
         class:on={stay}
         aria-checked={stay ? 'true' : 'false'}
+        aria-disabled={flow.loading ? 'true' : undefined}
         onclick={() => flow.toggleRemember()}
       >
         <span class="cb" aria-hidden="true"><Icon name="ti-check" /></span>

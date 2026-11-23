@@ -326,7 +326,9 @@ export class LoginFlow {
     this.pwErr = null;
   }
 
+  /** "Stay signed in"; fixed while the sign-in runs (the request already carries the choice "Hello" names). */
   toggleRemember(): void {
+    if (this.loading) return;
     this.remember = !this.remember;
   }
 

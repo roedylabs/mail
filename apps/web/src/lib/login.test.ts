@@ -112,6 +112,22 @@ describe('step password', () => {
     expect(h.unlocked).toHaveBeenCalledWith('pw');
   });
 
+  it('keeps “Stay signed in” while the sign-in runs', async () => {
+    let answer: (value: { body: unknown }) => void = () => undefined;
+    mockApi({ 'POST auth/login': [() => new Promise((resolve) => (answer = resolve))] });
+    const { flow } = filled();
+    const sent = flow.submit();
+    flow.toggleRemember();
+    expect(flow.remember).toBe(true);
+    answer({ body: { status: 'ok', user: USER } });
+    await sent;
+    expect(flow.done).toBe(true);
+    expect(flow.remember).toBe(true);
+    flow.reset();
+    flow.toggleRemember();
+    expect(flow.remember).toBe(false);
+  });
+
   it('shows “No connection” without an answer, everything typed stays', async () => {
     mockApi({});
     const { flow, h } = filled();

@@ -29,9 +29,11 @@
     flow: LoginFlow;
     values: LoginPageValues;
     targets: SignInTargets;
+    /** "No connection" covers the page: hidden from screen readers and inert. */
+    hidden?: boolean | undefined;
   }
 
-  let { flow, values, targets }: Props = $props();
+  let { flow, values, targets, hidden = false }: Props = $props();
 
   let root: HTMLDivElement | undefined = $state();
   let card: HTMLDivElement | undefined = $state();
@@ -199,6 +201,8 @@
 
 <div
   bind:this={root}
+  aria-hidden={hidden ? 'true' : undefined}
+  inert={hidden}
   bind:clientWidth={width}
   bind:clientHeight={height}
   use:parallax={showArt}

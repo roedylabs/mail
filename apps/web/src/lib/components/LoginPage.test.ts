@@ -210,6 +210,7 @@ describe('page sign-in', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
     const busy = view.getByRole('button', { name: 'Signing in …' });
     expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(view.getByRole('checkbox', { name: 'Stay signed in' })).toHaveAttribute('aria-disabled', 'true');
     const link = view.container.querySelector('a[href="/password/forgot"]');
     expect(link).toHaveAttribute('aria-disabled', 'true');
     expect((link as HTMLElement).inert).toBe(true);
@@ -305,6 +306,18 @@ describe('page sign-in', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
     expect(view.getByLabelText('Email or username')).toHaveValue('max');
     expect(view.getByLabelText('Password')).toHaveValue('');
+  });
+
+  it('hides the old card behind "No connection" as well', async () => {
+    mockApi({});
+    const view = show({ kind: 'forgot' });
+    await type('Email address', 'max@example.net');
+    await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+    expect(await view.findByRole('alertdialog')).toBeInTheDocument();
+    const card = view.container.querySelector('.login') as HTMLElement;
+    expect(card).toHaveAttribute('aria-hidden', 'true');
+    expect(card.inert).toBe(true);
+    expect(view.getByLabelText('Email address', { selector: 'input' })).toHaveValue('max@example.net');
   });
 
   it('opens "Reset password" with the identifier and reports the route', async () => {
