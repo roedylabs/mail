@@ -511,7 +511,7 @@ test('accept invitations with MFA', async ({ browser }) => {
     await next(page).click();
 
     // 3 MFA with the displayed key; six digits submit on their own
-    await expect(page.getByRole('heading', { name: 'Multi-factor authentication' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: MFA })).toBeVisible();
     expect(await axeViolations(page), 'axe: multi-factor').toEqual([]);
     const secret = (await page.locator('.key-value').innerText()).trim();
     await page.getByLabel('Verification code').fill(totp(secret));

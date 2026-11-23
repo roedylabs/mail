@@ -1,42 +1,21 @@
 <!--
-  Background of the invitation page from 1000 px width: floating tiles that
-  follow the pointer (the page's `--px`/`--py`). The large tile in the accent
-  color shows the icon of the state (`PHASE_ICON`), the pill at the bottom
-  right the inviter's initials; the page makes the tile shake on an error
-  (`tile`). With `mail` the variant for the email address confirmation: this
-  icon in the tile, an @ in the pill and the colors of the two tiles swapped.
+  Background of the email address confirmation from 1000 px width: floating
+  tiles that follow the pointer (the page's `--px`/`--py`). The large tile
+  shows the icon of the state (`mail`), the pill at the bottom right an @;
+  the page makes the tile shake on an error (`tile`).
 -->
 <script lang="ts">
   import Icon from '#lib/components/Icon.svelte';
   import type { IconName } from '#lib/icons.ts';
-  import type { InvitePhase } from '#lib/invite.svelte.ts';
 
   let {
-    phase = 'idle',
-    initials = '',
     mail,
     tile = $bindable(),
   }: {
-    phase?: InvitePhase;
-    initials?: string;
     /** Icon of the email confirmation (`ti-mail`, `ti-mail-check`, `ti-link-off`, `ti-circle-check`, on an error that of the card). */
-    mail?: IconName | undefined;
+    mail: IconName;
     tile?: HTMLElement | undefined;
   } = $props();
-
-  const PHASE_ICON: Record<InvitePhase, IconName> = {
-    idle: 'ti-mail-opened',
-    name: 'ti-user',
-    pw: 'ti-lock',
-    peek: 'ti-eye',
-    mfa: 'ti-shield-lock',
-    backup: 'ti-lifebuoy',
-    loading: 'ti-loader-2',
-    error: 'ti-alert-circle',
-    success: 'ti-user-check',
-    expired: 'ti-clock-x',
-    requested: 'ti-send',
-  };
 </script>
 
 {#snippet lines(a: number, b: number)}
@@ -67,10 +46,8 @@
       <div style:transform="rotate(-5deg)">
         <div bind:this={tile}>
           <div class="tile phase" style:width="140px" style:height="140px" style:animation-delay="0s">
-            {#key mail ?? phase}
-              <span class="glyph" class:spin={!mail && phase === 'loading'}
-                ><Icon name={mail ?? PHASE_ICON[phase]} /></span
-              >
+            {#key mail}
+              <span class="glyph"><Icon name={mail} /></span>
             {/key}
           </div>
         </div>
@@ -81,7 +58,7 @@
     <div class="move">
       <div style:transform="rotate(10deg)">
         <div class="tile col" style:width="112px" style:height="112px" style:animation-delay="1.2s">
-          <span class="dot {mail ? 'lilac' : 'sky'}"></span>
+          <span class="dot lilac"></span>
           {@render lines(54, 36)}
         </div>
       </div>
@@ -91,11 +68,7 @@
     <div class="move">
       <div style:transform="rotate(4deg)">
         <div class="tile row" style:width="226px" style:height="68px" style:animation-delay=".8s">
-          {#if mail}
-            <span class="avatar at"><Icon name="ti-at" /></span>
-          {:else}
-            <span class="avatar">{initials}</span>
-          {/if}
+          <span class="avatar at"><Icon name="ti-at" /></span>
           <span class="col-lines">{@render lines(110, 70)}</span>
         </div>
       </div>
@@ -171,24 +144,15 @@
     animation: inPop 380ms cubic-bezier(0.2, 1.2, 0.3, 1);
   }
 
-  .glyph.spin {
-    animation: inSpin 900ms linear infinite;
-  }
-
   .dot {
     width: 28px;
     height: 28px;
     border-radius: 10px;
   }
 
-  /* fixed colors (sage, sky, lilac) */
+  /* fixed colors (sage, lilac) */
   .sage {
     background: #94c48d;
-  }
-
-  .sky {
-    border-radius: 50%;
-    background: #82bbec;
   }
 
   .lilac {
@@ -251,12 +215,6 @@
     to {
       opacity: 1;
       transform: none;
-    }
-  }
-
-  @keyframes inSpin {
-    to {
-      transform: rotate(360deg);
     }
   }
 </style>

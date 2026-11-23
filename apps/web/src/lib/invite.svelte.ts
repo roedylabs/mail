@@ -6,10 +6,20 @@
  * recovery codes, "Activate account" only redirects. Expired invitations:
  * "Request a new invitation" (`request`) → "Request sent".
  *
- * Unexpected responses show "Something went wrong"; locks and maintenance mode
- * work like sign-in.
+ * Unexpected responses show "Something went wrong"; a request of a step
+ * without an answer shows "No connection" (`offline`); locks and maintenance
+ * mode work like sign-in.
  */
-import { ApiError, api, fieldsOf, isApiError, maintenanceMessage, retryAfter, type FieldDetail } from '#lib/api.ts';
+import {
+  ApiError,
+  NetworkError,
+  api,
+  fieldsOf,
+  isApiError,
+  maintenanceMessage,
+  retryAfter,
+  type FieldDetail,
+} from '#lib/api.ts';
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { failText } from '#lib/errors.ts';
 import { formatOtp } from '#lib/login.svelte.ts';
@@ -30,10 +40,6 @@ export type InviteView = 'form' | 'done' | 'requested';
 /** Loading the invitation: 404 shows the error page, other errors 500 or offline with "Try again". */
 export type InviteStatus = 'loading' | 'ready' | 'missing' | 'failed';
 export type InviteField = 'name' | 'pw' | 'otp';
-/** Icon of the tile in the background (`PHASE_ICON`). */
-export type InvitePhase =
-  'idle' | 'name' | 'pw' | 'peek' | 'mfa' | 'backup' | 'loading' | 'error' | 'success' | 'expired' | 'requested';
-
 /** Response of `GET invites/:token`. */
 export interface InviteInfo {
   email: string;
@@ -89,6 +95,8 @@ export interface InviteHooks {
   signedIn?: () => Promise<boolean>;
   /** Errors without their own text: error toast (`ui.toasts.error`). */
   error?: (text: string) => void;
+  /** A request of a step got no answer: "No connection" (everything entered stays). */
+  offline?: () => void;
 }
 
 /** Locks: code (`accept`) and requests to the link (`totp`, `request`). */
@@ -185,10 +193,7 @@ export class InviteFlow {
   roleName = $derived(this.info?.role === 'admin' ? m.invite_role_admin() : m.invite_role_user());
 
   form = $derived(!this.expired && this.view === 'form');
-  showSteps = $derived(this.form);
-  isS1 = $derived(this.step === 1);
   canBack = $derived(this.step === 2 || this.step === 3);
-  stepLabel = $derived(m.invite_step({ n: this.step }));
   showS1 = $derived(this.form && this.step === 1);
   showS2 = $derived(this.form && this.step === 2);
   showS3 = $derived(this.form && this.step === 3);
@@ -232,22 +237,6 @@ export class InviteFlow {
 
   /** A request is running: "Back" waits for the response. */
   busy = $derived(this.loading || this.otpLoading || this.reqLoading);
-
-  /** Icon of the tile like `phase()`; focus and "Show password" come from the page. */
-  phase(focus: InviteField | null, showPw: boolean): InvitePhase {
-    if (this.view === 'requested') return 'requested';
-    if (this.view === 'done') return 'success';
-    if (this.busy) return 'loading';
-    if (this.expired) return 'expired';
-    if (this.step === 2) {
-      if (focus === 'pw') return showPw ? 'peek' : 'pw';
-      if (focus === 'name') return 'name';
-      return this.nmErr || this.pwErr ? 'error' : 'name';
-    }
-    if (this.step === 3) return this.otpBad ? 'error' : 'mfa';
-    if (this.step === 4) return this.savedShown ? 'error' : 'backup';
-    return 'idle';
-  }
 
   // ---- Loading ----
 
@@ -486,6 +475,8 @@ export class InviteFlow {
     } else if (isApiError(error, 429)) {
       this.locks.start('link', retryAfter(error));
       this.hooks.fail?.();
+    } else if (error instanceof NetworkError) {
+      this.hooks.offline?.();
     } else {
       this.hooks.error?.(failText(error));
     }
@@ -511,6 +502,8 @@ export class InviteFlow {
       this.otp = '';
     } else if (isApiError(error, 422, 'invalid')) {
       this.fieldsFailed(fieldsOf(error));
+    } else if (error instanceof NetworkError) {
+      this.hooks.offline?.();
     } else {
       // Also `totp_required` (secret missing): "Back" and "Continue" give a new one.
       this.hooks.error?.(failText(error));

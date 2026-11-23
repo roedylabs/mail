@@ -43,6 +43,8 @@ const INFO: InviteInfo = {
   expired: false,
 };
 const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
+/** Heading of the authenticator step (with its soft hyphen). */
+const MFA_TITLE = 'Multi-factor authen\u00adtication';
 const USER = { id: '01K', username: 'jonas.schulz', email: INFO.email, display_name: 'Jonas Schulz', role: 'user' };
 const CODES = Array.from({ length: 10 }, (_, i) => `ABCD-EF${String(i + 2)}A`);
 const ME = {
@@ -54,6 +56,7 @@ const ME = {
 };
 
 afterEach(() => {
+  vi.restoreAllMocks();
   vi.unstubAllGlobals();
   vi.useRealTimers();
   nav.goto.mockClear();
@@ -83,15 +86,80 @@ describe('Invitation page', () => {
     const view = renderPage();
     expect(await view.findByRole('heading', { level: 1 })).toHaveTextContent('Welcome to Roedy Mail');
     expect(view.getByText('Invitation from Anna Becker')).toBeInTheDocument();
-    expect(view.getByText('AB')).toBeInTheDocument();
+    expect(view.getByText('AB')).toHaveAttribute('aria-hidden', 'true');
     expect(
       view.getByText('Anna Becker has invited you. Review the details and accept the invitation.'),
     ).toBeInTheDocument();
-    expect(view.getByText('jonas.schulz@example.com')).toBeInTheDocument();
-    expect(view.getByText('User · Example Ltd')).toBeInTheDocument();
+    const details = view.getByRole('list', { name: 'Invitation details' });
+    expect(
+      within(details)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.replace(/\s+/g, ' ').trim()),
+    ).toEqual([
+      'Email address jonas.schulz@example.com',
+      'Role User · Example Ltd',
+      expect.stringMatching(/^Invitation valid until \S+ 2 November$/),
+    ]);
     expect(view.getByRole('img', { name: 'Step 1 of 4' })).toBeInTheDocument();
-    await click('Sign in');
-    expect(nav.goto).toHaveBeenCalledWith('/login');
+    expect(ui.authTitle).toBe('Welcome to Roedy Mail');
+    // Mobile (jsdom has no layout): “Accept invitation” alone in the bottom bar, no Back on step 1.
+    expect(view.getByRole('button', { name: 'Accept invitation' })).toBeInTheDocument();
+    expect(view.queryByRole('button', { name: /Back/ })).toBeNull();
+    expect(view.queryByRole('list', { name: 'Invitation steps' })).toBeNull();
+    expect(view.getByText('Already registered?', { exact: false })).toHaveTextContent('Already registered? Sign in');
+    expect(view.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
+    // No footer: no © line and no legal links.
+    expect(view.queryByText(/©/)).toBeNull();
+    expect(view.queryByRole('contentinfo')).toBeNull();
+  });
+
+  it('shows the step overview in two columns and “Accept invitation” as the form’s submit button', async () => {
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1280);
+    vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(860);
+    mockApi({ 'GET invites/tok': [{ body: INFO }] });
+    const view = renderPage();
+    await view.findByRole('heading', { level: 1 });
+    const steps = view.getByRole('list', { name: 'Invitation steps' });
+    expect(
+      within(steps)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.trim()),
+    ).toEqual(['1 Invitation', '2 Name and password', '3 Authenticator app', '4 Recovery codes']);
+    expect(within(steps).getAllByRole('listitem')[0]).toHaveAttribute('aria-current', 'step');
+    const accept = view.getByRole('button', { name: 'Accept invitation' });
+    expect(accept).toHaveAttribute('type', 'submit');
+    expect(accept.closest('form')).not.toBeNull();
+    // No focus anywhere on opening.
+    expect(document.activeElement).toBe(document.body);
+  });
+
+  it('names “your administrator” without an inviter and the role without an organisation name', async () => {
+    mockApi({ 'GET invites/tok': [{ body: { ...INFO, inviter: null, role: 'admin' } }] });
+    session.config = { ...CONFIG, org: { ...CONFIG.org, name: null } };
+    const view = render(Page);
+    await view.findByRole('heading', { level: 1 });
+    expect(view.getByText('Invitation from your administrator')).toBeInTheDocument();
+    expect(view.getByText('R')).toHaveAttribute('aria-hidden', 'true');
+    expect(
+      view.getByText('Your administrator has invited you. Review the details and accept the invitation.'),
+    ).toBeInTheDocument();
+    const details = view.getByRole('list', { name: 'Invitation details' });
+    expect(within(details).getAllByRole('listitem')[1]).toHaveTextContent(/^Role Administrator$/);
+  });
+
+  it('keeps step 1 when coming back from step 2', async () => {
+    const { calls } = mockApi({ 'GET invites/tok': [{ body: INFO }] });
+    const view = renderPage();
+    await view.findByRole('heading', { level: 1 });
+    // Enter on the step does what “Accept invitation” does.
+    await fireEvent.keyDown(view.getByRole('heading', { level: 1 }), { key: 'Enter' });
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up your account');
+    await type('Your name', 'Jonas Schulz');
+    await click('Back');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome to Roedy Mail');
+    await click('Accept invitation');
+    expect(view.getByLabelText('Your name')).toHaveValue('Jonas Schulz');
+    expect(calls.map((c) => c.path)).toEqual(['invites/tok']);
   });
 
   it('switches the theme without the API', async () => {
@@ -131,7 +199,7 @@ describe('Invitation page', () => {
     await click('Continue');
 
     // Step 3: QR code, key and code
-    expect(await view.findByRole('heading', { name: 'Multi-factor authentication' })).toBeInTheDocument();
+    expect(await view.findByRole('heading', { name: MFA_TITLE })).toBeInTheDocument();
     const qr = view.getByRole('img', { name: 'QR code for the authenticator app' });
     expect(qr.querySelector('path')?.getAttribute('d')).toMatch(/^M0 0h7v1h-7z/);
     expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
@@ -180,7 +248,7 @@ describe('Invitation page', () => {
     expect(view.getByLabelText('Your name')).toHaveValue('Jonas Schulz');
     await type('Choose a password', 'Safe-enough1');
     await click('Continue');
-    await view.findByRole('heading', { name: 'Multi-factor authentication' });
+    await view.findByRole('heading', { name: MFA_TITLE });
     await type('Verification code', '000000');
     expect(await view.findByText('Invalid code.')).toBeInTheDocument();
     // Under the code boxes, as the setup token's messages.
@@ -210,7 +278,7 @@ describe('Invitation page', () => {
     await click('Accept invitation');
     await type('Choose a password', 'Safe-enough1');
     await click('Continue');
-    await view.findByRole('heading', { name: 'Multi-factor authentication' });
+    await view.findByRole('heading', { name: MFA_TITLE });
     await type('Verification code', '123456');
     expect(await view.findByRole('status')).toHaveTextContent('Back at 6 pm.');
     expect(view.queryByRole('alert')).not.toBeInTheDocument();
@@ -265,7 +333,7 @@ describe('Invitation page', () => {
     await click('Accept invitation');
     await type('Choose a password', 'Safe-enough1');
     await click('Continue');
-    await view.findByRole('heading', { name: 'Multi-factor authentication' });
+    await view.findByRole('heading', { name: MFA_TITLE });
     await type('Verification code', '123456');
     await view.findByRole('heading', { name: 'Recovery codes' });
     expect(session.user).toBeNull();
@@ -314,13 +382,19 @@ describe('Invitation page', () => {
     expect(view.getByText('Error 404')).toBeInTheDocument();
   });
 
-  it('shows only the skeleton of the card until the invitation is loaded', () => {
+  it('shows only the placeholders of the card until the invitation is loaded', () => {
     mockApi({ 'GET invites/tok': [() => new Promise(() => {})] });
     const view = renderPage();
-    expect(view.getByRole('status', { name: 'Checking …' })).toHaveAttribute('aria-busy', 'true');
+    const status = view.getByRole('status', { name: 'Checking …' });
+    expect(status).toHaveAttribute('aria-busy', 'true');
+    expect(status.textContent?.trim()).toBe('');
+    for (const shape of status.children) expect(shape).toHaveAttribute('aria-hidden', 'true');
     expect(view.queryByRole('heading', { level: 1 })).toBeNull();
     expect(view.queryByRole('button', { name: 'Accept invitation' })).toBeNull();
-    expect(view.getByText(/© \d{4} Roedy Mail/)).toBeInTheDocument();
+    // No step bars yet; the light/dark button is there.
+    expect(view.queryByRole('img', { name: /^Step / })).toBeNull();
+    expect(view.getByRole('button', { name: /^(Dark|Light) theme$/ })).toBeInTheDocument();
+    expect(ui.authTitle).toBe('Welcome to Roedy Mail');
   });
 
   it('shows the error card in the page frame and keeps it with “Checking …” while trying again', async () => {
@@ -336,7 +410,9 @@ describe('Invitation page', () => {
     expect(within(card).getByRole('heading', { level: 1 })).toHaveTextContent('No connection');
     expect(card).toHaveTextContent('Check your internet connection and try again.');
     expect(view.queryByText('Copy details')).toBeNull();
-    expect(view.getByText(/© \d{4} Roedy Mail/)).toBeInTheDocument();
+    expect(view.queryByRole('img', { name: /^Step / })).toBeNull();
+    // Desktop: the focus on “Try again”.
+    expect(document.activeElement).toBe(within(card).getByRole('button', { name: 'Try again' }));
     await click('Try again');
     const busy = within(card).getByRole('button', { name: 'Checking …' });
     expect(busy).toHaveAttribute('aria-disabled', 'true');
@@ -353,5 +429,44 @@ describe('Invitation page', () => {
     await click('Try again');
     await vi.advanceTimersByTimeAsync(900);
     expect(await view.findByRole('heading', { name: 'Welcome to Roedy Mail' })).toBeInTheDocument();
+  });
+
+  it('shows “No connection” when a request of a step gets no answer and keeps what was entered', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { calls } = mockApi({
+      'GET invites/tok': [{ body: INFO }],
+      'POST invites/tok/totp': [() => Promise.reject(new TypeError('Failed to fetch'))],
+      'GET public/config': [{ body: CONFIG }],
+    });
+    const view = renderPage();
+    await view.findByRole('heading', { level: 1 });
+    await click('Accept invitation');
+    await type('Your name', 'Jonas Schulz');
+    await type('Choose a password', 'Safe-enough1');
+    await click('Continue');
+    const dialog = await view.findByRole('alertdialog', { name: 'No connection' });
+    expect(ui.toast).toBeNull();
+    // The screen behind is hidden while the message covers it.
+    expect(view.getByRole('heading', { level: 1, hidden: true }).closest('[aria-hidden="true"]')).not.toBeNull();
+    // The first answer of `public/config` closes it; everything entered stays.
+    await fireEvent.click(within(dialog).getByRole('button', { name: 'Try now' }));
+    await vi.waitFor(() => expect(view.queryByRole('alertdialog')).toBeNull());
+    expect(calls.at(-1)).toMatchObject({ method: 'GET', path: 'public/config' });
+    expect(view.getByLabelText('Your name')).toHaveValue('Jonas Schulz');
+    expect(view.getByLabelText('Choose a password')).toHaveValue('Safe-enough1');
+  });
+
+  it('shows “No connection” when the window goes offline, but not for a server error', async () => {
+    mockApi({
+      'GET invites/tok': [{ body: { ...INFO, expired: true } }],
+      'POST invites/tok/request': [{ status: 500, body: { error: 'internal' } }],
+    });
+    const view = renderPage();
+    await view.findByRole('heading', { name: 'Invitation expired' });
+    await click('Request a new invitation');
+    await vi.waitFor(() => expect(ui.toast).not.toBeNull());
+    expect(view.queryByRole('alertdialog')).toBeNull();
+    await fireEvent(window, new Event('offline'));
+    expect(await view.findByRole('alertdialog', { name: 'No connection' })).toBeInTheDocument();
   });
 });
