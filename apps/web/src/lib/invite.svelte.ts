@@ -176,6 +176,8 @@ export class InviteFlow {
   private linkTotal = $state(0);
   /** The same for the code lock of step 3. */
   private codeTotal = $state(0);
+  /** The server holds no key for the invitation any more (`totp_required`): the next Continue asks for a new one. */
+  private keyStale = false;
 
   readonly locks = new Countdown<LockKind>((kind) => this.freed(kind));
   readonly hooks: InviteHooks;
@@ -373,7 +375,7 @@ export class InviteFlow {
       this.incomplete();
       return;
     }
-    if (this.secret) {
+    if (this.secret && !this.keyStale) {
       this.step = 3;
       this.hooks.focus?.('otp');
       return;
@@ -573,7 +575,9 @@ export class InviteFlow {
     } else if (error instanceof NetworkError) {
       this.hooks.offline?.();
     } else {
-      // Also `totp_required` (secret missing): "Back" and "Continue" give a new one.
+      // Also `totp_required` (the server holds no key): the error, and the key shown stays until Back; the next
+      // Continue asks for a new one instead of showing it again.
+      if (isApiError(error, 422, 'totp_required')) this.keyStale = true;
       this.hooks.error?.(failText(error));
     }
   }
@@ -642,6 +646,7 @@ export class InviteFlow {
     this.otpErr = null;
     this.otpLoading = false;
     this.maint = null;
+    this.keyStale = false;
   }
 
   /** A lock has expired: the code field is ready again. */

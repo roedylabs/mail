@@ -719,6 +719,29 @@ describe('step multi-factor', () => {
     expect(flow.info?.expired).toBe(true);
   });
 
+  it('asks for a new key on the next Continue when the server holds none any more', async () => {
+    const h = hooks();
+    const NEW = { secret: 'A'.repeat(32), uri: `otpauth://totp/x?secret=${'A'.repeat(32)}` };
+    const { flow, calls } = await atMfa(
+      { [totp]: [{ body: ENROLL }, { body: NEW }], [accept]: [{ status: 422, body: { error: 'totp_required' } }] },
+      h,
+    );
+    flow.editOtp('123456');
+    await vi.waitFor(() => expect(h.error).toHaveBeenCalledWith('That didn’t work. Please try again.'));
+    // The key shown stays on step 3 until Back.
+    expect(flow.showS3).toBe(true);
+    expect(flow.secret).toBe(SECRET);
+    flow.back();
+    await flow.submitName();
+    expect(flow.showS3).toBe(true);
+    expect(flow.secret).toBe(NEW.secret);
+    expect(calls.filter((c) => c.path.endsWith('/totp'))).toHaveLength(2);
+    // The new key counts again: Back and Continue show it without a request.
+    flow.back();
+    await flow.submitName();
+    expect(calls.filter((c) => c.path.endsWith('/totp'))).toHaveLength(2);
+  });
+
   it('shows the error page for a withdrawn invitation and a toast for other answers', async () => {
     const h = hooks();
     const { flow } = await atMfa(
