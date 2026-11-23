@@ -528,9 +528,9 @@ test('accept invitations with MFA', async ({ browser }) => {
     await expect(page.getByRole('img', { name: 'Step 1 of 4' })).toBeVisible();
     await expect(page.getByText(`Invitation from ${admin.name}`)).toBeVisible();
     await expect(page.getByRole('list', { name: 'Invitation details' }).getByRole('listitem')).toHaveText([
-      new RegExp(`^Email address\\s*${escape(email)}$`),
-      /^Role\s*User\b/,
-      /^Invitation valid until\s*\S/,
+      new RegExp(`^\\s*Email address\\s*${escape(email)}\\s*$`),
+      /^\s*Role\s*User\b/,
+      /^\s*Invitation valid until\s*\S/,
     ]);
     await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
     await page.getByRole('button', { name: 'Accept invitation' }).click();
