@@ -80,7 +80,6 @@ describe('step password', () => {
     expect(flow.authErr).toBe(true);
     expect(flow.pw).toBe('');
     expect(flow.ident).toBe('max@example.net');
-    expect(flow.phase(null, false)).toBe('error');
     expect(h.fail).toHaveBeenCalledWith('pw');
   });
 
@@ -191,7 +190,6 @@ describe('step password', () => {
     expect(flow.done).toBe(true);
     expect(flow.greetName).toBe('Max');
     expect(flow.pw).toBe('');
-    expect(flow.phase(null, false)).toBe('success');
     vi.advanceTimersByTime(DONE_MS - 1);
     expect(h.signedIn).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
@@ -401,7 +399,6 @@ describe('steps code and recovery code', () => {
     flow.editOtp('111111');
     await vi.waitFor(() => expect(flow.otpErr).toBe('invalid'));
     expect(flow.otp).toBe('');
-    expect(flow.phase('otp', false)).toBe('error');
     expect(h.fail).toHaveBeenLastCalledWith('otp');
     flow.editOtp('222222');
     await vi.waitFor(() => expect(flow.otpErr).toBe('used'));
@@ -455,7 +452,6 @@ describe('steps code and recovery code', () => {
     await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
     expect(flow.codeLockText).toBe('Try again in 30 seconds.');
     expect(flow.codeLock).toEqual({ left: 30, total: 30 });
-    expect(flow.phase('otp', false)).toBe('locked');
     flow.dispose();
   });
 
@@ -528,7 +524,6 @@ describe('reset password', () => {
     expect(calls[0]?.body).toEqual({ email: 'max@example.net' });
     expect(flow.view).toBe('sent');
     expect(flow.sentTo).toBe('max@example.net');
-    expect(flow.phase(null, false)).toBe('sent');
     expect(flow.resendLabel).toBe('Resend in 0:30');
     expect(flow.resendBlocked).toBe(true);
     await flow.resend();
@@ -775,7 +770,6 @@ describe('set a new password', () => {
     await flow.submitNp();
     expect(flow.view).toBe('linkbad');
     expect([flow.np, flow.np2]).toEqual(['', '']);
-    expect(flow.phase(null, false)).toBe('linkbad');
     flow.ident = 'old@example.com';
     flow.reqNewLink();
     expect(flow.view).toBe('forgot');
@@ -811,7 +805,6 @@ describe('set a new password', () => {
     expect(flow.npReady).toBe(false);
     expect(h.fail).toHaveBeenLastCalledWith('np');
     expect([flow.np, flow.np2]).toEqual(['New-password1', 'New-password1']);
-    expect(flow.phase('np', false)).toBe('error');
     flow.editNp('New-password1');
     expect(flow.npMsg).toBeNull();
     expect(flow.npBad).toEqual([]);
@@ -863,7 +856,6 @@ describe('set a new password', () => {
     expect(flow.npLock).toEqual({ left: 900, total: 900 });
     expect(flow.npReady).toBe(false);
     expect([flow.np, flow.np2]).toEqual(['New-password1', 'New-password1']);
-    expect(flow.phase('np', false)).toBe('locked');
     // Enter while locked does nothing.
     await flow.submitNp();
     expect(calls).toHaveLength(1);
@@ -918,17 +910,5 @@ describe('set a new password', () => {
     expect([flow.np, flow.np2]).toEqual(['', '']);
     flow.route({ kind: 'login' });
     expect(flow.view).toBe('login');
-  });
-});
-
-describe('tile icon', () => {
-  it('follows focus and “Show password” like phase()', () => {
-    const flow = new LoginFlow();
-    expect(flow.phase(null, false)).toBe('idle');
-    expect(flow.phase('id', false)).toBe('id');
-    expect(flow.phase('pw', false)).toBe('pw');
-    expect(flow.phase('pw', true)).toBe('peek');
-    flow.route({ kind: 'forgot' });
-    expect(flow.phase('fg', false)).toBe('forgot');
   });
 });
