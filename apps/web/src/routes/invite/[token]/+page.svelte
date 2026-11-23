@@ -46,11 +46,12 @@
   }
 
   /** Fields of the screens on the shared shell: on mobile entering one focuses the heading (no on-screen keyboard). */
-  const SHELL_FIELDS: readonly InviteField[] = ['name', 'pw', 'pw2'];
+  const SHELL_FIELDS: readonly InviteField[] = ['name', 'pw', 'pw2', 'otp'];
 
   /**
    * Moves the focus to `field` once the screen is there. `entering` a shell screen: desktop the field without
-   * scrolling, mobile the heading instead. A rejected or missing field gets the focus on mobile too.
+   * scrolling, mobile the heading instead. A rejected or missing field of step 2 gets the focus on mobile too; the
+   * code field on mobile only on entering (the heading): after an answer the on-screen keyboard stays as it is.
    */
   function focus(field: InviteField, entering: boolean) {
     void tick().then(() => {
@@ -58,6 +59,7 @@
       if (net.open) return;
       const shell = SHELL_FIELDS.includes(field);
       const mobile = isMobileWidth(ui.width);
+      if (mobile && field === 'otp' && !entering) return;
       const el = targets.get(shell && mobile && entering ? 'heading' : field);
       el?.focus(shell && !mobile ? { preventScroll: true } : undefined);
     });
@@ -72,6 +74,8 @@
     },
     focus: (field) => focus(field, true),
     missing: (field) => focus(field, false),
+    refocus: (field) => focus(field, false),
+    unlocked: () => focus('otp', false),
     // A previous session of this browser has ended.
     accepted: (left) => {
       if (session.authed) forgetAccount();

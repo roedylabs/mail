@@ -516,10 +516,25 @@ test('accept invitations with MFA', async ({ browser }) => {
     await next(page).click();
 
     // 3 MFA with the displayed key; six digits submit on their own
+    await step(page, MFA, 'Verification code');
+    await expect(page).toHaveTitle('Authenticator app · Invitation');
+    await expect(page.getByRole('img', { name: 'Step 3 of 4' })).toBeVisible();
+    await expect(page.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible();
+    const secret = await keyOf(page);
+    expect(secret).toMatch(/^[A-Z2-7]{32}$/);
+    // Too short: Confirm says so (it is never greyed out for an incomplete code).
+    const code = page.getByLabel('Verification code');
+    await code.fill('12');
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(page.locator('#in-otp-err')).toHaveText('Please enter all 6 digits.');
+    // Back keeps the key: Continue shows the same one again, the typed code is gone.
+    await page.getByRole('button', { name: 'Back', exact: true }).click();
+    await expect(page.getByLabel('Confirm password', { exact: true })).toHaveValue(pw);
+    await next(page).click();
     await expect(page.getByRole('heading', { name: MFA })).toBeVisible();
-    expect(await axeViolations(page), 'axe: multi-factor').toEqual([]);
-    const secret = (await page.locator('.key-value').innerText()).trim();
-    await page.getByLabel('Verification code').fill(totp(secret));
+    expect(await keyOf(page)).toBe(secret);
+    await expect(code).toHaveValue('');
+    await code.fill(totp(secret));
 
     // 4 Recovery codes (heading with a soft hyphen)
     await expect(page.getByRole('heading', { name: 'Recovery codes' })).toBeVisible();

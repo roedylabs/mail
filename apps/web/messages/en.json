@@ -762,7 +762,6 @@
   "login_code_lock_after": "After that, enter your password again.",
   "login_confirm": "Confirm",
   "login_checking": "Checking …",
-  "login_confirm_locked": "Confirm in {time}",
   "login_no_app": "Can’t access the app?",
   "login_use_backup": "Use a recovery code",
   "login_bc_title": "Recovery code",
