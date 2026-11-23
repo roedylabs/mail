@@ -136,7 +136,8 @@ impl Format {
     /// Point in time: "Today, 15:57", on another day "23 October 2026,
     /// 14:28" (day in the recipient's time zone, compared with `now`).
     pub fn when(&self, at: Timestamp, now: Timestamp) -> String {
-        let today = at.to_zoned_datetime(self.tz.clone()).date() == now.to_zoned_datetime(self.tz.clone()).date();
+        let today = at.to_zoned_datetime(self.tz.clone()).date()
+            == now.to_zoned_datetime(self.tz.clone()).date();
         let day = if today {
             t(self.lang, "format.today").to_owned()
         } else {
