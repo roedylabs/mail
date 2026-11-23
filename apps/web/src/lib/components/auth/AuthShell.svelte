@@ -79,6 +79,11 @@
     /** "Back" sliding in left of the primary button (⅓ : ⅔ of the slot), for a screen's inline editor. */
     slideBack?: SlideBack | undefined;
     /**
+     * Mobile bottom bar: `row` (the setup) holds the buttons in one row, 16 px above the window's edge; `stack` (sign-in,
+     * invitation) is a column 8 px apart with the buttons in a row inside it, 10 px above the edge.
+     */
+    bottomBar?: 'row' | 'stack' | undefined;
+    /**
      * Desktop: the card keeps this height (px) while a screen's inline editor is open; only the fields column
      * scrolls. A change eases on the switch's curve.
      */
@@ -119,6 +124,7 @@
     skeleton,
     below,
     slideBack,
+    bottomBar = 'row',
     cardH = null,
     frozen = false,
     cardEl = $bindable(),
@@ -342,26 +348,38 @@
   {/if}
 {/snippet}
 
+{#snippet bottomButtons(p: Primary)}
+  {#if back}{@render backBtn(back, 'press', true)}{/if}
+  {#if slideBack}{@render slideBackBtn(slideBack, 'press')}{/if}
+  <button
+    type="button"
+    class="primary press"
+    class:off
+    class:dim
+    class:alt={slideBack?.open}
+    style:background={p.bg}
+    style:color={p.ink}
+    aria-disabled={off || busy || dim ? 'true' : 'false'}
+    aria-busy={busy ? 'true' : 'false'}
+    onclick={() => form?.requestSubmit()}
+  >
+    {@render primaryInner()}
+  </button>
+{/snippet}
+
 {#snippet bottom()}
   {#if primary && !skeleton}
-    <div class="bottom" class:slide={!!slideBack} {@attach !!slideBack && measureSlot}>
-      {#if back}{@render backBtn(back, 'press', true)}{/if}
-      {#if slideBack}{@render slideBackBtn(slideBack, 'press')}{/if}
-      <button
-        type="button"
-        class="primary press"
-        class:off
-        class:dim
-        class:alt={slideBack?.open}
-        style:background={primary.bg}
-        style:color={primary.ink}
-        aria-disabled={off || busy || dim ? 'true' : 'false'}
-        aria-busy={busy ? 'true' : 'false'}
-        onclick={() => form?.requestSubmit()}
-      >
-        {@render primaryInner()}
-      </button>
-    </div>
+    {#if bottomBar === 'stack'}
+      <div class="bottom stack">
+        <div class="row" class:slide={!!slideBack} {@attach !!slideBack && measureSlot}>
+          {@render bottomButtons(primary)}
+        </div>
+      </div>
+    {:else}
+      <div class="bottom" class:slide={!!slideBack} {@attach !!slideBack && measureSlot}>
+        {@render bottomButtons(primary)}
+      </div>
+    {/if}
   {/if}
 {/snippet}
 
@@ -615,6 +633,26 @@
     align-items: center;
     gap: 10px;
     padding: 12px 10px 16px;
+  }
+
+  /* Sign-in and invitation: a column with the buttons in a row inside it */
+  .bottom.stack {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding-bottom: 10px;
+  }
+
+  .bottom .row {
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .bottom .row.slide {
+    gap: 0;
+    container-type: inline-size;
   }
 
   .back,

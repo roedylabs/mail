@@ -136,4 +136,23 @@ describe('AuthShell', () => {
     expect(phone.container.querySelector('.right .below')).toHaveTextContent('Already registered?');
     expect(phone.container.querySelector('.bottom .below')).toBeNull();
   });
+
+  it('keeps the setup’s bottom bar as one row and stacks it for sign-in and invitation', () => {
+    const back = { label: 'Back', onback: () => {} };
+    // jsdom has no layout: the mobile layout, with the bottom bar.
+    const row = shell({ back });
+    const bar = row.container.querySelector('.bottom')!;
+    expect(bar).not.toHaveClass('stack');
+    expect([...bar.children].map((el) => el.tagName)).toEqual(['BUTTON', 'BUTTON']);
+    row.unmount();
+
+    const stacked = shell({ back, bottomBar: 'stack' });
+    const stack = stacked.container.querySelector('.bottom.stack')!;
+    const inner = stack.querySelector(':scope > .row')!;
+    expect(
+      within(inner as HTMLElement)
+        .getAllByRole('button')
+        .map((b) => b.textContent?.trim()),
+    ).toEqual(['Back', 'Continue']);
+  });
 });
