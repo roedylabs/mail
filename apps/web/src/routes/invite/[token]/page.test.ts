@@ -45,6 +45,8 @@ const INFO: InviteInfo = {
 const SECRET = 'JBSWY3DPEHPK3PXPJBSWY3DPEHPK3PXP';
 /** Heading of the authenticator step (with its soft hyphen). */
 const MFA_TITLE = 'Multi-factor authen\u00adtication';
+/** Heading of the recovery codes step. */
+const CODES_TITLE = 'Recovery codes';
 const USER = { id: '01K', username: 'jonas.schulz', email: INFO.email, display_name: 'Jonas Schulz', role: 'user' };
 const CODES = Array.from({ length: 10 }, (_, i) => `ABCD-EF${String(i + 2)}A`);
 const ME = {
@@ -98,6 +100,38 @@ async function toStep3() {
   await click('Continue');
   await view.findByRole('heading', { name: MFA_TITLE });
   return view;
+}
+
+/** Through steps 1–3 to step 4 (the codes from `accept`); `more` adds answers (settings, account). */
+async function toStep4(more: Record<string, unknown[]> = {}) {
+  const api = mockApi({
+    ...mfaRoutes(),
+    'POST invites/tok/accept': [{ status: 201, body: { user: USER, recovery_codes: CODES } }],
+    ...more,
+  });
+  const view = await toStep3();
+  await type('Verification code', '123456');
+  await view.findByRole('heading', { name: CODES_TITLE });
+  return { view, calls: api.calls };
+}
+
+/** Desktop at 1280 × 860 (jsdom has no layout). */
+function desktop() {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(1280);
+  vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(860);
+}
+
+/** Runs `body` at the reference phone's width (393 px). */
+async function onMobile(body: () => Promise<void>) {
+  const width = window.innerWidth;
+  Object.defineProperty(window, 'innerWidth', { value: 393, configurable: true });
+  window.dispatchEvent(new Event('resize'));
+  try {
+    await body();
+  } finally {
+    Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+  }
 }
 
 describe('Invitation page', () => {
@@ -445,6 +479,182 @@ describe('Invitation page', () => {
     await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t copy.', error: true }));
     expect(view.getByRole('button', { name: 'Copy key' })).toBeInTheDocument();
     expect(view.queryByRole('button', { name: 'Copied' })).toBeNull();
+  });
+
+  it('builds step 4 with the codes card, the checkbox and “Activate account” only', async () => {
+    desktop();
+    const writeText = vi.fn(() => Promise.resolve());
+    vi.stubGlobal('navigator', { ...navigator, clipboard: { writeText } });
+    const { view, calls } = await toStep4();
+    expect(ui.authTitle).toBe('Recovery codes · Invitation');
+    expect(view.getByRole('img', { name: 'Step 4 of 4' })).toBeInTheDocument();
+    const steps = view.getByRole('list', { name: 'Invitation steps' });
+    expect(within(steps).getAllByRole('listitem')[3]).toHaveAttribute('aria-current', 'step');
+    expect(
+      view.getByText(
+        'Use these codes to sign in if you can’t access your authenticator app. Each code can only be used once.',
+      ),
+    ).toBeInTheDocument();
+    // Entering: the heading, reading the codes comes first.
+    const heading = view.getByRole('heading', { name: CODES_TITLE });
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(heading).toHaveAttribute('tabindex', '-1');
+    // The ten codes, numbered 1–10 (the numbers hidden from screen readers).
+    const list = view.getByRole('list', { name: 'Recovery codes' });
+    const items = within(list).getAllByRole('listitem');
+    expect(items.map((li) => li.textContent?.replace(/\s+/g, ' ').trim())).toEqual(
+      CODES.map((code, i) => `${i + 1} ${code}`),
+    );
+    expect(items[0]?.querySelector('[aria-hidden="true"]')).toHaveTextContent('1');
+    // No Back on this step: the account exists.
+    expect(view.queryByRole('button', { name: /Back/ })).toBeNull();
+    // Focus order: Copy → Download → checkbox → Activate account.
+    const copy = view.getByRole('button', { name: 'Copy: Recovery codes' });
+    const download = view.getByRole('button', { name: 'Download' });
+    const box = view.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' });
+    const activate = view.getByRole('button', { name: 'Activate account' });
+    const order = [copy, download, box, activate];
+    for (let i = 1; i < order.length; i++) {
+      expect(order[i - 1]!.compareDocumentPosition(order[i]!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(box).toHaveAttribute('type', 'button');
+    expect(box).toHaveAttribute('aria-checked', 'false');
+    expect(activate).toHaveAttribute('type', 'submit');
+    expect(activate).not.toHaveAttribute('aria-disabled', 'true');
+    expect(activate.closest('form')).not.toBeNull();
+    // Copy: one code per line, "Copied" for 2 s.
+    await fireEvent.click(copy);
+    expect(writeText).toHaveBeenCalledWith(CODES.join('\n'));
+    expect(await view.findByRole('button', { name: 'Copied' })).toHaveTextContent('Copied');
+    // The step sends nothing.
+    expect(calls.at(-1)?.path).toBe('invites/tok/accept');
+  });
+
+  it('downloads the codes with the invited address', async () => {
+    let blob: Blob | undefined;
+    Object.defineProperty(URL, 'createObjectURL', {
+      value: vi.fn((b: Blob) => ((blob = b), 'blob:codes')),
+      configurable: true,
+    });
+    Object.defineProperty(URL, 'revokeObjectURL', { value: vi.fn(), configurable: true });
+    const clicked = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+    await toStep4();
+    await click('Download');
+    expect(clicked).toHaveBeenCalledOnce();
+    expect((clicked.mock.contexts[0] as HTMLAnchorElement).download).toBe('recovery-codes.txt');
+    expect(await blob?.text()).toBe(`Roedy Mail – Recovery codes\n${INFO.email}\n\n${CODES.join('\n')}\n`);
+  });
+
+  it('shows the error toast when copying the codes fails, without “Copied”', async () => {
+    vi.stubGlobal('navigator', {
+      ...navigator,
+      clipboard: { writeText: vi.fn(() => Promise.reject(new Error('no'))) },
+    });
+    const { view } = await toStep4();
+    await click('Copy: Recovery codes');
+    await vi.waitFor(() => expect(ui.toast).toMatchObject({ text: 'Couldn’t copy.', error: true }));
+    expect(view.queryByRole('button', { name: 'Copied' })).toBeNull();
+  });
+
+  it('asks to confirm the saved codes under the checkbox and moves the focus there', async () => {
+    desktop();
+    const { view } = await toStep4();
+    const box = view.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' });
+    // Enter on the step (here the heading) does what “Activate account” does.
+    await fireEvent.keyDown(view.getByRole('heading', { name: CODES_TITLE }), { key: 'Enter' });
+    // (The height fit measures the other language first: wait until it settled.)
+    await vi.waitFor(() => expect(view.getByRole('alert')).toHaveTextContent('Confirm that you’ve saved the codes.'));
+    expect(view.getByRole('alert')).toHaveAttribute('id', 'in-saved-err');
+    expect(box).toHaveAttribute('aria-invalid', 'true');
+    expect(box).toHaveAttribute('aria-describedby', 'in-saved-err');
+    await vi.waitFor(() => expect(document.activeElement).toBe(box));
+    // Enter on the checkbox stays the checkbox's own.
+    await fireEvent.keyDown(box, { key: 'Enter' });
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(CODES_TITLE);
+    // Ticking clears the error.
+    await fireEvent.click(box);
+    expect(box).toHaveAttribute('aria-checked', 'true');
+    expect(box).toHaveAttribute('aria-invalid', 'false');
+    expect(box).not.toHaveAttribute('aria-describedby');
+    expect(view.queryByRole('alert')).toBeNull();
+  });
+
+  it('welcomes with the first name and what was set up, then opens the start page', async () => {
+    desktop();
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { view, calls } = await toStep4({
+      'GET settings': [{ body: { version: 1, settings: { ...RESET0, tzAuto: false } } }],
+      'GET auth/me': [{ body: ME }],
+    });
+    await fireEvent.click(view.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' }));
+    await click('Activate account');
+    const heading = view.getByRole('heading', { level: 1 });
+    expect(heading).toHaveTextContent('Welcome, Jonas');
+    expect(ui.authTitle).toBe('Welcome to Roedy Mail');
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    const status = view.getByRole('status');
+    expect(status).toContainElement(heading);
+    expect(within(status).getByText('Your account is set up.')).toBeInTheDocument();
+    expect(within(status).getByText('Redirecting you to Roedy Mail …')).toBeInTheDocument();
+    const chips = view.getByRole('list', { name: 'Done' });
+    expect(
+      within(chips)
+        .getAllByRole('listitem')
+        .map((li) => li.textContent?.trim()),
+    ).toEqual(['Account created', 'Authenticator app linked', 'Recovery codes saved']);
+    // No step bars, no actions.
+    expect(view.queryByRole('img', { name: /Step \d of 4/ })).toBeNull();
+    expect(view.queryByRole('button', { name: 'Activate account' })).toBeNull();
+    expect(nav.goto).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(2700);
+    await vi.waitFor(() => expect(nav.goto).toHaveBeenCalledWith('/start'));
+    expect(calls.map((c) => `${c.method} ${c.path}`).slice(-2)).toEqual(['GET settings', 'GET auth/me']);
+  });
+
+  it('goes back to the codes with the ticked box when the session did not arrive', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const { view } = await toStep4({
+      'GET settings': [{ status: 401, body: { error: 'unauthorized' } }],
+      'GET auth/me': [{ status: 401, body: { error: 'unauthorized' } }],
+    });
+    await fireEvent.click(view.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' }));
+    await click('Activate account');
+    await vi.advanceTimersByTimeAsync(2700);
+    await vi.waitFor(() => expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(CODES_TITLE));
+    expect(ui.toast).toMatchObject({
+      text: 'Couldn’t sign in. Allow cookies for this site and try again.',
+      error: true,
+    });
+    expect(view.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' })).toHaveAttribute(
+      'aria-checked',
+      'true',
+    );
+    expect(within(view.getByRole('list', { name: 'Recovery codes' })).getAllByRole('listitem')).toHaveLength(10);
+    expect(nav.goto).not.toHaveBeenCalled();
+    // "Activate account" again tries again.
+    await click('Activate account');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Welcome, Jonas');
+  });
+
+  it('focuses the heading of step 4 and of “Welcome” on mobile, “Activate account” in the bottom bar', async () => {
+    await onMobile(async () => {
+      const { view } = await toStep4();
+      const heading = view.getByRole('heading', { name: CODES_TITLE });
+      await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+      expect(view.queryByRole('button', { name: /Back/ })).toBeNull();
+      await click('Activate account');
+      expect(view.getByRole('alert')).toHaveTextContent('Confirm that you’ve saved the codes.');
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(
+          view.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' }),
+        ),
+      );
+      await fireEvent.click(view.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' }));
+      await click('Activate account');
+      const welcome = view.getByRole('heading', { level: 1 });
+      expect(welcome).toHaveTextContent('Welcome, Jonas');
+      await vi.waitFor(() => expect(document.activeElement).toBe(welcome));
+    });
   });
 
   it('greys out “Continue” after 429 and shows the lock under the confirmation', async () => {

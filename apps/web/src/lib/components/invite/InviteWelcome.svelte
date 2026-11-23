@@ -1,11 +1,14 @@
 <!--
-  "Welcome, ‹first name›" after "Activate account", with the bar until the
-  start page opens. Its previous content inside the shell's frame
-  (`LegacyFrame`), without step bars.
+  "Welcome, ‹first name›" after "Activate account", as the setup's done
+  screen: one centred column at every width without step bars, the light/
+  dark button in the brand row. A tilted check tile on two soft rings, the
+  welcome, "Your account is set up.", what was set up as chips (hidden at
+  the denser levels), then a bar that fills once and "Redirecting you to
+  ‹app› …". Afterwards the page loads the signed-in account and opens the
+  start page (`DONE_MS`). The heading gets the focus on entering.
 -->
 <script lang="ts">
-  import Icon from '#lib/components/Icon.svelte';
-  import LegacyFrame from '#lib/components/invite/LegacyFrame.svelte';
+  import AuthResult from '#lib/components/auth/AuthResult.svelte';
   import type { InviteTargets } from '#lib/components/invite/targets.ts';
   import type { InviteFlow } from '#lib/invite.svelte.ts';
   import { m } from '#lib/paraglide/messages.js';
@@ -14,11 +17,23 @@
   let { flow, targets, hidden = false }: { flow: InviteFlow; targets: InviteTargets; hidden?: boolean } = $props();
 </script>
 
-<LegacyFrame docTitle={m.invite_title({ app: session.appName })} {targets} {hidden}>
-  <div class="tile-view" role="status">
-    <span class="big-tile"><Icon name="ti-check" /></span>
-    <h1 class="tile-title wrap">{m.invite_welcome({ name: flow.firstName })}</h1>
-    <p class="intro">{m.invite_redirect({ app: session.appName })}</p>
-    <div class="progress"><span></span></div>
-  </div>
-</LegacyFrame>
+{#snippet text()}{m.invite_done_text()}{/snippet}
+
+<AuthResult
+  docTitle={m.invite_title({ app: session.appName })}
+  title={m.invite_welcome({ name: flow.firstName })}
+  themeToggle
+  {hidden}
+  reg={targets.reg}
+  icon="ti-check"
+  {text}
+  chips={{
+    label: m.setup_done_label(),
+    items: [
+      { icon: 'ti-user-check', text: m.invite_done_account() },
+      { icon: 'ti-shield-lock', text: m.invite_done_mfa() },
+      { icon: 'ti-lifebuoy', text: m.invite_done_codes() },
+    ],
+  }}
+  progress={{ text: m.login_redirect({ app: session.appName }), ms: 2600 }}
+/>

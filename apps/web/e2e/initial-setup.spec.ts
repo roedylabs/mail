@@ -536,12 +536,26 @@ test('accept invitations with MFA', async ({ browser }) => {
     await expect(code).toHaveValue('');
     await code.fill(totp(secret));
 
-    // 4 Recovery codes (heading with a soft hyphen)
-    await expect(page.getByRole('heading', { name: 'Recovery codes' })).toBeVisible();
-    await page.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' }).click();
+    // 4 Recovery codes: the heading has the focus, ten codes, no Back; unticked, "Activate account" asks first
+    const codesHeading = page.getByRole('heading', { name: 'Recovery codes' });
+    await expect(codesHeading).toBeFocused();
+    await expect(page).toHaveTitle('Recovery codes · Invitation');
+    await expect(page.getByRole('img', { name: 'Step 4 of 4' })).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem')).toHaveCount(10);
+    await expect(page.getByRole('button', { name: 'Back', exact: true })).toHaveCount(0);
+    const saved = page.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' });
+    await page.getByRole('button', { name: 'Activate account' }).click();
+    await expect(page.locator('#in-saved-err')).toHaveText('Confirm that you’ve saved the codes.');
+    await expect(saved).toBeFocused();
+    await saved.click();
+    await expect(page.locator('#in-saved-err')).toHaveCount(0);
     await page.getByRole('button', { name: 'Activate account' }).click();
 
+    // Welcome with what was set up, then the start page
     await expect(page.getByRole('heading', { name: `Welcome, ${invitee.first}` })).toBeVisible();
+    await expect(page).toHaveTitle('Welcome to Roedy Mail');
+    await expect(page.getByText('Your account is set up.')).toBeVisible();
+    await expect(page.getByText('Redirecting you to Roedy Mail …')).toBeVisible();
     await expect(page).toHaveURL(/\/no-account$/);
     invitee.state = await context.storageState();
     await context.close();
