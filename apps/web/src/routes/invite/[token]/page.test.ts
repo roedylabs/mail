@@ -273,6 +273,29 @@ describe('Invitation page', () => {
     expect(input.closest<HTMLElement>('.code-ctl')?.style.opacity).toBe('1');
   });
 
+  it('shows the same key again after “Back” from step 3, without a second request', async () => {
+    const { calls } = mockApi({
+      'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],
+      'POST invites/tok/totp': [{ body: { secret: SECRET, uri: `otpauth://totp/x?secret=${SECRET}` } }],
+    });
+    const view = renderPage();
+    await view.findByRole('heading', { level: 1 });
+    await click('Accept invitation');
+    await type('Choose a password', 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
+    await click('Continue');
+    await view.findByRole('heading', { name: MFA_TITLE });
+    await type('Verification code', '12');
+    await click('Back');
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up your account');
+    expect(view.getByLabelText('Confirm password')).toHaveValue('Safe-enough1');
+    await click('Continue');
+    await view.findByRole('heading', { name: MFA_TITLE });
+    expect(view.getByText('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP')).toBeInTheDocument();
+    expect(view.getByLabelText('Verification code')).toHaveValue('');
+    expect(calls.filter((c) => c.path === 'invites/tok/totp')).toHaveLength(1);
+  });
+
   it('shows maintenance mode as a status rather than an alert', async () => {
     mockApi({
       'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],

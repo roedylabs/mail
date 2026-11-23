@@ -319,14 +319,19 @@ export class InviteFlow {
     this.hooks.focus?.('name');
   }
 
-  /** "Back": from 2 to 1, from 3 to 2 (there the next "Continue" gets a new secret). */
+  /**
+   * "Back": from 2 to 1, from 3 to 2. The secret stays (the app may have it already): the next "Continue" shows the
+   * same one again without a request; only the typed code goes.
+   */
   back(): void {
     if (this.busy) return;
     this.req++;
     if (this.step === 2) {
       this.step = 1;
     } else if (this.step === 3) {
-      this.clearMfa();
+      this.otp = '';
+      this.otpErr = null;
+      this.maint = null;
       this.step = 2;
       this.hooks.focus?.('name');
     }

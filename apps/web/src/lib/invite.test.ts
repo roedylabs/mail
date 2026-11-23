@@ -302,17 +302,22 @@ describe('step name and password', () => {
     expect(h.focus).toHaveBeenLastCalledWith('otp');
   });
 
-  it('fetches a new secret on the next Continue after “Back”', async () => {
-    const other = { secret: 'KRSXG5CTMVRXEZLU', uri: 'otpauth://totp/x?secret=KRSXG5CTMVRXEZLU' };
-    const { flow, calls } = await atMfa({ [totp]: [{ body: ENROLL }, { body: other }] });
+  it('keeps the secret over “Back” from step 3: Continue shows it again without a request', async () => {
+    const { flow, h, calls } = await atMfa();
     flow.editOtp('12');
     flow.back();
     expect(flow.showS2).toBe(true);
+    expect(h.focus).toHaveBeenLastCalledWith('name');
+    // Only the typed code goes; name and both passwords stay.
     expect(flow.otp).toBe('');
-    expect(flow.secret).toBe('');
+    expect(flow.secret).toBe(SECRET);
+    expect(flow.name).toBe('Jordan Hale');
+    expect(flow.pw2).toBe('Safe-enough1');
     await flow.submitName();
-    expect(calls.filter((c) => c.path.endsWith('/totp'))).toHaveLength(2);
-    expect(flow.secretLabel).toBe('KRSX G5CT MVRX EZLU');
+    expect(flow.showS3).toBe(true);
+    expect(flow.secretLabel).toBe('JBSW Y3DP EHPK 3PXP JBSW Y3DP EHPK 3PXP');
+    expect(h.focus).toHaveBeenLastCalledWith('otp');
+    expect(calls.filter((c) => c.path.endsWith('/totp'))).toHaveLength(1);
   });
 
   it('locks Continue after 429 with a bar that runs empty, the fields stay editable', async () => {
