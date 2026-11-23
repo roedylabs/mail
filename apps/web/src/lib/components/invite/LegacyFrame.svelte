@@ -1,30 +1,27 @@
 <!--
   Frame of the invitation screens that keep their previous content until
-  they move to the new design (step 4, Welcome, Invitation expired and
-  Request sent): the shell's frame (brand row with the step bars and the
-  light/dark button, the mobile top bar, the height fit) around the
-  screen's previous markup, in a card of up to 480 px with the previous
-  sizes per height level. Goes once every screen has its new design.
+  they move to the new design (Invitation expired and Request sent): the
+  shell's frame (brand row with the light/dark button, the mobile top bar,
+  the height fit) around the screen's previous markup, in a card of up to
+  480 px with the previous sizes per height level. Goes once every screen
+  has its new design.
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
   import AuthFrame from '#lib/components/auth/AuthFrame.svelte';
-  import type { Bars } from '#lib/components/auth/types.ts';
-  import type { LegacyValues } from '#lib/components/invite/frame.ts';
   import type { InviteTargets } from '#lib/components/invite/targets.ts';
   import { DESK_LEVELS, MOB_LEVELS, isMobileWidth, sharedLevel, stepLook, type Look } from '#lib/auth-layout.ts';
 
   interface Props {
     docTitle: string;
-    bars?: Bars | undefined;
     targets: InviteTargets;
     hidden?: boolean | undefined;
     /** What else changes the content's height (messages): refits from the start. */
     contentKey?: string | undefined;
-    children: Snippet<[values: LegacyValues]>;
+    children: Snippet;
   }
 
-  let { docTitle, bars, targets, hidden = false, contentKey = '', children }: Props = $props();
+  let { docTitle, targets, hidden = false, contentKey = '', children }: Props = $props();
 
   const levels = (mobile: boolean): number => (mobile ? MOB_LEVELS : DESK_LEVELS).length;
   /** The previous four levels over the shell's seven desktop (four mobile) ones. */
@@ -36,14 +33,6 @@
     const look = stepLook(w, false, level, DESK_LEVELS, MOB_LEVELS);
     return look.mobile ? look : { ...look, cardMaxW: '480px' };
   }
-
-  function values(look: Look, f: number): LegacyValues {
-    const narrow = look.mobile;
-    return {
-      row: ['36px', '34px', '30px', '27px'][f]!,
-      codeCols: f >= 3 && !narrow ? 'repeat(3,minmax(0,1fr))' : 'repeat(2,minmax(0,1fr))',
-    };
-  }
 </script>
 
 {#snippet content(look: Look, level: number)}
@@ -51,22 +40,17 @@
   <div
     class="legacy"
     style:--f-ctl={['56px', '52px', '48px', '44px'][f]}
-    style:--f-intro={f >= 3 ? 'none' : 'block'}
     style:--f-gap-l={['28px', '20px', '16px', '12px'][f]}
     style:--f-gap-m={['24px', '18px', '14px', '10px'][f]}
-    style:--f-gap-f={['20px', '16px', '12px', '10px'][f]}
     style:--f-h1={['36px', '31px', '27px', '24px'][f]}
     style:--f-h1b={['32px', '28px', '25px', '23px'][f]}
-    style:--f-pm={['10px 0 0', '8px 0 0', '6px 0 0', '4px 0 0'][f]}
-    style:--f-pfs={['15.5px', '15px', '14.5px', '14px'][f]}
   >
-    {@render children(values(look, f))}
+    {@render children()}
   </div>
 {/snippet}
 
 <AuthFrame
   {docTitle}
-  {bars}
   themeToggle
   {hidden}
   reg={targets.reg}
@@ -93,12 +77,6 @@
     color: var(--fg);
   }
 
-  .legacy :global(.step) {
-    display: flex;
-    flex-direction: column;
-    animation: inv-legacy-pop 380ms cubic-bezier(0.2, 1.2, 0.3, 1);
-  }
-
   .legacy :global(h1) {
     margin: 0;
     font-family: var(--font-serif);
@@ -109,62 +87,11 @@
     text-wrap: balance;
   }
 
-  .legacy :global(.intro) {
-    display: var(--f-intro);
-    margin: var(--f-pm);
-    font-size: var(--f-pfs);
-    line-height: 1.45;
-    color: var(--mfg);
-    text-wrap: pretty;
-  }
-
   .legacy :global(.gap-m) {
     margin-top: var(--f-gap-m);
   }
 
-  .legacy :global(.cb svg) {
-    opacity: 0;
-    transform: scale(0.4);
-    transition:
-      opacity 180ms,
-      transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1);
-  }
-
-  .legacy :global(.saved.on .cb) {
-    background: var(--acc);
-    /* fixed value */
-    box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08);
-  }
-
-  .legacy :global(.saved.on .cb svg) {
-    opacity: 1;
-    transform: scale(1);
-  }
-
-  .legacy :global(.saved.bad:not(.on) .cb) {
-    box-shadow: inset 0 0 0 1.5px var(--err);
-  }
-
-  .legacy :global(.copy) {
-    height: 40px;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 14px 0 10px;
-    border-radius: 9999px;
-    font-size: 14px;
-    font-weight: 800;
-    color: var(--deep);
-    transition: background-color 220ms;
-  }
-
-  .legacy :global(.copy svg) {
-    font-size: 18px;
-  }
-
-  .legacy :global(.copy:hover),
-  .legacy :global(.link:hover),
-  .legacy :global(.saved:hover) {
+  .legacy :global(.link:hover) {
     background: var(--hov);
   }
 
@@ -203,103 +130,6 @@
     font-weight: 800;
   }
 
-  .legacy :global(.field-err) {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 4px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--errfg);
-  }
-
-  .legacy :global(.fe-icon) {
-    display: grid;
-    flex-shrink: 0;
-    font-size: 15px;
-  }
-
-  /* Recovery codes */
-
-  .legacy :global(.codes-box) {
-    padding: 6px;
-    border-radius: 24px;
-    background: var(--surface2);
-  }
-
-  .legacy :global(.codes) {
-    margin: 0;
-    padding: 12px 10px;
-    list-style: none;
-    display: grid;
-    gap: 4px 12px;
-    border-radius: 18px;
-    background: var(--surface);
-    box-shadow: var(--sh1);
-  }
-
-  .legacy :global(.codes li) {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 0 8px;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-    font-size: 15px;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    white-space: nowrap;
-  }
-
-  .legacy :global(.code-n) {
-    width: 16px;
-    flex-shrink: 0;
-    text-align: right;
-    font-size: 12px;
-    font-weight: 600;
-    color: var(--mfg);
-  }
-
-  .legacy :global(.codes-actions) {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 6px 2px 0;
-  }
-
-  .legacy :global(.saved) {
-    align-self: flex-start;
-    margin: 16px 0 0 -6px;
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    padding: 6px 12px 6px 6px;
-    border-radius: 12px;
-    font-size: 14.5px;
-    font-weight: 600;
-    text-align: left;
-    transition: background-color 220ms;
-  }
-
-  .legacy :global(.cb) {
-    width: 24px;
-    height: 24px;
-    flex-shrink: 0;
-    border-radius: 8px;
-    display: grid;
-    place-items: center;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1.5px var(--bdhi);
-    color: var(--accink);
-    font-size: 16px;
-    transition:
-      background-color 220ms,
-      box-shadow 220ms;
-  }
-
-  .legacy :global(.saved-err) {
-    margin-top: 4px;
-  }
-
   .legacy :global(.primary) {
     margin-top: var(--f-gap-l);
     height: var(--f-ctl);
@@ -321,10 +151,6 @@
       box-shadow 220ms,
       background-color 300ms,
       opacity 220ms;
-  }
-
-  .legacy :global(.primary.gap-m) {
-    margin-top: var(--f-gap-m);
   }
 
   .legacy :global(.primary.wide),
@@ -378,7 +204,7 @@
     transition: background-color 220ms;
   }
 
-  /* Tile views: expired, request sent, welcome */
+  /* Tile views: expired, request sent */
 
   .legacy :global(.tile-view) {
     display: flex;
@@ -423,10 +249,6 @@
     letter-spacing: normal;
   }
 
-  .legacy :global(.tile-title.wrap) {
-    overflow-wrap: anywhere;
-  }
-
   .legacy :global(.tile-text) {
     margin: 10px 0 0;
     max-width: 100%;
@@ -440,24 +262,6 @@
     font-weight: 800;
     color: var(--fg);
     overflow-wrap: anywhere;
-  }
-
-  .legacy :global(.progress) {
-    margin-top: var(--f-gap-l);
-    width: 100%;
-    max-width: 240px;
-    height: 8px;
-    border-radius: 9999px;
-    background: var(--sunken);
-    overflow: hidden;
-  }
-
-  .legacy :global(.progress span) {
-    display: block;
-    height: 100%;
-    border-radius: inherit;
-    background: var(--acc);
-    animation: inv-legacy-bar 2.6s cubic-bezier(0.4, 0, 0.2, 1) forwards;
   }
 
   .legacy :global(.quiet) {
@@ -494,15 +298,6 @@
   @keyframes -global-inv-legacy-spin {
     to {
       transform: rotate(360deg);
-    }
-  }
-
-  @keyframes -global-inv-legacy-bar {
-    from {
-      width: 0;
-    }
-    to {
-      width: 100%;
     }
   }
 </style>

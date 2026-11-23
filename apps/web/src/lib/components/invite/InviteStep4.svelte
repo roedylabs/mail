@@ -1,90 +1,80 @@
 <!--
-  Step 4 of the invitation: the ten recovery codes from `accept` with Copy
-  and Download, "I've saved the codes in a safe place" and "Activate
-  account". Its previous content inside the shell's frame (`LegacyFrame`).
+  Step 4 of the invitation: the ten recovery codes from `accept`, as on the
+  setup's step 6. The codes card (numbered in two columns, three at the
+  densest desktop level when there is room) with "Copy" (one code per line)
+  and "Download" (`recovery-codes.txt` with the invited address), then "I’ve
+  saved the codes in a safe place" and "Activate account". No Back and no
+  swipe back: the account exists since "Confirm". "Activate account" is
+  never greyed out and sends nothing: unticked, the error under the box with
+  the shake and the focus there; ticked, "Welcome". Entering the step
+  focuses the heading (reading the codes comes first).
 -->
 <script lang="ts">
-  import { onDestroy } from 'svelte';
-  import Icon from '#lib/components/Icon.svelte';
-  import { inviteFrame, type LegacyValues } from '#lib/components/invite/frame.ts';
-  import LegacyFrame from '#lib/components/invite/LegacyFrame.svelte';
+  import { tick } from 'svelte';
+  import AuthShell from '#lib/components/auth/AuthShell.svelte';
+  import CodesSaved from '#lib/components/auth/CodesSaved.svelte';
+  import RecoveryCodes from '#lib/components/auth/RecoveryCodes.svelte';
+  import { CODES_DESK, CODES_MOB, type CodesLevel } from '#lib/components/auth/recovery-levels.ts';
+  import { INVITE_FIT, inviteFrame } from '#lib/components/invite/frame.ts';
   import type { InviteTargets } from '#lib/components/invite/targets.ts';
-  import { Copied } from '#lib/clipboard.svelte.ts';
-  import { downloadCodes } from '#lib/download.ts';
   import type { InviteFlow } from '#lib/invite.svelte.ts';
+  import { DESK_LEVELS, MOB_LEVELS, type DeskLevel, type Look, type MobLevel } from '#lib/auth-layout.ts';
   import { m } from '#lib/paraglide/messages.js';
-  import { session } from '#lib/state/session.svelte.ts';
 
   let { flow, targets, hidden = false }: { flow: InviteFlow; targets: InviteTargets; hidden?: boolean } = $props();
 
-  // "Copied" for two seconds, only if it worked.
-  const copied = new Copied<'codes'>();
-  onDestroy(() => copied.stop());
+  /** In one column the codes card starts one section gap (`gap`) below the intro. */
+  const desk: (DeskLevel & CodesLevel)[] = DESK_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...CODES_DESK[i]! }));
+  const mob: (MobLevel & CodesLevel)[] = MOB_LEVELS.map((l, i) => ({ ...l, fieldsTop: l.gap, ...CODES_MOB[i]! }));
 
-  /** "Download": text file with app name, address and the codes (`downloadCodes`). */
-  function download() {
-    // Without download, "Copy" remains.
-    downloadCodes(session.appName, flow.inviteEmail, flow.codes);
-  }
-
-  function submit(event: SubmitEvent) {
-    event.preventDefault();
-    flow.finish();
-  }
-
-  const contentKey = $derived([flow.savedShown, copied.key === null].join('|'));
+  // Entering (after "Confirm", or back from "Welcome" without a session): the heading, without scrolling. Once, as soon
+  // as the step is visible: if "No connection" covered it on arrival, when the message closes.
+  let entered = false;
+  $effect(() => {
+    if (hidden || entered) return;
+    entered = true;
+    void tick().then(() => {
+      if (!hidden) targets.get('heading')?.focus({ preventScroll: true });
+    });
+  });
 </script>
 
-<LegacyFrame
+<AuthShell
+  {...inviteFrame(flow, 4)}
   docTitle={m.invite_doc_title({ step: m.invite_step_codes() })}
-  bars={inviteFrame(flow, 4).bars}
-  {targets}
+  title={m.invite_codes_title()}
+  intro={m.invite_codes_intro()}
+  themeToggle
+  {desk}
+  {mob}
+  fit={INVITE_FIT}
+  contentKey={flow.savedShown ? 'err' : ''}
   {hidden}
-  {contentKey}
+  primary={{ label: m.invite_activate(), icon: 'ti-arrow-right' }}
+  onsubmit={() => flow.finish()}
+  bottomBar="stack"
+  reg={targets.reg}
 >
-  {#snippet children(F: LegacyValues)}
-    <form class="step" onsubmit={submit} novalidate>
-      <h1>{m.invite_codes_title()}</h1>
-      <p class="intro">{m.invite_codes_intro()}</p>
-      <div class="codes-box gap-m">
-        <ol class="codes" aria-label={m.invite_codes_label()} style:grid-template-columns={F.codeCols}>
-          {#each flow.codes as code, i (i)}
-            <li style:height={F.row}><span class="code-n">{i + 1}</span><span>{code}</span></li>
-          {/each}
-        </ol>
-        <div class="codes-actions">
-          <button type="button" class="copy" onclick={() => void copied.copy(flow.codes.join('\n'), 'codes')}>
-            <Icon name={copied.key === 'codes' ? 'ti-check' : 'ti-copy'} />
-            <span>{copied.key === 'codes' ? m.invite_copied() : m.invite_codes_copy()}</span>
-          </button>
-          <button type="button" class="copy" onclick={download}>
-            <Icon name="ti-download" /><span>{m.invite_codes_download()}</span>
-          </button>
-        </div>
-      </div>
-      <button
-        type="button"
-        role="checkbox"
-        class="saved"
-        class:on={flow.saved}
-        class:bad={flow.savedShown}
-        aria-checked={flow.saved ? 'true' : 'false'}
-        aria-describedby={flow.savedShown ? 'in-saved-err' : undefined}
-        onclick={() => flow.toggleSaved()}
-      >
-        <span class="cb"><Icon name="ti-check" /></span>
-        <span>{m.invite_saved()}</span>
-      </button>
-      {#if flow.savedShown}
-        <div class="saved-err">
-          <div class="field-err" id="in-saved-err">
-            <span class="fe-icon"><Icon name="ti-alert-circle" /></span><span>{m.invite_saved_required()}</span>
-          </div>
-        </div>
-      {/if}
-      <button type="submit" class="primary gap-m">
-        <span>{m.invite_activate()}</span><span class="bi"><Icon name="ti-arrow-right" /></span>
-      </button>
-    </form>
+  {#snippet fields(look: Look, level: number)}
+    {@const table = look.mobile ? mob : desk}
+    {@const lv = table[Math.min(level, table.length - 1)]!}
+    <RecoveryCodes
+      codes={flow.codes}
+      email={flow.inviteEmail}
+      {look}
+      rowH={lv.rowH}
+      fs={lv.fs}
+      pad={lv.cbPad}
+      gap={lv.cbGap}
+      cols3={lv.cols3}
+    />
+
+    <CodesSaved
+      saved={flow.saved}
+      error={flow.savedShown}
+      errId="in-saved-err"
+      reg={targets.reg('saved')}
+      ontoggle={() => flow.toggleSaved()}
+    />
   {/snippet}
-</LegacyFrame>
+</AuthShell>

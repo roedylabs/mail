@@ -811,7 +811,9 @@ describe('step recovery codes', () => {
     const before = calls.length;
     flow.finish();
     expect(flow.savedShown).toBe(true);
-    expect(h.fail).toHaveBeenCalled();
+    // The shake and the focus on the checkbox; "Activate account" is never greyed out and sends nothing.
+    expect(h.fail).toHaveBeenCalledWith('saved');
+    expect(flow.showS4).toBe(true);
     flow.toggleSaved();
     expect(flow.savedShown).toBe(false);
     flow.finish();
@@ -833,6 +835,28 @@ describe('step recovery codes', () => {
     await vi.advanceTimersByTimeAsync(DONE_MS);
     expect(flow.showS4).toBe(true);
     expect(h.error).toHaveBeenCalledWith('Couldn’t sign in. Allow cookies for this site and try again.');
+    // The codes and the ticked box stay; "Activate account" tries again.
+    expect(flow.codes).toEqual(CODES);
+    expect(flow.saved).toBe(true);
+    expect(flow.savedShown).toBe(false);
+    h.signedIn.mockResolvedValue(true);
+    flow.finish();
+    expect(flow.showDone).toBe(true);
+    await vi.advanceTimersByTimeAsync(DONE_MS);
+    expect(h.signedIn).toHaveBeenCalledTimes(2);
+    expect(flow.showDone).toBe(true);
+  });
+
+  it('keeps the codes in memory only', async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    const { flow } = await atCodes();
+    flow.toggleSaved();
+    expect(flow.codes).toEqual(CODES);
+    const stored = [localStorage, sessionStorage]
+      .flatMap((store) => Object.keys(store).map((key) => `${key}=${store.getItem(key) ?? ''}`))
+      .join('\n');
+    for (const code of CODES) expect(stored).not.toContain(code);
   });
 });
 

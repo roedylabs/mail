@@ -50,8 +50,9 @@
 
   /**
    * Moves the focus to `field` once the screen is there. `entering` a shell screen: desktop the field without
-   * scrolling, mobile the heading instead. A rejected or missing field of step 2 gets the focus on mobile too; the
-   * code field on mobile only on entering (the heading): after an answer the on-screen keyboard stays as it is.
+   * scrolling, mobile the heading instead. A rejected or missing field of step 2 gets the focus on mobile too (as the
+   * checkbox of step 4); the code field on mobile only on entering (the heading): after an answer the on-screen
+   * keyboard stays as it is.
    */
   function focus(field: InviteField, entering: boolean) {
     void tick().then(() => {
@@ -61,7 +62,7 @@
       const mobile = isMobileWidth(ui.width);
       if (mobile && field === 'otp' && !entering) return;
       const el = targets.get(shell && mobile && entering ? 'heading' : field);
-      el?.focus(shell && !mobile ? { preventScroll: true } : undefined);
+      el?.focus(mobile ? undefined : { preventScroll: true });
     });
   }
 

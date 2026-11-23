@@ -85,9 +85,3 @@ export function detailRows(mobile: boolean, level: number): DetailRows {
   const table = mobile ? INVITE_MOB : INVITE_DESK;
   return table[Math.min(level, table.length - 1)]!;
 }
-
-/** Previous sizes of the screens that keep their previous content (`LegacyFrame`), at their level (0–3). */
-export interface LegacyValues {
-  row: string;
-  codeCols: string;
-}

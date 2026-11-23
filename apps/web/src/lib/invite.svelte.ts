@@ -49,7 +49,8 @@ export type InviteStep = 1 | 2 | 3 | 4;
 export type InviteView = 'form' | 'done' | 'requested';
 /** Loading the invitation: 404 shows the error page, other errors 500 or offline with "Try again". */
 export type InviteStatus = 'loading' | 'ready' | 'missing' | 'failed';
-export type InviteField = 'name' | 'pw' | 'pw2' | 'otp';
+/** Fields of the steps, and the checkbox "I’ve saved the codes in a safe place" of step 4. */
+export type InviteField = 'name' | 'pw' | 'pw2' | 'otp' | 'saved';
 /** Response of `GET invites/:token`. */
 export interface InviteInfo {
   email: string;
@@ -476,12 +477,15 @@ export class InviteFlow {
     this.savedErr = false;
   }
 
-  /** "Activate account": the account already exists; only "Welcome" and the redirect. */
+  /**
+   * "Activate account" (never greyed out, no request: the account already exists). Unticked: "Confirm that you’ve
+   * saved the codes." with the shake and the focus on the checkbox; ticked: "Welcome" and after `DONE_MS` the redirect.
+   */
   finish(): void {
     if (this.view !== 'form') return;
     if (!this.saved) {
       this.savedErr = true;
-      this.hooks.fail?.();
+      this.hooks.fail?.('saved');
       return;
     }
     this.view = 'done';
@@ -527,7 +531,8 @@ export class InviteFlow {
   private async signIn(): Promise<void> {
     const ok = (await this.hooks.signedIn?.()) ?? true;
     if (ok) return;
-    // The account exists, but the session did not arrive (cookie rejected): back to the codes.
+    // The account exists, but the session did not arrive (cookie rejected): back to the codes with the ticked box;
+    // "Activate account" tries again.
     this.view = 'form';
     this.hooks.error?.(m.error_cookie());
   }
