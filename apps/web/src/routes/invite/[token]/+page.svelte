@@ -449,20 +449,10 @@
                   </div>
                 </div>
 
-                {#if flow.otpBad}
-                  <div class="alert-top">
-                    {@render alert('ti-shield-x', m.invite_code_bad_title(), m.invite_code_bad_text(), 'in-code-alert')}
-                  </div>
-                {/if}
                 {#if flow.maint}
                   <div class="maint" role="status">
                     <span class="maint-icon"><Icon name="ti-tool" /></span>
                     <span class="maint-text">{flow.maint.message ?? m.login_maint_default()}</span>
-                  </div>
-                {/if}
-                {#if flow.codeLocked}
-                  <div class="alert-top">
-                    {@render alert('ti-lock', m.login_code_locked_title(), flow.codeLockText, 'in-code-alert')}
                   </div>
                 {/if}
 
@@ -489,6 +479,22 @@
                     onblur={blur}
                   />
                   {#if flow.otpShort}{@render fieldErr('in-otp-err', m.invite_otp_short())}{/if}
+                  <!-- Wrong code and lock: under the code boxes, like the setup token's messages; the maintenance notice stays above -->
+                  {#if flow.otpBad}
+                    <div class="alert-under">
+                      {@render alert(
+                        'ti-shield-x',
+                        m.invite_code_bad_title(),
+                        m.invite_code_bad_text(),
+                        'in-code-alert',
+                      )}
+                    </div>
+                  {/if}
+                  {#if flow.codeLocked}
+                    <div class="alert-under">
+                      {@render alert('ti-lock', m.login_code_locked_title(), flow.codeLockText, 'in-code-alert')}
+                    </div>
+                  {/if}
                 </div>
 
                 <button
@@ -1161,8 +1167,8 @@
     background: var(--hov);
   }
 
-  .alert-top {
-    margin-top: 20px;
+  .alert-under {
+    margin-top: 4px;
   }
 
   .alert {

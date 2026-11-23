@@ -110,7 +110,12 @@ describe('page sign-in', () => {
     await type('Email or username', 'max');
     await type('Password', 'wrong');
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
-    expect(await view.findByRole('alert')).toHaveTextContent(`${m.login_failed_title()} ${m.login_failed_text()}`);
+    const failed = await view.findByRole('alert');
+    expect(failed).toHaveTextContent(`${m.login_failed_title()} ${m.login_failed_text()}`);
+    // Under the password field, as the setup's field messages.
+    expect(
+      view.getByLabelText('Password').compareDocumentPosition(failed) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(view.getByLabelText('Password')).toHaveValue('');
   });
 
@@ -170,6 +175,12 @@ describe('page sign-in', () => {
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Recovery code');
     await type('Recovery code', 'abcdefgh');
     expect(await view.findByText(/Too many incorrect codes\./)).toBeInTheDocument();
+    // Under the code boxes, as the setup token's messages.
+    const lock = view.container.querySelector('#ln-code-alert');
+    expect(lock).not.toBeNull();
+    expect(
+      view.getByLabelText('Recovery code').compareDocumentPosition(lock!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(view.getByRole('button', { name: /Confirm in 15:00/ })).toBeDisabled();
     expect(view.getByLabelText('Recovery code')).toBeDisabled();
     await fireEvent.click(view.getByRole('button', { name: 'Use a code from the app' }));
