@@ -16,6 +16,7 @@ function hooks() {
   return {
     fail: vi.fn<(field?: Field) => void>(),
     focus: vi.fn<(field: Field) => void>(),
+    missing: vi.fn<(field: Field) => void>(),
     unlocked: vi.fn<(field: Field) => void>(),
     navigate: vi.fn<(to: 'login' | 'forgot') => void>(),
     home: vi.fn(),
@@ -79,7 +80,6 @@ describe('step password', () => {
     expect(flow.authErr).toBe(true);
     expect(flow.pw).toBe('');
     expect(flow.ident).toBe('max@example.net');
-    expect(flow.phase(null, false)).toBe('error');
     expect(h.fail).toHaveBeenCalledWith('pw');
   });
 
@@ -190,7 +190,6 @@ describe('step password', () => {
     expect(flow.done).toBe(true);
     expect(flow.greetName).toBe('Max');
     expect(flow.pw).toBe('');
-    expect(flow.phase(null, false)).toBe('success');
     vi.advanceTimersByTime(DONE_MS - 1);
     expect(h.signedIn).not.toHaveBeenCalled();
     vi.advanceTimersByTime(1);
@@ -400,7 +399,6 @@ describe('steps code and recovery code', () => {
     flow.editOtp('111111');
     await vi.waitFor(() => expect(flow.otpErr).toBe('invalid'));
     expect(flow.otp).toBe('');
-    expect(flow.phase('otp', false)).toBe('error');
     expect(h.fail).toHaveBeenLastCalledWith('otp');
     flow.editOtp('222222');
     await vi.waitFor(() => expect(flow.otpErr).toBe('used'));
@@ -454,7 +452,6 @@ describe('steps code and recovery code', () => {
     await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
     expect(flow.codeLockText).toBe('Try again in 30 seconds.');
     expect(flow.codeLock).toEqual({ left: 30, total: 30 });
-    expect(flow.phase('otp', false)).toBe('locked');
     flow.dispose();
   });
 
@@ -527,7 +524,6 @@ describe('reset password', () => {
     expect(calls[0]?.body).toEqual({ email: 'max@example.net' });
     expect(flow.view).toBe('sent');
     expect(flow.sentTo).toBe('max@example.net');
-    expect(flow.phase(null, false)).toBe('sent');
     expect(flow.resendLabel).toBe('Resend in 0:30');
     expect(flow.resendBlocked).toBe(true);
     await flow.resend();
@@ -659,38 +655,84 @@ describe('set a new password', () => {
     return { flow, h };
   }
 
-  it('opens the step from the link and checks the rules before sending', async () => {
+  /** Both passwords filled in, ready to save. */
+  function ready(h = hooks()) {
+    const { flow } = atNewPw(h);
+    flow.editNp('New-password1');
+    flow.editNp2('New-password1');
+    return { flow, h };
+  }
+
+  it('opens the step from the link, focusing the new password', () => {
+    const { flow, h } = atNewPw();
+    expect(flow.view).toBe('newpw');
+    expect(flow.np).toBe('');
+    expect(flow.np2).toBe('');
+    expect(flow.npReady).toBe(false);
+    expect(h.focus).toHaveBeenCalledWith('np');
+  });
+
+  it('is ready once all four chips are met and the password fits', () => {
+    const { flow } = atNewPw();
+    flow.editNp('short');
+    flow.editNp2('short');
+    expect([flow.npOk, flow.npMatch, flow.npReady]).toEqual([false, true, false]);
+    flow.editNp('New-password1');
+    expect([flow.npOk, flow.npMatch, flow.npReady]).toEqual([true, false, false]);
+    flow.editNp2('New-password1');
+    expect(flow.npReady).toBe(true);
+    // Over 1024 bytes: the message at once, not ready; it goes as soon as the password fits.
+    const long = `Aa1${'ü'.repeat(511)}`;
+    flow.editNp(long);
+    flow.editNp2(long);
+    expect(flow.npMsg).toBe('The password is too long.');
+    expect(flow.npReady).toBe(false);
+    flow.editNp('New-password1');
+    expect(flow.npMsg).toBeNull();
+  });
+
+  it('moves to the field that is missing something, without a request', async () => {
     const { calls } = mockApi({});
     const { flow, h } = atNewPw();
-    expect(flow.showNewPw).toBe(true);
-    expect(flow.npReady).toBe(true);
-    expect(flow.npRules.find((r) => r.id === 'len')?.ok).toBe(false);
-    expect(h.focus).toHaveBeenCalledWith('np');
-    flow.editNp('short');
     await flow.submitNp();
-    expect(flow.npErr).toBe('The new password must be at least 10 characters long.');
-    expect(flow.npRules.map((r) => [r.id, r.ok, r.bad])).toEqual([
-      ['len', false, true],
-      ['case', false, true],
-      ['num', false, true],
-    ]);
-    expect(flow.phase('np', false)).toBe('error');
-    expect(h.fail).toHaveBeenCalledWith('np');
+    expect(h.missing).toHaveBeenLastCalledWith('np');
+    flow.editNp('New-password1');
+    await flow.submitNp();
+    expect(h.missing).toHaveBeenLastCalledWith('np2');
+    expect(flow.np2Msg).toBeNull();
+    expect(h.fail).not.toHaveBeenCalled();
     expect(calls).toHaveLength(0);
   });
 
-  it('reports “Password changed” without sign-in', async () => {
+  it('shows the mismatch under a filled confirmation that differs; editing either clears it', async () => {
+    const { calls } = mockApi({});
+    const { flow, h } = atNewPw();
+    flow.editNp('New-password1');
+    flow.editNp2('New-password2');
+    await flow.submitNp();
+    expect(flow.np2Msg).toBe('The passwords don’t match.');
+    expect(h.fail).toHaveBeenCalledWith('np2');
+    flow.editNp2('New-password');
+    expect(flow.np2Msg).toBeNull();
+    await flow.submitNp();
+    expect(flow.np2Msg).not.toBeNull();
+    flow.editNp('New-password');
+    expect(flow.np2Msg).toBeNull();
+    expect(calls).toHaveLength(0);
+  });
+
+  it('reports “Password changed” without sign-in, the passwords cleared', async () => {
     const { calls } = mockApi({
       [`POST auth/password/reset/${TOKEN}`]: [{ body: { status: 'ok', sessions_ended: 2 } }],
     });
-    const { flow, h } = atNewPw();
-    flow.editNp('New-password1');
-    await flow.submitNp();
+    const { flow, h } = ready();
+    const pending = flow.submitNp();
+    expect(flow.npLoading).toBe(true);
+    await pending;
     expect(calls[0]?.body).toEqual({ password: 'New-password1' });
-    expect(flow.showPwDone).toBe(true);
-    expect(flow.showNewPw).toBe(false);
+    expect(flow.view).toBe('pwdone');
     expect(flow.pwDoneEnded).toBe(true);
-    expect(flow.np).toBe('');
+    expect([flow.np, flow.np2]).toEqual(['', '']);
     expect(h.passwordReset).toHaveBeenCalledOnce();
     flow.pwDoneLogin();
     expect(flow.view).toBe('login');
@@ -702,18 +744,16 @@ describe('set a new password', () => {
 
   it('names signed-out devices only if there were any', async () => {
     mockApi({ [`POST auth/password/reset/${TOKEN}`]: [{ body: { status: 'ok', sessions_ended: 0 } }] });
-    const { flow } = atNewPw();
-    flow.editNp('New-password1');
+    const { flow } = ready();
     await flow.submitNp();
-    expect(flow.showPwDone).toBe(true);
+    expect(flow.view).toBe('pwdone');
     expect(flow.pwDoneEnded).toBe(false);
   });
 
   it('reports a changed password also after “Back” in the browser', async () => {
     let answer: (value: { body: unknown }) => void = () => undefined;
     mockApi({ [`POST auth/password/reset/${TOKEN}`]: [() => new Promise((resolve) => (answer = resolve))] });
-    const { flow, h } = atNewPw();
-    flow.editNp('New-password1');
+    const { flow, h } = ready();
     const pending = flow.submitNp();
     flow.backToLogin();
     expect(flow.view).toBe('newpw');
@@ -724,78 +764,151 @@ describe('set a new password', () => {
     expect(flow.view).toBe('login');
   });
 
-  it('shows “Link expired or invalid” and requests a new one', async () => {
+  it('shows “Link expired or invalid”, the passwords discarded, and requests a new one', async () => {
     mockApi({ [`POST auth/password/reset/${TOKEN}`]: [{ status: 422, body: { error: 'invalid_token' } }] });
-    const { flow, h } = atNewPw();
-    flow.editNp('New-password1');
+    const { flow, h } = ready();
     await flow.submitNp();
-    expect(flow.showLinkBad).toBe(true);
-    expect(flow.np).toBe('');
-    expect(flow.phase(null, false)).toBe('linkbad');
+    expect(flow.view).toBe('linkbad');
+    expect([flow.np, flow.np2]).toEqual(['', '']);
     flow.ident = 'old@example.com';
     flow.reqNewLink();
     expect(flow.view).toBe('forgot');
     expect(flow.ident).toBe('');
     expect(h.navigate).toHaveBeenCalledWith('forgot');
+    expect(h.focus).toHaveBeenLastCalledWith('fg');
   });
 
-  it('takes over the rules of the server and “too long”', async () => {
+  it('goes back to sign-in from “Link expired or invalid” with the identifier kept', async () => {
+    mockApi({ [`POST auth/password/reset/${TOKEN}`]: [{ status: 422, body: { error: 'invalid_token' } }] });
+    const { flow, h } = ready();
+    flow.ident = 'max@example.net';
+    await flow.submitNp();
+    flow.backToLogin();
+    expect(flow.view).toBe('login');
+    expect(flow.ident).toBe('max@example.net');
+    expect(h.navigate).toHaveBeenLastCalledWith('login');
+    expect(h.focus).toHaveBeenLastCalledWith('pw');
+  });
+
+  it('takes over the rules of the server until the password is edited, and “too long”', async () => {
     mockApi({
       [`POST auth/password/reset/${TOKEN}`]: [
-        { status: 422, body: { error: 'invalid', fields: { password: { code: 'policy', rules: ['num'] } } } },
+        { status: 422, body: { error: 'invalid', fields: { password: { code: 'policy', rules: ['case', 'num'] } } } },
         { status: 422, body: { error: 'invalid', fields: { password: { code: 'too_long' } } } },
       ],
     });
-    const { flow } = atNewPw();
+    const { flow, h } = ready();
+    await flow.submitNp();
+    // The first named rule's error; the named chips red; the passwords stay.
+    expect(flow.npMsg).toBe('The new password needs upper- and lowercase letters.');
+    expect(flow.npBad).toEqual(['case', 'num']);
+    expect(flow.npReady).toBe(false);
+    expect(h.fail).toHaveBeenLastCalledWith('np');
+    expect([flow.np, flow.np2]).toEqual(['New-password1', 'New-password1']);
     flow.editNp('New-password1');
+    expect(flow.npMsg).toBeNull();
+    expect(flow.npBad).toEqual([]);
+    expect(flow.npReady).toBe(true);
     await flow.submitNp();
-    expect(flow.npErr).toBe('The new password needs a number or special character.');
-    const num = flow.npRules.find((r) => r.id === 'num');
-    expect(num?.ok).toBe(false);
-    expect(num?.bad).toBe(true);
+    expect(flow.npMsg).toBe('The password is too long.');
     expect(flow.np).toBe('New-password1');
-    expect(flow.showNewPw).toBe(true);
-    await flow.submitNp();
-    expect(flow.npErr).toBe('The password is too long.');
+    expect(flow.view).toBe('newpw');
   });
 
-  it('locks “Save password” after 429, the password stays', async () => {
-    vi.useFakeTimers();
+  it('ignores a policy verdict when the password was edited while saving', async () => {
+    let answer: (value: { status: number; body: unknown }) => void = () => undefined;
+    mockApi({ [`POST auth/password/reset/${TOKEN}`]: [() => new Promise((resolve) => (answer = resolve))] });
+    const { flow, h } = ready();
+    const pending = flow.submitNp();
+    flow.editNp('New-password12');
+    flow.editNp2('New-password12');
+    answer({ status: 422, body: { error: 'invalid', fields: { password: { code: 'policy', rules: ['num'] } } } });
+    await pending;
+    expect(flow.npLoading).toBe(false);
+    expect(flow.npMsg).toBeNull();
+    expect(flow.npBad).toEqual([]);
+    expect(flow.npReady).toBe(true);
+    expect(h.fail).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the length rule for a policy without known rules', async () => {
     mockApi({
+      [`POST auth/password/reset/${TOKEN}`]: [
+        { status: 422, body: { error: 'invalid', fields: { password: { code: 'policy' } } } },
+      ],
+    });
+    const { flow } = ready();
+    await flow.submitNp();
+    expect(flow.npMsg).toBe('The new password must be at least 10 characters long.');
+    expect(flow.npBad).toEqual([]);
+  });
+
+  it('locks “Save password” after 429 with a bar running empty; the passwords stay', async () => {
+    vi.useFakeTimers();
+    const { calls } = mockApi({
       [`POST auth/password/reset/${TOKEN}`]: [{ status: 429, body: { error: 'rate_limited', retry_after: 900 } }],
     });
-    const { flow } = atNewPw();
-    flow.editNp('New-password1');
+    const { flow, h } = ready();
     await flow.submitNp();
+    expect(h.fail).toHaveBeenCalledWith();
     expect(flow.npLocked).toBe(true);
     expect(flow.npLockText).toBe('Try again in 15 minutes.');
-    expect(flow.npLockBtn).toBe('Save password in 15:00');
+    expect(flow.npLock).toEqual({ left: 900, total: 900 });
     expect(flow.npReady).toBe(false);
-    expect(flow.npDis).toBe(true);
-    expect(flow.np).toBe('New-password1');
-    expect(flow.phase('np', false)).toBe('locked');
+    expect([flow.np, flow.np2]).toEqual(['New-password1', 'New-password1']);
+    // Enter while locked does nothing.
+    await flow.submitNp();
+    expect(calls).toHaveLength(1);
+    expect(h.missing).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(300_000);
+    expect(flow.npLock).toEqual({ left: 600, total: 900 });
+    vi.advanceTimersByTime(600_000);
+    expect(flow.npLock).toBeNull();
+    expect(flow.npReady).toBe(true);
     flow.dispose();
   });
 
+  it('shows “No connection” without an answer, the passwords kept', async () => {
+    mockApi({});
+    const { flow, h } = ready();
+    await flow.submitNp();
+    expect(h.offline).toHaveBeenCalledOnce();
+    expect(flow.view).toBe('newpw');
+    expect(flow.npLoading).toBe(false);
+    expect([flow.np, flow.np2]).toEqual(['New-password1', 'New-password1']);
+  });
+
+  it('shows other answers as an error toast', async () => {
+    mockApi({ [`POST auth/password/reset/${TOKEN}`]: [{ status: 500, body: { error: 'internal' } }] });
+    const { flow, h } = ready();
+    await flow.submitNp();
+    expect(h.error).toHaveBeenCalledOnce();
+    expect(h.offline).not.toHaveBeenCalled();
+    expect(flow.view).toBe('newpw');
+  });
+
+  it('never writes the passwords to storage', async () => {
+    localStorage.clear();
+    sessionStorage.clear();
+    mockApi({
+      [`POST auth/password/reset/${TOKEN}`]: [
+        { status: 422, body: { error: 'invalid', fields: { password: { code: 'too_long' } } } },
+      ],
+    });
+    const { flow } = ready();
+    await flow.submitNp();
+    const stored = [localStorage, sessionStorage].flatMap((store) =>
+      Object.keys(store).map((key) => `${key}=${store.getItem(key) ?? ''}`),
+    );
+    expect(stored.join('\n')).not.toContain('New-password1');
+  });
+
   it('opens a new link also from another step', () => {
-    const { flow } = atNewPw();
-    flow.editNp('something');
+    const { flow } = ready();
     flow.route({ kind: 'newpw', token: 'b'.repeat(64) });
     expect(flow.token).toBe('b'.repeat(64));
-    expect(flow.np).toBe('');
+    expect([flow.np, flow.np2]).toEqual(['', '']);
     flow.route({ kind: 'login' });
     expect(flow.view).toBe('login');
-  });
-});
-
-describe('tile icon', () => {
-  it('follows focus and “Show password” like phase()', () => {
-    const flow = new LoginFlow();
-    expect(flow.phase(null, false)).toBe('idle');
-    expect(flow.phase('id', false)).toBe('id');
-    expect(flow.phase('pw', false)).toBe('pw');
-    expect(flow.phase('pw', true)).toBe('peek');
-    flow.route({ kind: 'forgot' });
-    expect(flow.phase('fg', false)).toBe('forgot');
   });
 });

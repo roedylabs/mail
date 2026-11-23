@@ -528,6 +528,13 @@ export async function axeViolations(page: Page): Promise<string[]> {
   }, AXE_TAGS);
 }
 
+/** `below` starts under `above` on the page. */
+export async function under(above: Locator, below: Locator): Promise<void> {
+  const a = need((await above.boundingBox()) ?? undefined, 'box of the upper element');
+  const b = need((await below.boundingBox()) ?? undefined, 'box of the lower element');
+  expect(b.y).toBeGreaterThanOrEqual(a.y + a.height);
+}
+
 /** Waits until `check` returns true (polling every 500 ms), otherwise fails with `what`. */
 export async function eventually(check: () => Promise<boolean>, what: string, timeout = 30_000): Promise<void> {
   const deadline = Date.now() + timeout;
@@ -567,6 +574,43 @@ export function totp(secret: string, now = Date.now()): string {
   const offset = hmac.readUInt8(hmac.length - 1) & 0x0f;
   const code = (hmac.readUInt32BE(offset) & 0x7fffffff) % 1_000_000;
   return code.toString().padStart(6, '0');
+}
+
+/** Time step of a TOTP code in ms. */
+const TOTP_STEP = 30_000;
+
+/**
+ * Authenticator app for `secret` whose codes the server accepts: each code is valid once, its time step must be newer
+ * than the last accepted one (`used`, e.g. the time of the setup's confirmation).
+ */
+export class Authenticator {
+  readonly #secret: string;
+  #last: number;
+
+  constructor(secret: string, used = Date.now()) {
+    this.#secret = secret;
+    this.#last = Math.floor(used / TOTP_STEP);
+  }
+
+  /**
+   * Next code. The server accepts one step before and after the current one, so this takes the step before while
+   * enough of the current one is left for the request, and waits for a code two steps ahead until it is one ahead.
+   */
+  async next(): Promise<string> {
+    const t = Date.now();
+    const now = Math.floor(t / TOTP_STEP);
+    const at = Math.max(t % TOTP_STEP < TOTP_STEP - 5_000 ? now - 1 : now, this.#last + 1);
+    // Valid from step `at - 1` on, with a second's margin for the server's clock.
+    const wait = (at - 1) * TOTP_STEP + 1_000 - Date.now();
+    if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+    this.#last = at;
+    return totp(this.#secret, at * TOTP_STEP);
+  }
+
+  /** A code the server rejects: none of the steps around now (the current code with every digit changed). */
+  wrong(): string {
+    return totp(this.#secret).replace(/\d/g, (d) => String((Number(d) + 5) % 10));
+  }
 }
 
 /** Random password following the policy (≥ 10 characters, upper, lower, non-letter). */

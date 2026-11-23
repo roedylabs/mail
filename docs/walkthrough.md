@@ -60,9 +60,17 @@ Every account can live on a different JMAP server. With more than one account, *
 
 ### 6. Sign in
 
-Everyone else signs in on the sign-in page with their email address or username and password. Its title, text and artwork come from the branding settings. Forgotten passwords can be reset by email once system emails are set up.
+Everyone else signs in on the sign-in page with their email address or username and password. The heading and text above the fields come from the branding settings; the page has no artwork and no footer. A preview of the account fills in while you type, and **Stay signed in** keeps the session on this device after the browser closes. A wrong password shows "Sign-in failed." right under the password field; after too many attempts **Sign in** stays greyed out until the wait in the message has passed.
 
 ![Sign-in page](screenshots/login.png)
+
+Accounts with an authenticator app enter its 6-digit code next; the code confirms itself once it is complete, and a wrong or already used one is named under the code boxes. **Use a recovery code** switches to one of the recovery codes, each of which works once; **Back** returns to the password with the address kept. After a short "Hello" with your first name, Roedy Mail opens your start page.
+
+![Code from the authenticator app](screenshots/login-code.png)
+
+**Forgot password?** opens **Reset password** with the address already filled in and sends a reset link once system emails are set up. **Check your inbox** names the address and offers **Resend** after 30 seconds. The link is valid for 60 minutes and works only once: it opens **Set a new password** with a password check and a confirmation field, and afterwards you are signed out on all devices. An expired or used link offers **Request a new link**.
+
+On a phone the buttons sit in a bar at the bottom of the screen, the keyboard only opens when you tap a field, and swiping right goes back a step.
 
 ## Everyday use
 
@@ -143,6 +151,8 @@ Administrators reach the administration area with the shield icon in the header.
 **Users** lists everyone with role, two-factor status and last activity. **Invite** sends an invitation by email; without system emails, **Copy link** gives you a link to pass on. **Change role** and **Suspend** are in each user's row, and the filters show active, invited and suspended users.
 
 ![User administration](screenshots/admin.png)
+
+The invited person opens the link and goes through four steps: the invitation with who sent it, their address, their role and how long it is valid (**Accept invitation**); their name and a password, entered twice; the authenticator app, by scanning the QR code or typing the key and entering the code it shows, which creates the account; and ten recovery codes to copy or download, confirmed with **Activate account**. They are then signed in and land on the start page. If the link has expired, **Request a new invitation** notifies the administrators, who can send a new one.
 
 ### Mail servers
 

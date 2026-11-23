@@ -13,6 +13,7 @@
 //   mode        theme of the settings ('light', 'dark')
 //   guest       not signed in (`auth/me` answers 401)
 //   setup       setup pending (`setup_required`)
+//   totp        sign-in asks for the authenticator code (`auth/login` answers `totp_required`)
 //   vacation    vacation reply of the work account switched on
 //   onUnhandled callback per unanswered request
 
@@ -1076,7 +1077,7 @@ function apiAnswer(method, path, d, st, servers, opts, base) {
     case 'GET auth/me':
       return opts.guest || opts.setup ? { status: 401, body: { error: 'unauthorized' } } : ok(d.ME);
     case 'POST auth/login':
-      return ok({ status: 'ok', user: d.ME });
+      return ok(opts.totp ? { status: 'totp_required' } : { status: 'ok', user: d.ME });
     case 'GET settings':
       return ok({ version: st.version, settings: st.settings });
     case 'PUT settings':

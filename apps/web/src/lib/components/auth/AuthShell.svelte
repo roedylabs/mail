@@ -217,9 +217,12 @@
 
 {#snippet primaryInner()}
   {#if busy}
-    <span class="spin"><Icon name="ti-loader-2" /></span><span>{primary?.busyLabel}</span>
+    <span class="spin"><Icon name="ti-loader-2" /></span><span class:nowrap={primary?.nowrap}>{primary?.busyLabel}</span
+    >
   {:else}
-    <span>{primary?.label}</span><span class="bi"><Icon name={primary?.icon ?? 'ti-arrow-right'} /></span>
+    <span class:nowrap={primary?.nowrap}>{primary?.label}</span><span class="bi"
+      ><Icon name={primary?.icon ?? 'ti-arrow-right'} /></span
+    >
   {/if}
 {/snippet}
 
@@ -248,6 +251,7 @@
     class:alt={slideBack?.open}
     style:background={p.bg}
     style:color={p.ink}
+    style:padding={p.pad?.desk}
     aria-disabled={off || busy || dim ? 'true' : 'false'}
     aria-busy={busy ? 'true' : 'false'}
   >
@@ -364,6 +368,7 @@
     class:alt={slideBack?.open}
     style:background={p.bg}
     style:color={p.ink}
+    style:padding={p.pad?.mob}
     aria-disabled={off || busy || dim ? 'true' : 'false'}
     aria-busy={busy ? 'true' : 'false'}
     onclick={() => form?.requestSubmit()}
@@ -797,6 +802,10 @@
     display: grid;
     flex-shrink: 0;
     font-size: 19px;
+  }
+
+  .nowrap {
+    white-space: nowrap;
   }
 
   .ell {

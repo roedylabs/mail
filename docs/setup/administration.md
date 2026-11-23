@@ -69,7 +69,7 @@ Four sections, saved together:
 | Name | "App name", at most 32 characters. |
 | Logo | "Type": default, initials ("Characters", at most 2; empty = first letter of the name), icon (twelve to choose from) or image. For an image, "Size": Padded or Fill. Plus "Tile" (accent color, light, dark) and "Slightly tilted". |
 | Brand color | Default accent color for everyone; "Allow custom accent color" enables the choice under Appearance. Turned off, this locks the choice; the users' stored color is kept. |
-| Sign-in page | "Heading" (at most 48 characters, empty = "Welcome back"), "Text" (at most 120), "Background art". |
+| Sign-in page | "Heading" (at most 48 characters, empty = "Welcome back"), "Text" (at most 120), "Background art". The sign-in page shows the heading and the text (an empty text hides it) and no artwork; "Background art" only shows the illustration next to the email confirmation page on large screens. |
 
 "Restore defaults" resets everything and removes the image.
 
@@ -105,7 +105,7 @@ The image is stored in the database; older versions are not kept.
 | Website, help center, legal notice, privacy policy, terms of use, source code | Link with `http://` or `https://`, at most 2048 characters |
 | Support email | Address, at most 254 characters |
 
-Everyone sees the details under Settings › About; empty fields are hidden there. The emails' footer names the name (without a name, the app name), support email, legal notice and privacy policy; privacy policy and legal notice also appear on the sign-in page.
+Everyone sees the details under Settings › About; empty fields are hidden there. The emails' footer names the name (without a name, the app name), support email, legal notice and privacy policy; privacy policy and legal notice also appear on the email confirmation page.
 
 **Public:** `GET /api/v1/public/config` responds without sign-in. It contains the app name, branding (without the logo's file name), all fields of the organization, the banner while it is on, the maintenance mode with notice, the version, the update notice, the cache version and whether the setup is pending. Whatever must not be public belongs neither in the organization nor in the banner.
 

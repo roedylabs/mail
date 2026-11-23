@@ -1,12 +1,11 @@
 /**
  * Elements of the sign-in page the page reaches into: the fields of every
- * screen and the heading (focus), the card that shakes and the old card's
- * artwork tile that wobbles on an error.
+ * screen and the heading (focus), and the card that shakes on an error.
  */
 import type { Attachment } from 'svelte/attachments';
 import type { Field } from '#lib/login.svelte.ts';
 
-export type SignInTarget = Field | 'heading' | 'card' | 'tile';
+export type SignInTarget = Field | 'heading' | 'card';
 
 /** Registry of the targets; `reg` as an attachment on the element. */
 export class SignInTargets {
