@@ -47,7 +47,7 @@ reqwest = { version = "0.13.5", default-features = false, features = ["json", "r
 # AES-128-GCM; rustls brings the same version, `web-push` would bring OpenSSL.
 ring = { version = "0.17.14", default-features = false, features = ["alloc"] }
 roedy-jmap = { path = "../jmap" }
-rusqlite = { version = "0.41.1", features = ["backup", "bundled"] }
+rusqlite = { version = "0.43.0", features = ["backup", "bundled"] }
 rustls = { version = "0.23.46", default-features = false, features = ["ring", "std", "tls12"] }
 rust-embed = { version = "8.13.0", features = ["debug-embed", "deterministic-timestamps"], optional = true }
 # Comparing versions of the GitHub releases; already comes with
