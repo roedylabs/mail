@@ -580,6 +580,30 @@ describe('reset password', () => {
     flow.dispose();
   });
 
+  it('names and resends the address the request sent, not one typed while it ran', async () => {
+    vi.useFakeTimers();
+    let answer: () => void = () => undefined;
+    const { calls } = mockApi({
+      'POST auth/password/forgot': [
+        () => new Promise<{ status: number }>((resolve) => (answer = () => resolve({ status: 202 }))),
+        { status: 202 },
+      ],
+    });
+    const flow = new LoginFlow(hooks());
+    flow.route({ kind: 'forgot' });
+    flow.editEmail(' max@example.net ');
+    const sending = flow.submitForgot();
+    flow.editEmail('other@example.net');
+    answer();
+    await sending;
+    expect(flow.view).toBe('sent');
+    expect(flow.sentTo).toBe('max@example.net');
+    vi.advanceTimersByTime(30_000);
+    await flow.resend();
+    expect(calls.map((c) => c.body)).toEqual([{ email: 'max@example.net' }, { email: 'max@example.net' }]);
+    flow.dispose();
+  });
+
   it('blocks “Resend” while it runs and starts the countdown again', async () => {
     vi.useFakeTimers();
     mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });

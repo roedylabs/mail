@@ -253,8 +253,8 @@ export class LoginFlow {
    */
   busy = $derived(this.loading || this.otpLoading || this.bcLoading || this.fgLoading || this.npLoading);
 
-  /** Address in "Email sent" (`sentTo`). */
-  sentTo = $derived(this.ident.trim());
+  /** Address the link went to: "Check your inbox" names it and "Resend" sends it again (the field may change meanwhile). */
+  sentTo = $state('');
 
   /**
    * "Hello, ‹name›": first name from the account of the response; without a name, the
@@ -514,6 +514,7 @@ export class LoginFlow {
       if (req !== this.req) return;
       this.fgLoading = false;
       this.locks.clear('fg');
+      this.sentTo = email;
       this.view = 'sent';
       this.cool(RESEND_S, false);
     } catch (error) {
@@ -539,7 +540,7 @@ export class LoginFlow {
     this.resending = true;
     const req = this.req;
     try {
-      await api('POST', 'auth/password/forgot', { email: this.ident.trim() });
+      await api('POST', 'auth/password/forgot', { email: this.sentTo });
       this.cool(RESEND_S, false);
     } catch (error) {
       if (isApiError(error, 429)) this.cool(retryAfter(error), true);
