@@ -14,14 +14,17 @@ export interface SignInFrame {
   overview: Overview;
 }
 
-/** `current`: the screen's item of the overview (from 1). */
-export function signInFrame(current: number): SignInFrame {
+/**
+ * `current`: the screen's item of the overview (from 1); `second`: the middle item ("Code from your app", or
+ * "Recovery code" on its screen).
+ */
+export function signInFrame(current: number, second: string = m.login_flow_code()): SignInFrame {
   return {
     themeToggle: true,
     heads: signInHeads(),
     overview: {
       label: m.login_flow_label(),
-      items: [m.login_flow_password(), m.login_flow_code(), m.login_flow_done()],
+      items: [m.login_flow_password(), second, m.login_flow_done()],
       current,
     },
   };

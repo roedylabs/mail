@@ -299,7 +299,7 @@ describe('page sign-in', () => {
     expect(
       view.getByLabelText('Recovery code').compareDocumentPosition(lock!) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(view.getByRole('button', { name: /Confirm in 15:00/ })).toBeDisabled();
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'true');
     expect(view.getByLabelText('Recovery code')).toBeDisabled();
     await fireEvent.click(view.getByRole('button', { name: 'Use a code from the app' }));
     expect(view.getByRole('heading', { name: m.login_otp_title() })).toBeInTheDocument();
@@ -406,5 +406,228 @@ describe('page sign-in', () => {
     await fireEvent.click(view.getByRole('button', { name: 'Request a new link' }));
     expect(view.navigate).toHaveBeenCalledWith('forgot');
     expect(view.getByRole('heading', { name: 'Reset password' })).toBeInTheDocument();
+  });
+});
+
+/** Signs in up to the code step (`auth/login` answers `totp_required`). */
+async function atCode(routes: Parameters<typeof mockApi>[0] = {}) {
+  const { calls } = mockApi({ 'POST auth/login': [{ body: { status: 'totp_required' } }], ...routes });
+  const view = show();
+  await type('Email or username', 'max@example.net');
+  await type('Password', 'Secure-enough1');
+  await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
+  await view.findByRole('heading', { name: m.login_otp_title() });
+  return { ...view, calls };
+}
+
+/** Runs `body` in a phone-sized window. */
+async function onPhone(body: () => Promise<void>) {
+  const width = window.innerWidth;
+  Object.defineProperty(window, 'innerWidth', { value: 393, configurable: true });
+  window.dispatchEvent(new Event('resize'));
+  try {
+    await body();
+  } finally {
+    Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+  }
+}
+
+describe('page code steps', () => {
+  it('shows the authenticator step with its preview, field and Back', async () => {
+    const view = await atCode();
+    expect(ui.authTitle).toBe('Multi-factor authentication · Roedy Mail');
+    const preview = view.container.querySelector('.acct')!;
+    expect(preview).toHaveAttribute('aria-hidden', 'true');
+    expect(preview).toHaveTextContent('Authenticator app');
+    expect(preview).toHaveTextContent('max@example.net');
+    expect(preview).toHaveTextContent('Roedy Mail');
+    expect(preview).toHaveTextContent('A new code every 30 seconds');
+    expect(preview).toHaveTextContent('••• •••');
+    const field = view.getByLabelText('Verification code');
+    expect(field).toHaveAttribute('id', 'ln-otp');
+    expect(field).toHaveAttribute('name', 'otp');
+    expect(field).toHaveAttribute('inputmode', 'numeric');
+    expect(field).toHaveAttribute('autocomplete', 'one-time-code');
+    expect(field).not.toHaveAttribute('maxlength');
+    expect(field).toHaveAttribute('aria-invalid', 'false');
+    const back = view.getByRole('button', { name: 'Back to sign-in' });
+    expect(back).toHaveTextContent('Back');
+    expect(view.getByText(m.login_no_app())).toBeInTheDocument();
+    // Entering on desktop: the code field.
+    await vi.waitFor(() => expect(document.activeElement).toBe(field));
+  });
+
+  it('focuses the heading when entering on mobile', async () => {
+    await onPhone(async () => {
+      const view = await atCode();
+      await vi.waitFor(() => expect(document.activeElement).toBe(view.getByRole('heading', { level: 1 })));
+    });
+  });
+
+  it('runs the ring of the 30-second window from the device clock', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true, now: new Date('2026-11-23T10:00:07.100Z') });
+    const view = await atCode();
+    const secs = () => view.container.querySelector('.ring .secs');
+    expect(secs()).toHaveTextContent('23');
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(secs()).toHaveTextContent('22');
+    await vi.advanceTimersByTimeAsync(22_000);
+    // A new window: full again, without running back.
+    expect(secs()).toHaveTextContent('30');
+    expect(view.container.querySelector<SVGElement>('.ring .run')!.style.transition).toBe('none');
+  });
+
+  it('shows the short-code line on Confirm with too few digits, without a request', async () => {
+    const view = await atCode();
+    await type('Verification code', '123');
+    await fireEvent.click(view.getByRole('button', { name: 'Confirm' }));
+    const short = view.container.querySelector('#ln-otp-err');
+    expect(short).toHaveTextContent('Please enter all 6 digits.');
+    expect(short).toHaveAttribute('role', 'alert');
+    const field = view.getByLabelText('Verification code');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAttribute('aria-describedby', 'ln-otp-err');
+    expect(view.calls.map((c) => c.path)).toEqual(['auth/login']);
+    // Confirm is never greyed out for an incomplete code.
+    expect(view.getByRole('button', { name: 'Confirm' })).toHaveAttribute('aria-disabled', 'false');
+    await type('Verification code', '1234');
+    expect(view.container.querySelector('#ln-otp-err')).toBeNull();
+    expect(field).toHaveAttribute('aria-invalid', 'false');
+    expect(field).not.toHaveAttribute('aria-describedby');
+  });
+
+  it('reports a wrong and a used code under the boxes and clears the code', async () => {
+    const view = await atCode({
+      'POST auth/totp': [
+        { status: 422, body: { error: 'invalid_code' } },
+        { status: 422, body: { error: 'code_used' } },
+      ],
+    });
+    await type('Verification code', '111111');
+    const alert = await vi.waitFor(() => {
+      const el = view.container.querySelector('#ln-code-alert');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(alert).toHaveAttribute('role', 'alert');
+    expect(alert).toHaveTextContent('Invalid code. Check the current code in your app and try again.');
+    const field = view.getByLabelText('Verification code');
+    expect(field).toHaveValue('');
+    expect(field).toHaveAttribute('aria-invalid', 'true');
+    expect(field).toHaveAttribute('aria-describedby', 'ln-code-alert');
+    expect(view.container.querySelectorAll('.box.bad')).toHaveLength(6);
+    expect(field.compareDocumentPosition(alert) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // The next character clears it.
+    await type('Verification code', '2');
+    expect(view.container.querySelector('#ln-code-alert')).toBeNull();
+    expect(view.container.querySelectorAll('.box.bad')).toHaveLength(0);
+    await type('Verification code', '222222');
+    await vi.waitFor(() =>
+      expect(view.container.querySelector('#ln-code-alert')).toHaveTextContent(
+        'Code already used. Wait for the next code in your app.',
+      ),
+    );
+    expect(view.getByLabelText('Verification code')).toHaveValue('');
+  });
+
+  it('locks both codes with a bar, greys out Confirm and frees the field afterwards', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = await atCode({
+      'POST auth/totp': [{ status: 429, body: { error: 'rate_limited', retry_after: 900 } }],
+    });
+    await type('Verification code', '123456');
+    const lock = await vi.waitFor(() => {
+      const el = view.container.querySelector('#ln-code-alert');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(lock).toHaveTextContent(
+      'Too many incorrect codes. Try again in 15 minutes. After that, enter your password again.',
+    );
+    expect(lock.querySelector('.time')).toHaveTextContent('15:00');
+    expect(lock.querySelector('.lock')).toHaveAttribute('aria-hidden', 'true');
+    const field = view.getByLabelText('Verification code');
+    expect(field).toBeDisabled();
+    expect(field).toHaveAttribute('aria-invalid', 'false');
+    expect(field).toHaveAttribute('aria-describedby', 'ln-code-alert');
+    const confirm = view.getByRole('button', { name: 'Confirm' });
+    expect(confirm).toHaveAttribute('aria-disabled', 'true');
+    expect(confirm).toHaveClass('off');
+    // Back and the switch stay usable; the lock stays when switching.
+    expect(view.getByRole('button', { name: 'Back to sign-in' })).not.toHaveAttribute('aria-disabled');
+    await fireEvent.click(view.getByRole('button', { name: 'Use a recovery code' }));
+    expect(view.getByLabelText('Recovery code')).toBeDisabled();
+    expect(view.container.querySelector('#ln-code-alert')).toHaveTextContent('Too many incorrect codes.');
+    await fireEvent.click(view.getByRole('button', { name: 'Use a code from the app' }));
+    await vi.advanceTimersByTimeAsync(900_000);
+    expect(view.container.querySelector('#ln-code-alert')).toBeNull();
+    expect(view.getByLabelText('Verification code')).not.toBeDisabled();
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Verification code')));
+  });
+
+  it('shows the recovery code step with its own field, preview and note', async () => {
+    const view = await atCode();
+    await fireEvent.click(view.getByRole('button', { name: 'Use a recovery code' }));
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(m.login_bc_title());
+    expect(ui.authTitle).toBe('Recovery code · Roedy Mail');
+    const field = view.getByLabelText('Recovery code');
+    expect(field).toHaveAttribute('id', 'ln-bc');
+    expect(field).toHaveAttribute('name', 'backup-code');
+    expect(field).toHaveAttribute('autocomplete', 'off');
+    expect(field).toHaveAttribute('autocapitalize', 'characters');
+    await vi.waitFor(() => expect(document.activeElement).toBe(field));
+    const preview = view.container.querySelector('.acct')!;
+    expect(preview).toHaveTextContent('Recovery codes');
+    expect(preview).toHaveTextContent('Single use');
+    expect(preview.querySelectorAll('.rc')).toHaveLength(10);
+    expect(preview.querySelector('.rc.on')).toBeNull();
+    await type('Recovery code', 'ab-c');
+    expect(field).toHaveValue('ABC');
+    expect(preview.querySelector('.rc.on')).toHaveTextContent('ABC•-••••');
+    expect(view.getByText('Don’t have your codes? Contact your administrator.')).toBeInTheDocument();
+    await fireEvent.click(view.getByRole('button', { name: 'Confirm' }));
+    expect(view.container.querySelector('#ln-bc-err')).toHaveTextContent('Please enter the full code.');
+    expect(field).toHaveAttribute('aria-describedby', 'ln-bc-err');
+  });
+
+  it('keeps Back and the switch inert while a code is checked', async () => {
+    const view = await atCode({ 'POST auth/totp': [() => new Promise(() => undefined)] });
+    await type('Verification code', '123456');
+    const busy = view.getByRole('button', { name: 'Checking …' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy).not.toHaveClass('off');
+    const back = view.getByRole('button', { name: 'Back to sign-in' });
+    expect(back).toHaveAttribute('aria-disabled', 'true');
+    expect(back).toHaveClass('fade');
+    await fireEvent.click(back);
+    const link = view.container.querySelector('.alt .link') as HTMLElement;
+    expect(link).toHaveAttribute('aria-disabled', 'true');
+    expect(link.inert).toBe(true);
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent(m.login_otp_title());
+  });
+
+  it('goes back to the password with the identifier kept and the focus in the password', async () => {
+    const view = await atCode();
+    await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
+    expect(view.getByLabelText('Email or username')).toHaveValue('max@example.net');
+    expect(view.getByLabelText('Password')).toHaveValue('');
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Password')));
+  });
+
+  it('keeps the code on another answer and shows an error toast', async () => {
+    const view = await atCode({ 'POST auth/totp': [{ status: 500, body: { error: 'internal' } }] });
+    await type('Verification code', '123456');
+    await vi.waitFor(() => expect(ui.toast).not.toBeNull());
+    expect(ui.toast).toMatchObject({ text: 'That didn’t work. Please try again.', error: true });
+    expect(view.getByLabelText('Verification code')).toHaveValue('123456');
+  });
+
+  it('returns to the password screen with "Sign-in expired."', async () => {
+    const view = await atCode({ 'POST auth/totp': [{ status: 422, body: { error: 'login_expired' } }] });
+    await type('Verification code', '123456');
+    expect(await view.findByText(m.login_expired_title())).toBeInTheDocument();
+    expect(view.getByLabelText('Password')).toHaveValue('');
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Password')));
   });
 });

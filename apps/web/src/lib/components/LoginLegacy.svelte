@@ -1,7 +1,7 @@
 <!--
-  The sign-in page's screens that still have the old card (code and recovery
-  code, "Reset password" with "Email sent", "Set a new password" from the link
-  in the mail, "Password changed", "Link expired or invalid") until they move
+  The sign-in page's screens that still have the old card ("Reset password"
+  with "Email sent", "Set a new password" from the link in the mail,
+  "Password changed", "Link expired or invalid") until they move
   to the shared guest-page shell. The page (`LoginPage`) owns the flow; this
   card registers its fields, card and artwork tile for focus and shake. The
   card adapts to the window height in four steps (`fit`), from 1000 px width
@@ -11,7 +11,6 @@
   import { scrollbar } from '#lib/actions/scrollbar.ts';
   import { untrack } from 'svelte';
   import { parallax } from '#lib/actions/parallax.ts';
-  import CodeBoxes from '#lib/components/CodeBoxes.svelte';
   import FormField from '#lib/components/FormField.svelte';
   import Icon from '#lib/components/Icon.svelte';
   import LoginArt from '#lib/components/LoginArt.svelte';
@@ -42,8 +41,6 @@
   const inputs: Partial<Record<Field, HTMLInputElement>> = $state({});
   $effect(() => targets.hold('card', card));
   $effect(() => targets.hold('tile', artTile));
-  $effect(() => targets.hold('otp', inputs.otp));
-  $effect(() => targets.hold('bc', inputs.bc));
   $effect(() => targets.hold('fg', inputs.fg));
   $effect(() => targets.hold('np', inputs.np));
 
@@ -93,17 +90,7 @@
   );
   const fit = $derived(fitter.level);
   const fitKey = $derived(
-    [
-      flow.view,
-      flow.otpErr,
-      flow.bcErr,
-      flow.codeLocked,
-      flow.npErr,
-      flow.npLocked,
-      flow.fgLocked,
-      flow.resendLimited,
-      flow.ended,
-    ].join('|'),
+    [flow.view, flow.npErr, flow.npLocked, flow.fgLocked, flow.resendLimited, flow.ended].join('|'),
   );
   // New state: start over.
   $effect(() => {
@@ -132,11 +119,6 @@
       ? ['32px 22px 28px', '26px 20px 22px', '22px 18px 18px', '18px 16px 16px']
       : ['44px 40px 40px', '34px 34px 30px', '28px 30px 24px', '20px 24px 18px'])[fit],
     rootPad: fit >= 3 ? '8px' : '16px',
-    otpGap: narrow ? '8px' : '10px',
-    otpBoxH: fit >= 2 ? '48px' : narrow ? '56px' : '64px',
-    bcGap: narrow ? '5px' : '7px',
-    bcBoxH: fit >= 2 ? '46px' : narrow ? '52px' : '58px',
-    bcFs: narrow ? '20px' : '22px',
   });
 
   function submit(run: () => unknown) {
@@ -188,17 +170,6 @@
   </button>
 {/snippet}
 
-{#snippet who()}
-  <div class="who">
-    <span class="who-initial">{flow.otpInitial}</span>
-    <span class="who-name">{flow.otpIdent}</span>
-  </div>
-{/snippet}
-
-{#snippet fieldErr(id: string, text: string)}
-  <div class="field-err" {id}><span class="fe-icon"><Icon name="ti-alert-circle" /></span><span>{text}</span></div>
-{/snippet}
-
 <div
   bind:this={root}
   aria-hidden={hidden ? 'true' : undefined}
@@ -241,113 +212,7 @@
 
     <main style:padding={F.mainPad}>
       <div class="card" bind:this={card} style:padding={F.cardPad}>
-        {#if flow.view === 'otp' || flow.view === 'backup'}
-          {@const otp = flow.view === 'otp'}
-          {#key flow.view}
-            <form onsubmit={submit(() => (otp ? flow.submitOtp() : flow.submitBc()))} novalidate>
-              {@render back(m.login_back(), () => flow.leaveOtp())}
-              <h1>{otp ? m.login_otp_title() : m.login_bc_title()}</h1>
-              <p class="intro">{otp ? m.login_otp_intro() : m.login_bc_intro()}</p>
-              {@render who()}
-
-              <div class="code gap-m">
-                <label for={otp ? 'ln-otp' : 'ln-bc'}>{otp ? m.login_otp_label() : m.login_bc_label()}</label>
-                {#if otp}
-                  <CodeBoxes
-                    id="ln-otp"
-                    kind="otp"
-                    bind:input={inputs.otp}
-                    value={flow.otp}
-                    oninput={(v: string) => flow.editOtp(v)}
-                    active={focus === 'otp' && !flow.otpLoading}
-                    bad={!!flow.otpErr}
-                    locked={flow.codeLocked}
-                    describedby={flow.otpErr === 'short'
-                      ? 'ln-otp-err'
-                      : flow.otpErr || flow.codeLocked
-                        ? 'ln-code-alert'
-                        : undefined}
-                    gap={F.otpGap}
-                    height={F.otpBoxH}
-                    onfocus={focusOn('otp')}
-                    onblur={blur}
-                  />
-                {:else}
-                  <CodeBoxes
-                    id="ln-bc"
-                    kind="bc"
-                    bind:input={inputs.bc}
-                    value={flow.bc}
-                    oninput={(v: string) => flow.editBc(v)}
-                    active={focus === 'bc' && !flow.bcLoading}
-                    bad={!!flow.bcErr}
-                    locked={flow.codeLocked}
-                    describedby={flow.bcErr === 'short'
-                      ? 'ln-bc-err'
-                      : flow.bcErr || flow.codeLocked
-                        ? 'ln-code-alert'
-                        : undefined}
-                    gap={F.bcGap}
-                    height={F.bcBoxH}
-                    fontSize={F.bcFs}
-                    onfocus={focusOn('bc')}
-                    onblur={blur}
-                  />
-                {/if}
-                {#if otp && flow.otpErr === 'short'}{@render fieldErr('ln-otp-err', m.login_otp_short())}{/if}
-                {#if !otp && flow.bcErr === 'short'}{@render fieldErr('ln-bc-err', m.login_bc_short())}{/if}
-                <!-- Wrong, used or locked code: under the code boxes, like the setup token's messages -->
-                {#if otp && flow.otpErr === 'invalid'}
-                  <div class="alert-under">
-                    {@render alert('ti-shield-x', m.login_code_bad_title(), m.login_otp_bad_text(), 'ln-code-alert')}
-                  </div>
-                {/if}
-                {#if !otp && flow.bcErr === 'invalid'}
-                  <div class="alert-under">
-                    {@render alert('ti-shield-x', m.login_code_bad_title(), m.login_bc_bad_text(), 'ln-code-alert')}
-                  </div>
-                {/if}
-                {#if flow.otpUsed && otp}
-                  <div class="alert-under">
-                    {@render alert('ti-hourglass', m.login_otp_used_title(), m.login_otp_used_text(), 'ln-code-alert')}
-                  </div>
-                {/if}
-                {#if flow.codeLocked}
-                  <div class="alert-under">
-                    {@render alert('ti-lock', m.login_code_locked_title(), flow.codeLockText, 'ln-code-alert')}
-                  </div>
-                {/if}
-              </div>
-
-              <button
-                type="submit"
-                class="primary"
-                disabled={otp ? flow.otpDis : flow.bcDis}
-                aria-busy={(otp ? flow.otpLoading : flow.bcLoading) ? 'true' : 'false'}
-                style:opacity={flow.codeLocked ? 0.5 : 1}
-              >
-                {@render primary(m.login_confirm(), 'ti-arrow-right', m.login_checking(), {
-                  busy: otp ? flow.otpLoading : flow.bcLoading,
-                  ready: otp ? flow.otpReady : flow.bcReady,
-                  lock: flow.codeLockBtn,
-                })}
-              </button>
-              {#if otp}
-                <div class="aside">
-                  <span>{m.login_no_app()}</span>
-                  <button type="button" class="link" disabled={flow.busy} onclick={() => flow.useBackup()}
-                    >{m.login_use_backup()}</button
-                  >
-                </div>
-              {:else}
-                <button type="button" class="link use-app" disabled={flow.busy} onclick={() => flow.useApp()}>
-                  <Icon name="ti-device-mobile" /><span>{m.login_use_app()}</span>
-                </button>
-                <p class="note">{m.login_bc_none()}</p>
-              {/if}
-            </form>
-          {/key}
-        {:else if flow.view === 'forgot'}
+        {#if flow.view === 'forgot'}
           <form onsubmit={submit(() => flow.submitForgot())} novalidate>
             {@render back(values.fgBackLabel, () => flow.fgBack(values.fgAuthed))}
             <h1>{m.login_forgot_title()}</h1>
@@ -669,10 +534,6 @@
     gap: var(--f-gap-f);
   }
 
-  .alert-under {
-    margin-top: 4px;
-  }
-
   .alert {
     display: flex;
     align-items: flex-start;
@@ -809,71 +670,6 @@
     font-size: 18px;
   }
 
-  /* Identifier in the intermediate step */
-  .who {
-    margin-top: 18px;
-    align-self: flex-start;
-    max-width: 100%;
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    height: 38px;
-    padding: 0 15px 0 6px;
-    border-radius: 9999px;
-    background: var(--surface2);
-  }
-
-  .who-initial {
-    width: 28px;
-    height: 28px;
-    flex-shrink: 0;
-    border-radius: 9999px;
-    background: var(--acc);
-    color: var(--accink);
-    display: grid;
-    place-items: center;
-    font-size: 12.5px;
-    font-weight: 800;
-  }
-
-  .who-name {
-    min-width: 0;
-    font-size: 14px;
-    font-weight: 700;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  /* Code boxes */
-  .code {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-  }
-
-  .code label {
-    padding: 0 4px;
-    font-size: 13.5px;
-    font-weight: 700;
-  }
-
-  .field-err {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 4px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--errfg);
-  }
-
-  .fe-icon {
-    display: grid;
-    flex-shrink: 0;
-    font-size: 15px;
-  }
-
   .aside {
     margin-top: 14px;
     display: flex;
@@ -902,29 +698,6 @@
 
   .link.blocked {
     color: var(--dim);
-  }
-
-  .use-app {
-    margin-top: 14px;
-    align-self: center;
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 0 12px;
-    font-size: 14px;
-  }
-
-  .use-app :global(svg) {
-    font-size: 17px;
-  }
-
-  .note {
-    margin: 10px 0 0;
-    text-align: center;
-    font-size: 14px;
-    line-height: 1.5;
-    color: var(--mfg);
-    text-wrap: pretty;
   }
 
   /* "New password" with the rules below */

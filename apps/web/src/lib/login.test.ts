@@ -318,8 +318,6 @@ describe('step password', () => {
     const { flow, h } = await atCode();
     expect(flow.view).toBe('otp');
     expect(flow.stepAt).toBeGreaterThan(0);
-    expect(flow.otpIdent).toBe('max@example.net');
-    expect(flow.otpInitial).toBe('M');
     expect(h.focus).toHaveBeenCalledWith('otp');
   });
 
@@ -405,7 +403,7 @@ describe('steps code and recovery code', () => {
     expect(flow.phase('otp', false)).toBe('error');
     expect(h.fail).toHaveBeenLastCalledWith('otp');
     flow.editOtp('222222');
-    await vi.waitFor(() => expect(flow.otpUsed).toBe(true));
+    await vi.waitFor(() => expect(flow.otpErr).toBe('used'));
     expect(flow.otp).toBe('');
   });
 
@@ -429,18 +427,22 @@ describe('steps code and recovery code', () => {
     flow.editOtp('123456');
     await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
     expect(flow.codeLockText).toBe('Try again in 15 minutes. After that, enter your password again.');
-    expect(flow.codeLockBtn).toBe('Confirm in 15:00');
-    expect(flow.otpReady).toBe(false);
-    expect(flow.otpDis).toBe(true);
+    expect(flow.codeLock).toEqual({ left: 900, total: 900 });
     expect(flow.otp).toBe('');
+    // A code while locked sends nothing.
+    flow.editOtp('123456');
+    await flow.submitOtp();
+    expect(flow.otpLoading).toBe(false);
     flow.useBackup();
     expect(flow.codeLocked).toBe(true);
-    expect(flow.bcDis).toBe(true);
-    expect(flow.bcReady).toBe(false);
+    vi.advanceTimersByTime(300_000);
+    expect(flow.codeLock).toEqual({ left: 600, total: 900 });
     flow.useApp();
-    vi.advanceTimersByTime(900_000);
+    expect(h.unlocked).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(600_000);
     expect(flow.codeLocked).toBe(false);
-    expect(h.focus).toHaveBeenLastCalledWith('otp');
+    expect(flow.codeLock).toBeNull();
+    expect(h.unlocked).toHaveBeenLastCalledWith('otp');
     flow.dispose();
   });
 
@@ -451,7 +453,7 @@ describe('steps code and recovery code', () => {
     flow.editOtp('654321');
     await vi.waitFor(() => expect(flow.codeLocked).toBe(true));
     expect(flow.codeLockText).toBe('Try again in 30 seconds.');
-    expect(flow.codeLockBtn).toBe('Confirm in 0:30');
+    expect(flow.codeLock).toEqual({ left: 30, total: 30 });
     expect(flow.phase('otp', false)).toBe('locked');
     flow.dispose();
   });

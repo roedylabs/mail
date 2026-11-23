@@ -3,9 +3,12 @@
   account, the invitation): a tilted avatar tile (initials or an icon), a
   first and a second line (faded while they show a placeholder), a chip on
   the right (desktop) or under the second line (mobile) and an optional
-  lower row. Decoration only: the fields say the same to screen readers.
+  lower row; a screen may put its own content at the right (`aside`) and in
+  the lower row (`bottom`). Decoration only: the fields say the same to
+  screen readers.
 -->
 <script lang="ts">
+  import type { Snippet } from 'svelte';
   import Icon from '#lib/components/Icon.svelte';
   import type { IconName } from '#lib/icons.ts';
 
@@ -16,20 +19,24 @@
   }
 
   interface Props {
-    /** Initials, or the icon while there are none. */
-    avatar: { initials?: string; icon: IconName };
+    /** Initials, or the icon while there are none (faded as a placeholder; `full`: the tile's own icon, not faded). */
+    avatar: { initials?: string; icon: IconName; full?: boolean };
     first: Line;
     second: Line;
     chip?: { icon: IconName; label: string } | undefined;
     /** Row under a hairline. */
     lower?: { icon: IconName; text: string }[] | undefined;
+    /** Right of the lines on every width, instead of the chip. */
+    aside?: Snippet | undefined;
+    /** Own content of the row under the hairline, instead of `lower`. */
+    bottom?: Snippet | undefined;
     /** Size of the avatar in px (from the level); the card gets slimmer below 50. */
     size: number;
     /** Mobile: the chip under the second line. */
     narrow?: boolean | undefined;
   }
 
-  let { avatar, first, second, chip, lower, size, narrow = false }: Props = $props();
+  let { avatar, first, second, chip, lower, aside, bottom, size, narrow = false }: Props = $props();
 </script>
 
 {#snippet chipEl(c: { icon: IconName; label: string }, cls: string)}
@@ -46,7 +53,7 @@
 >
   <div class="acct-main" style:padding={size >= 50 ? '16px 18px' : '12px 14px'}>
     <span class="avatar">
-      {#if avatar.initials}<span>{avatar.initials}</span>{:else}<span class="avatar-icon"
+      {#if avatar.initials}<span>{avatar.initials}</span>{:else}<span class="avatar-icon" class:full={avatar.full}
           ><Icon name={avatar.icon} /></span
         >{/if}
     </span>
@@ -55,9 +62,11 @@
       <span class="who-email" class:empty={second.empty}>{second.text}</span>
       {#if chip && narrow}{@render chipEl(chip, 'in')}{/if}
     </div>
-    {#if chip && !narrow}{@render chipEl(chip, 'top')}{/if}
+    {#if aside}{@render aside()}{:else if chip && !narrow}{@render chipEl(chip, 'top')}{/if}
   </div>
-  {#if lower?.length}
+  {#if bottom}
+    <div class="bottom">{@render bottom()}</div>
+  {:else if lower?.length}
     <div class="rights">
       {#each lower as item, i (i)}
         <span><Icon name={item.icon} /><span>{item.text}</span></span>
@@ -105,6 +114,10 @@
     display: grid;
     font-size: var(--av-icon);
     opacity: 0.85;
+  }
+
+  .avatar-icon.full {
+    opacity: 1;
   }
 
   .who {
@@ -189,6 +202,12 @@
     font-size: 13px;
     font-weight: 700;
     color: var(--mfg);
+  }
+
+  .bottom {
+    display: flex;
+    padding: 10px 18px 12px;
+    border-top: 1px solid var(--bd);
   }
 
   .rights > span {

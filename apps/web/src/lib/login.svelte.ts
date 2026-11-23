@@ -155,6 +155,8 @@ export class LoginFlow {
   bcLoading = $state(false);
   /** Start of the intermediate step (`stepAt`), for the sentence after long locks. */
   stepAt = $state(0);
+  /** Length of the running code lock in seconds (shared by both kinds of code). */
+  codeLockTotal = $state(0);
 
   // Reset password and email sent
   fgErr = $state<string | null>(null);
@@ -208,12 +210,10 @@ export class LoginFlow {
     const after = this.stepAt > 0 && (this.locks.until('code') ?? 0) > this.stepAt + STEP_MS;
     return after ? `${text} ${m.login_code_lock_after()}` : text;
   });
-  codeLockBtn = $derived(this.codeLeft ? m.login_confirm_locked({ time: clockText(this.codeLeft) }) : '');
-  otpUsed = $derived(this.otpErr === 'used');
-  otpReady = $derived(!this.otpLoading && !this.codeLocked);
-  otpDis = $derived(this.otpLoading || this.codeLocked);
-  bcReady = $derived(!this.bcLoading && !this.codeLocked);
-  bcDis = $derived(this.bcLoading || this.codeLocked);
+  /** The lock bar under the code boxes: seconds left of the lock's length. */
+  codeLock = $derived(
+    this.codeLeft ? { left: this.codeLeft, total: Math.max(this.codeLockTotal, this.codeLeft) } : null,
+  );
 
   showNewPw = $derived(this.view === 'newpw');
   showPwDone = $derived(this.view === 'pwdone');
@@ -250,9 +250,7 @@ export class LoginFlow {
    */
   busy = $derived(this.loading || this.otpLoading || this.bcLoading || this.fgLoading || this.npLoading);
 
-  /** Identifier in the intermediate step (`otpIdent`, `otpInitial`) and address in "Email sent" (`sentTo`). */
-  otpIdent = $derived(this.ident.trim());
-  otpInitial = $derived((this.ident.trim()[0] ?? '?').toUpperCase());
+  /** Address in "Email sent" (`sentTo`). */
   sentTo = $derived(this.ident.trim());
 
   /**
@@ -728,7 +726,8 @@ export class LoginFlow {
     }
     if (isApiError(error, 429)) {
       this.setCode(kind, '', null);
-      this.locks.start('code', retryAfter(error));
+      this.codeLockTotal = retryAfter(error);
+      this.locks.start('code', this.codeLockTotal);
       this.hooks.fail?.();
       return;
     }
@@ -849,7 +848,7 @@ export class LoginFlow {
   private freed(kind: LockKind): void {
     if (kind === 'resend') this.rsLimit = false;
     else if (kind === 'pw' && this.view === 'login' && !this.done) this.hooks.unlocked?.('pw');
-    else if (kind === 'code' && this.view === 'otp') this.hooks.focus?.('otp');
-    else if (kind === 'code' && this.view === 'backup') this.hooks.focus?.('bc');
+    else if (kind === 'code' && this.view === 'otp' && !this.done) this.hooks.unlocked?.('otp');
+    else if (kind === 'code' && this.view === 'backup' && !this.done) this.hooks.unlocked?.('bc');
   }
 }
