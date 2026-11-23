@@ -183,6 +183,12 @@ describe('Invitation page', () => {
     await view.findByRole('heading', { name: 'Multi-factor authentication' });
     await type('Verification code', '000000');
     expect(await view.findByText('Invalid code.')).toBeInTheDocument();
+    // Under the code boxes, as the setup token's messages.
+    const bad = view.container.querySelector('#in-code-alert');
+    expect(bad).not.toBeNull();
+    expect(
+      view.getByLabelText('Verification code').compareDocumentPosition(bad!) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     await type('Verification code', '111111');
     expect(await view.findByText('Too many incorrect codes.')).toBeInTheDocument();
     expect(view.getByRole('button', { name: 'Confirm in 15:00' })).toBeDisabled();

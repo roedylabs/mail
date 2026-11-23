@@ -312,12 +312,6 @@
               </div>
             {/if}
 
-            {#if flow.authErr}
-              <div class="gap-m">{@render alert('ti-lock-x', m.login_failed_title(), m.login_failed_text())}</div>
-            {/if}
-            {#if flow.pwLocked}
-              <div class="gap-m">{@render alert('ti-lock', m.limit_title(), flow.pwLockText)}</div>
-            {/if}
             {#if flow.loginExpired}
               <div class="alert soft gap-m" role="status">
                 <span class="alert-icon"><Icon name="ti-clock" /></span>
@@ -373,6 +367,15 @@
                   aria-disabled={flow.busy ? 'true' : undefined}
                   onclick={toForgot}>{m.login_forgot_link()}</a
                 >
+                <!-- Failed sign-in and its lock: under the password field (after its own error line), like the setup's field messages -->
+                {#if flow.authErr}
+                  <div class="alert-under pw-under">
+                    {@render alert('ti-lock-x', m.login_failed_title(), m.login_failed_text())}
+                  </div>
+                {/if}
+                {#if flow.pwLocked}
+                  <div class="alert-under pw-under">{@render alert('ti-lock', m.limit_title(), flow.pwLockText)}</div>
+                {/if}
               </div>
             </div>
 
@@ -410,27 +413,6 @@
               <h1>{otp ? m.login_otp_title() : m.login_bc_title()}</h1>
               <p class="intro">{otp ? m.login_otp_intro() : m.login_bc_intro()}</p>
               {@render who()}
-
-              {#if otp && flow.otpErr === 'invalid'}
-                <div class="alert-top">
-                  {@render alert('ti-shield-x', m.login_code_bad_title(), m.login_otp_bad_text(), 'ln-code-alert')}
-                </div>
-              {/if}
-              {#if !otp && flow.bcErr === 'invalid'}
-                <div class="alert-top">
-                  {@render alert('ti-shield-x', m.login_code_bad_title(), m.login_bc_bad_text(), 'ln-code-alert')}
-                </div>
-              {/if}
-              {#if flow.otpUsed && otp}
-                <div class="alert-top">
-                  {@render alert('ti-hourglass', m.login_otp_used_title(), m.login_otp_used_text(), 'ln-code-alert')}
-                </div>
-              {/if}
-              {#if flow.codeLocked}
-                <div class="alert-top">
-                  {@render alert('ti-lock', m.login_code_locked_title(), flow.codeLockText, 'ln-code-alert')}
-                </div>
-              {/if}
 
               <div class="code gap-m">
                 <label for={otp ? 'ln-otp' : 'ln-bc'}>{otp ? m.login_otp_label() : m.login_bc_label()}</label>
@@ -478,6 +460,27 @@
                 {/if}
                 {#if otp && flow.otpErr === 'short'}{@render fieldErr('ln-otp-err', m.login_otp_short())}{/if}
                 {#if !otp && flow.bcErr === 'short'}{@render fieldErr('ln-bc-err', m.login_bc_short())}{/if}
+                <!-- Wrong, used or locked code: under the code boxes, like the setup token's messages -->
+                {#if otp && flow.otpErr === 'invalid'}
+                  <div class="alert-under">
+                    {@render alert('ti-shield-x', m.login_code_bad_title(), m.login_otp_bad_text(), 'ln-code-alert')}
+                  </div>
+                {/if}
+                {#if !otp && flow.bcErr === 'invalid'}
+                  <div class="alert-under">
+                    {@render alert('ti-shield-x', m.login_code_bad_title(), m.login_bc_bad_text(), 'ln-code-alert')}
+                  </div>
+                {/if}
+                {#if flow.otpUsed && otp}
+                  <div class="alert-under">
+                    {@render alert('ti-hourglass', m.login_otp_used_title(), m.login_otp_used_text(), 'ln-code-alert')}
+                  </div>
+                {/if}
+                {#if flow.codeLocked}
+                  <div class="alert-under">
+                    {@render alert('ti-lock', m.login_code_locked_title(), flow.codeLockText, 'ln-code-alert')}
+                  </div>
+                {/if}
               </div>
 
               <button
@@ -861,8 +864,13 @@
     text-wrap: pretty;
   }
 
-  .alert-top {
-    margin-top: 20px;
+  .alert-under {
+    margin-top: 4px;
+  }
+
+  /* Outside the field's own 8 px column gap */
+  .alert-under.pw-under {
+    margin-top: 12px;
   }
 
   .alert {
