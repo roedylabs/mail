@@ -1202,7 +1202,6 @@
   "invite_pw_label": "Choose a password",
   "invite_pw_placeholder": "New password",
   "invite_next": "Continue",
-  "invite_next_locked": "Continue in {time}",
   "invite_saving": "Saving …",
   "invite_mfa_title": "Multi-factor authen\u00adtication",
   "invite_mfa_intro": "Scan the QR code with your authenticator app and enter the code it shows.",

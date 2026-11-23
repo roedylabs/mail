@@ -92,7 +92,6 @@
   }
 
   .legacy :global(.back:hover),
-  .legacy :global(.eye:hover),
   .legacy :global(.quiet:hover) {
     background: var(--hov);
     color: var(--fg);
@@ -162,92 +161,6 @@
     margin-top: var(--f-gap-m);
   }
 
-  .legacy :global(.gap-l) {
-    margin-top: var(--f-gap-l);
-  }
-
-  .legacy :global(.fields) {
-    display: flex;
-    flex-direction: column;
-    gap: var(--f-gap-f);
-  }
-
-  .legacy :global(.eye) {
-    position: absolute;
-    right: 8px;
-    width: 40px;
-    height: 40px;
-    border-radius: 9999px;
-    display: grid;
-    place-items: center;
-    color: var(--mfg);
-    font-size: 19px;
-    transition:
-      background-color 220ms,
-      color 220ms;
-  }
-
-  .legacy :global(.caps) {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    padding: 0 4px;
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--mfg);
-  }
-
-  .legacy :global(.rules) {
-    margin: 2px 0 0;
-    padding: 0;
-    list-style: none;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px 8px;
-  }
-
-  .legacy :global(.rule) {
-    display: flex;
-    align-items: center;
-    gap: 7px;
-    height: 30px;
-    padding: 0 12px 0 5px;
-    border-radius: 9999px;
-    background: var(--surface2);
-    color: var(--mfg);
-    font-size: 13px;
-    font-weight: 700;
-    transition:
-      background-color 220ms,
-      color 220ms;
-  }
-
-  .legacy :global(.rule.ok) {
-    color: var(--fg);
-  }
-
-  .legacy :global(.rule.bad) {
-    background: var(--errsoft);
-    color: var(--errfg);
-  }
-
-  .legacy :global(.rule-dot) {
-    width: 20px;
-    height: 20px;
-    flex-shrink: 0;
-    border-radius: 9999px;
-    display: grid;
-    place-items: center;
-    background: var(--surface);
-    box-shadow: inset 0 0 0 1.5px var(--bdhi);
-    color: var(--accink);
-    font-size: 13px;
-    transition:
-      background-color 220ms,
-      box-shadow 220ms;
-  }
-
-  .legacy :global(.rule-dot svg),
   .legacy :global(.cb svg) {
     opacity: 0;
     transform: scale(0.4);
@@ -256,20 +169,17 @@
       transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1);
   }
 
-  .legacy :global(.rule.ok .rule-dot),
   .legacy :global(.saved.on .cb) {
     background: var(--acc);
     /* fixed value */
     box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.08);
   }
 
-  .legacy :global(.rule.ok .rule-dot svg),
   .legacy :global(.saved.on .cb svg) {
     opacity: 1;
     transform: scale(1);
   }
 
-  .legacy :global(.rule.bad .rule-dot),
   .legacy :global(.saved.bad:not(.on) .cb) {
     box-shadow: inset 0 0 0 1.5px var(--err);
   }

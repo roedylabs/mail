@@ -1,8 +1,9 @@
 /**
  * Flow of the invitation page against the invitation API: `GET invites/:token`
- * → "Welcome" or "Invitation expired", step name and password (rules like
- * `PW_RULES`), step multi-factor with a new secret on every entry
- * (`POST invites/:token/totp`), "Confirm" creates the account (`accept`), step
+ * → "Welcome" or "Invitation expired", step name and password with its
+ * confirmation (rules like `PW_RULES`; Continue greyed out until complete),
+ * step multi-factor with the secret from `POST invites/:token/totp` (asked once
+ * per key in memory), "Confirm" creates the account (`accept`), step
  * recovery codes, "Activate account" only redirects. Expired invitations:
  * "Request a new invitation" (`request`) → "Request sent".
  *
@@ -24,7 +25,7 @@ import { Countdown } from '#lib/countdown.svelte.ts';
 import { failText } from '#lib/errors.ts';
 import { formatOtp } from '#lib/login.svelte.ts';
 import { nameError, nameErrorText, normalizeName } from '#lib/name.ts';
-import { PW_RULES, tooLong, type PasswordRuleId } from '#lib/password.ts';
+import { PW_RULES, meetsPolicy, tooLong, type PasswordRuleId } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { qrSymbol, type QrSymbol } from '#lib/qr.ts';
 import { clockText, waitText } from '#lib/wait.ts';
@@ -45,7 +46,7 @@ export type InviteStep = 1 | 2 | 3 | 4;
 export type InviteView = 'form' | 'done' | 'requested';
 /** Loading the invitation: 404 shows the error page, other errors 500 or offline with "Try again". */
 export type InviteStatus = 'loading' | 'ready' | 'missing' | 'failed';
-export type InviteField = 'name' | 'pw' | 'otp';
+export type InviteField = 'name' | 'pw' | 'pw2' | 'otp';
 /** Response of `GET invites/:token`. */
 export interface InviteInfo {
   email: string;
@@ -73,20 +74,13 @@ export interface InvitePageValues {
   toLogin: () => void;
 }
 
-/** Rule chip below "Set password" (`rules`). */
-export interface InviteRule {
-  id: PasswordRuleId;
-  label: string;
-  ok: boolean;
-  /** Red after "Continue" while it is not met. */
-  bad: boolean;
-}
-
 export interface InviteHooks {
   /** Input rejected: shake the card, focus the field. */
   fail?: (field?: InviteField) => void;
   /** New step: focus the field. */
   focus?: (field: InviteField) => void;
+  /** Continue on an incomplete step 2: the field that is missing something gets the focus (no message, no shake). */
+  missing?: (field: InviteField) => void;
   /**
    * The account exists (`accept`); a previous session of the browser has
    * ended, its state no longer applies. `left`: the page
@@ -107,13 +101,6 @@ export interface InviteHooks {
 
 /** Locks: code (`accept`) and requests to the link (`totp`, `request`). */
 type LockKind = 'code' | 'link';
-
-/** Name error (`nmErrText`): empty, too long or with invisible characters. */
-function nameText(name: string): string | null {
-  if (!normalizeName(name)) return m.invite_name_required();
-  const error = nameError(name);
-  return error ? nameErrorText(error) : null;
-}
 
 /** Initials like `fromInitials`: first letters of the first two words. */
 function initials(name: string): string {
@@ -144,14 +131,21 @@ export class InviteFlow {
   step = $state<InviteStep>(1);
   view = $state<InviteView>('form');
 
-  // Step 2: name and password
+  // Step 2: name, password and its confirmation (memory only, never storage)
   name = $state('');
   pw = $state('');
+  pw2 = $state('');
+  /**
+   * Name message from Continue (empty name) or from the server (`accept`); until the name is edited. While typing
+   * the name is checked by `nameMsg`.
+   */
   nmErr = $state<string | null>(null);
-  /** `rules`: rules red; `too_long`: text below the field. */
-  pwErr = $state<'rules' | 'too_long' | null>(null);
-  /** Rules named by the server (422 `policy`). */
+  /** From the server (`accept`): `policy` (the rules in `pwBad`) or `too_long`; until the password is edited. */
+  pwErr = $state<'policy' | 'too_long' | null>(null);
+  /** Rules named by the server (422 `policy`): their chips count as not met. */
   pwBad = $state<PasswordRuleId[]>([]);
+  /** Continue with a filled confirmation that differs; editing either password clears it. */
+  pw2Err = $state(false);
   loading = $state(false);
 
   // Step 3: multi-factor
@@ -170,6 +164,9 @@ export class InviteFlow {
 
   // Expired
   reqLoading = $state(false);
+
+  /** Length of the running link lock in seconds (`retry_after`), for the bar that runs empty. */
+  private linkTotal = $state(0);
 
   readonly locks = new Countdown<LockKind>((kind) => this.freed(kind));
   readonly hooks: InviteHooks;
@@ -209,13 +206,29 @@ export class InviteFlow {
   showRequested = $derived(this.view === 'requested');
   firstName = $derived(normalizeName(this.name).split(' ')[0] ?? '');
 
-  rules = $derived(
-    PW_RULES.map((rule): InviteRule => {
-      const ok = rule.test(this.pw) && !this.pwBad.includes(rule.id);
-      return { id: rule.id, label: rule.label(), ok, bad: !ok && this.pwErr === 'rules' };
-    }),
-  );
-  pwText = $derived(this.pwErr === 'too_long' ? m.password_too_long() : null);
+  /**
+   * Message under the name: from Continue or the server, otherwise checked while typing after normalising
+   * (invalid characters, too long); it goes as soon as the name fits again.
+   */
+  nameMsg = $derived.by(() => {
+    if (this.nmErr) return this.nmErr;
+    const error = nameError(this.name);
+    return error ? nameErrorText(error) : null;
+  });
+  /** A name with allowed characters only. */
+  nameOk = $derived(!!normalizeName(this.name) && !this.nameMsg);
+  /** Over 1024 bytes (while typing) or too long according to the server. */
+  pwTooLong = $derived(this.pwErr === 'too_long' || tooLong(this.pw));
+  /** "The password is too long." under the password field. */
+  pwMsg = $derived(this.pwTooLong ? m.password_too_long() : null);
+  /** The password field is marked invalid (too long, or rules the server rejected). */
+  pwInvalid = $derived(this.pwTooLong || this.pwErr === 'policy');
+  /** The password meets the rules (the server's too) and fits. */
+  pwOk = $derived(meetsPolicy(this.pw) && !this.pwErr && !this.pwTooLong);
+  /** Both passwords match ("Passwords match"). */
+  pwMatch = $derived(!!this.pw2 && this.pw2 === this.pw);
+  /** "The passwords don’t match." under the confirmation. */
+  pw2Msg = $derived(this.pw2Err ? m.setup_pw2_mismatch() : null);
 
   qr = $derived<QrSymbol | null>(this.uri ? qrSymbol(this.uri) : null);
   /** Secret in groups of four (`secretLabel`). */
@@ -231,8 +244,11 @@ export class InviteFlow {
 
   linkLocked = $derived(this.linkLeft > 0);
   linkLockText = $derived(this.linkLeft ? m.limit_text({ wait: waitText(this.linkLeft) }) : '');
-  /** Locked buttons with a countdown (`s2LockBtn`, `reqLockBtn`); both share the lock of the links. */
-  s2LockBtn = $derived(this.linkLeft ? m.invite_next_locked({ time: clockText(this.linkLeft) }) : '');
+  /** The link lock as a bar running empty: seconds `left` of `total`. */
+  linkLock = $derived(this.linkLeft ? { left: this.linkLeft, total: Math.max(this.linkTotal, this.linkLeft) } : null);
+  /** Step 2 complete: Continue is greyed out until the name is valid, all four chips are met and no lock runs. */
+  s2Ready = $derived(this.nameOk && this.pwOk && this.pwMatch && !this.linkLocked);
+  /** "Request a new invitation" with a countdown; it shares the lock of the links with Continue on step 2. */
   reqLockBtn = $derived(this.linkLeft ? m.invite_request_locked({ time: clockText(this.linkLeft) }) : '');
 
   /** "Confirm that you’ve saved the codes." (`savedErr && !saved`). */
@@ -295,8 +311,9 @@ export class InviteFlow {
 
   // ---- Step 1 ----
 
-  /** "Accept invitation". */
+  /** "Accept invitation": step 2, the name from the invitation while the field is empty. */
   accept(): void {
+    if (!normalizeName(this.name) && this.info?.name) this.name = this.info.name;
     this.step = 2;
     this.hooks.focus?.('name');
   }
@@ -321,29 +338,31 @@ export class InviteFlow {
     this.nmErr = null;
   }
 
+  /** A new password discards the server's verdict on the old one and the mismatch. */
   editPw(value: string): void {
     this.pw = value;
+    this.pwErr = null;
     this.pwBad = [];
-    // Like `onPw`: the rules stay red until all are met.
-    if (this.pwErr === 'too_long' || (this.pwErr === 'rules' && PW_RULES.every((rule) => rule.test(value)))) {
-      this.pwErr = null;
-    }
+    this.pw2Err = false;
+  }
+
+  editPw2(value: string): void {
+    this.pw2 = value;
+    this.pw2Err = false;
   }
 
   /**
-   * "Continue": check name and rules, then fetch the secret for the app
-   * (`POST …/totp`). After field errors when confirming the previous secret
-   * still applies (the app already has it); only "Back" discards it.
+   * "Continue" (Enter too while it is greyed out). Incomplete: an empty name
+   * says so, an invalid one shakes, a filled confirmation that differs shows
+   * the mismatch (each with the shake and the focus there); otherwise the
+   * focus moves to the password or the confirmation. Complete: fetch the
+   * secret for the app (`POST …/totp`), unless one is in memory already (Back
+   * from step 3, field errors when confirming): then step 3 at once.
    */
   async submitName(): Promise<void> {
     if (this.loading || this.linkLocked) return;
-    const nmErr = nameText(this.name);
-    const pwErr = !PW_RULES.every((rule) => rule.test(this.pw)) ? 'rules' : tooLong(this.pw) ? 'too_long' : null;
-    if (nmErr || pwErr) {
-      this.nmErr = nmErr;
-      this.pwErr = pwErr;
-      this.pwBad = [];
-      this.hooks.fail?.(nmErr ? 'name' : 'pw');
+    if (!this.s2Ready) {
+      this.incomplete();
       return;
     }
     if (this.secret) {
@@ -371,6 +390,21 @@ export class InviteFlow {
       if (req !== this.req) return;
       this.loading = false;
       this.linkFailed(error);
+    }
+  }
+
+  private incomplete(): void {
+    if (!normalizeName(this.name)) {
+      this.nmErr = m.invite_name_required();
+      this.hooks.fail?.('name');
+    } else if (this.nameMsg) {
+      this.hooks.fail?.('name');
+    } else if (this.pwOk && this.pw2) {
+      // Complete but for the confirmation, which is filled: it differs.
+      this.pw2Err = true;
+      this.hooks.fail?.('pw2');
+    } else {
+      this.hooks.missing?.(this.pwOk ? 'pw2' : 'pw');
     }
   }
 
@@ -486,7 +520,8 @@ export class InviteFlow {
     } else if (isApiError(error, 422, 'invite_expired')) {
       this.toExpired();
     } else if (isApiError(error, 429)) {
-      this.locks.start('link', retryAfter(error));
+      this.linkTotal = retryAfter(error);
+      this.locks.start('link', this.linkTotal);
       this.hooks.fail?.();
     } else if (error instanceof NetworkError) {
       this.hooks.offline?.();
@@ -550,7 +585,7 @@ export class InviteFlow {
       this.pwBad = [];
     } else if (password) {
       const ids = Array.isArray(password.rules) ? password.rules.filter((r): r is string => typeof r === 'string') : [];
-      this.pwErr = 'rules';
+      this.pwErr = 'policy';
       this.pwBad = PW_RULES.filter((rule) => ids.includes(rule.id)).map((rule) => rule.id);
     }
     // The secret stays valid (it is only checked after the fields): no new scan.
@@ -573,8 +608,10 @@ export class InviteFlow {
 
   private clearPassword(): void {
     this.pw = '';
+    this.pw2 = '';
     this.pwErr = null;
     this.pwBad = [];
+    this.pw2Err = false;
     this.nmErr = null;
   }
 

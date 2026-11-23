@@ -190,12 +190,17 @@ describe('Invitation page', () => {
     // Step 2: name and password
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Set up your account');
     expect(view.getByRole('img', { name: 'Step 2 of 4' })).toBeInTheDocument();
+    expect(ui.authTitle).toBe('Set up your account · Invitation');
+    // Greyed out until complete; pressed anyway, it says what is missing.
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
     await click('Continue');
     expect(view.getByText('Please enter your name.')).toBeInTheDocument();
     await type('Your name', 'Jonas Schulz');
     await type('Choose a password', 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
     const rules = view.getByRole('list', { name: 'Password requirements' });
-    expect(within(rules).getAllByRole('listitem')).toHaveLength(3);
+    expect(within(rules).getAllByRole('listitem')).toHaveLength(4);
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'false');
     await click('Continue');
 
     // Step 3: QR code, key and code
@@ -247,6 +252,7 @@ describe('Invitation page', () => {
     // Name from the invitation is prefilled
     expect(view.getByLabelText('Your name')).toHaveValue('Jonas Schulz');
     await type('Choose a password', 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
     await click('Continue');
     await view.findByRole('heading', { name: MFA_TITLE });
     await type('Verification code', '000000');
@@ -277,6 +283,7 @@ describe('Invitation page', () => {
     await view.findByRole('heading', { level: 1 });
     await click('Accept invitation');
     await type('Choose a password', 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
     await click('Continue');
     await view.findByRole('heading', { name: MFA_TITLE });
     await type('Verification code', '123456');
@@ -284,7 +291,7 @@ describe('Invitation page', () => {
     expect(view.queryByRole('alert')).not.toBeInTheDocument();
   });
 
-  it('locks “Continue” after 429 with lock and countdown', async () => {
+  it('greys out “Continue” after 429 and shows the lock under the confirmation', async () => {
     mockApi({
       'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }],
       'POST invites/tok/totp': [{ status: 429, body: { error: 'rate_limited', retry_after: 360 } }],
@@ -293,11 +300,128 @@ describe('Invitation page', () => {
     await view.findByRole('heading', { level: 1 });
     await click('Accept invitation');
     await type('Choose a password', 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
     await click('Continue');
-    const button = await view.findByRole('button', { name: 'Continue in 6:00' });
-    expect(button).toBeDisabled();
-    expect(button.style.opacity).toBe('0.55');
-    expect(view.getByText('Too many requests.')).toBeInTheDocument();
+    const lock = await view.findByRole('alert');
+    expect(lock).toHaveAttribute('id', 'in-lock');
+    expect(lock).toHaveTextContent(/^Too many requests\.\s*Try again in 6 minutes\./);
+    // The bar and m:ss are not read (the alert would be announced every second).
+    expect(within(lock).getByText('6:00').closest('[aria-hidden="true"]')).not.toBeNull();
+    expect(
+      view.getByLabelText('Confirm password').compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    // No time on the button; the fields stay editable.
+    expect(view.getByRole('button', { name: 'Continue' })).toHaveAttribute('aria-disabled', 'true');
+    expect(view.queryByRole('button', { name: /Continue in/ })).toBeNull();
+    expect(view.getByLabelText('Your name')).toBeEnabled();
+  });
+
+  it('builds step 2 with the name, the check card and both password fields', async () => {
+    mockApi({ 'GET invites/tok': [{ body: { ...INFO, name: 'Jonas Schulz' } }] });
+    const view = renderPage();
+    await view.findByRole('heading', { level: 1 });
+    await click('Accept invitation');
+    const name = view.getByLabelText('Your name');
+    const pw = view.getByLabelText('Choose a password');
+    const pw2 = view.getByLabelText('Confirm password');
+    expect(name).toHaveAttribute('autocomplete', 'name');
+    expect(name).toHaveAttribute('maxlength', '100');
+    expect(name).toHaveAttribute('placeholder', 'First and last name');
+    expect(pw).toHaveAttribute('id', 'in-pw');
+    expect(pw).toHaveAttribute('name', 'new-password');
+    expect(pw).toHaveAttribute('autocomplete', 'new-password');
+    expect(pw).toHaveAttribute('aria-describedby', 'in-pw-rules');
+    expect(pw2).toHaveAttribute('id', 'in-pw2');
+    expect(pw2).toHaveAttribute('name', 'confirm-password');
+    expect(pw2).toHaveAttribute('placeholder', 'Enter it again');
+    // The invited address for password managers: hidden, not focusable.
+    const user = view.container.querySelector<HTMLInputElement>('input[name="username"]');
+    expect(user?.value).toBe('jonas.schulz@example.com');
+    expect(user).toHaveAttribute('autocomplete', 'username');
+    expect(user).toHaveAttribute('tabindex', '-1');
+    expect(user?.hidden).toBe(true);
+    // Tab order: name → password → confirm → Back → Continue; the eyes are out of it, each field has its own.
+    const order = [
+      name,
+      pw,
+      pw2,
+      view.getByRole('button', { name: 'Back' }),
+      view.getByRole('button', { name: 'Continue' }),
+    ];
+    for (const [a, b] of order.slice(0, -1).map((el, i) => [el, order[i + 1]!] as const)) {
+      expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    const eye = view.getByRole('button', { name: 'Show password' });
+    const eye2 = view.getByRole('button', { name: 'Show confirmed password' });
+    expect(eye).toHaveAttribute('tabindex', '-1');
+    expect(eye2).toHaveAttribute('tabindex', '-1');
+    await fireEvent.click(eye2);
+    expect(pw2).toHaveAttribute('type', 'text');
+    expect(pw).toHaveAttribute('type', 'password');
+    expect(view.getByRole('button', { name: 'Hide confirmed password' })).toHaveAttribute('aria-pressed', 'true');
+
+    // Invalid characters while typing: the message right under the field.
+    await type('Your name', 'Jonas (Sales)');
+    const nameErr = view.getByRole('alert');
+    expect(nameErr).toHaveAttribute('id', 'in-name-err');
+    expect(nameErr).toHaveTextContent('The name contains invalid characters.');
+    expect(name).toHaveAttribute('aria-invalid', 'true');
+    expect(name).toHaveAttribute('aria-describedby', 'in-name-err');
+    await type('Your name', 'Jonas Schulz');
+    expect(view.queryByRole('alert')).toBeNull();
+
+    // Too long while typing; “Passwords match” for screen readers, no mark in the field.
+    await type('Choose a password', 'aA1' + '€'.repeat(400));
+    expect(view.getByRole('alert')).toHaveTextContent('The password is too long.');
+    expect(pw).toHaveAttribute('aria-describedby', 'in-pw-err in-pw-rules');
+    await type('Choose a password', 'Safe-enough1');
+    expect(view.container.querySelector('#in-pw2-ok')).toHaveTextContent(/^$/);
+    await type('Confirm password', 'Safe-enough1');
+    expect(view.container.querySelector('#in-pw2-ok')).toHaveTextContent('Passwords match');
+
+    // A filled confirmation that differs: the message under it on Continue.
+    await type('Confirm password', 'Safe-enough2');
+    await click('Continue');
+    const mismatch = view.getByRole('alert');
+    expect(mismatch).toHaveAttribute('id', 'in-pw2-err');
+    expect(mismatch).toHaveTextContent('The passwords don’t match.');
+    expect(pw2).toHaveAttribute('aria-invalid', 'true');
+    await vi.waitFor(() => expect(document.activeElement).toBe(pw2));
+    await type('Choose a password', 'Safe-enough2');
+    expect(view.queryByRole('alert')).toBeNull();
+
+    // Back and forward again: the eyes are hidden again, everything else as it was.
+    await click('Back');
+    await click('Accept invitation');
+    expect(view.getByLabelText('Confirm password')).toHaveAttribute('type', 'password');
+    expect(view.getByLabelText('Confirm password')).toHaveValue('Safe-enough2');
+  });
+
+  it('focuses the name when entering step 2, on mobile the heading (the keyboard stays closed)', async () => {
+    mockApi({ 'GET invites/tok': [{ body: INFO }, { body: INFO }] });
+    const desktop = renderPage();
+    await desktop.findByRole('heading', { level: 1 });
+    await fireEvent.click(desktop.getByRole('button', { name: 'Accept invitation' }));
+    await vi.waitFor(() => expect(document.activeElement).toBe(desktop.getByLabelText('Your name')));
+    desktop.unmount();
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 393, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    try {
+      const view = renderPage();
+      await view.findByRole('heading', { level: 1 });
+      await fireEvent.click(view.getByRole('button', { name: 'Accept invitation' }));
+      await vi.waitFor(() =>
+        expect(document.activeElement).toBe(view.getByRole('heading', { name: 'Set up your account' })),
+      );
+      // A missing field gets the focus on mobile too.
+      await type('Your name', 'Jonas Schulz');
+      await click('Continue');
+      await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Choose a password')));
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+      window.dispatchEvent(new Event('resize'));
+    }
   });
 
   it('locks “Request a new invitation” after 429 with lock and countdown', async () => {
@@ -332,6 +456,7 @@ describe('Invitation page', () => {
     await view.findByRole('heading', { level: 1 });
     await click('Accept invitation');
     await type('Choose a password', 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
     await click('Continue');
     await view.findByRole('heading', { name: MFA_TITLE });
     await type('Verification code', '123456');
@@ -443,6 +568,7 @@ describe('Invitation page', () => {
     await click('Accept invitation');
     await type('Your name', 'Jonas Schulz');
     await type('Choose a password', 'Safe-enough1');
+    await type('Confirm password', 'Safe-enough1');
     await click('Continue');
     const dialog = await view.findByRole('alertdialog', { name: 'No connection' });
     expect(ui.toast).toBeNull();
