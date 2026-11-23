@@ -45,18 +45,19 @@ export async function setupAppByApi(
  * administrator `admin` with an authenticator app, then OAuth client via DCR
  * with the Stalwart admin's app password, the mail server and system mails
  * through that account. The session cookie from `setup/complete` ends up in
- * `context` (shared cookie store of `context.request`).
+ * `context` (shared cookie store of `context.request`). Returns the
+ * administrator's authenticator app.
  */
 export async function setupByApi(
   context: BrowserContext,
   instance: Instance,
   stalwart: Stalwart,
   admin: AppUser,
-): Promise<void> {
+): Promise<SetupApp> {
   const token = await instance.setupToken();
   const send = sender(context, instance, { 'x-setup-token': token });
   await send('POST', 'setup/token', { token });
-  await setupAppByApi(context, instance, token, admin.email);
+  const app = await setupAppByApi(context, instance, token, admin.email);
   await send('POST', 'setup/complete', {
     name: admin.name,
     email: admin.email,
@@ -65,6 +66,7 @@ export async function setupByApi(
   });
   expect(await context.cookies(instance.url), 'session cookie after setup/complete').not.toEqual([]);
   await connectServer(context, instance, stalwart);
+  return app;
 }
 
 /** API calls with the cookies of `context`; errors name status and body. */
