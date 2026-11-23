@@ -6,6 +6,8 @@ name: Fuzzing
 # also grows the corpus the pull requests start from. A crash fails the run
 # and leaves the input as an artifact. The web app's renderer and parsers
 # have property-based tests with fast-check in the normal test suite instead.
+#
+# Triggers: pull requests that change Rust code, nightly and manually.
 
 on:
   pull_request:
@@ -16,22 +18,22 @@ on:
       - ".clusterfuzzlite/**"
       - ".github/workflows/fuzz.yml"
   schedule:
-    - cron: "41 1 * * *"
+    - cron: "41 1 * * *" # daily 01:41 UTC
   workflow_dispatch:
 
 permissions:
   contents: read
 
 concurrency:
-  group: fuzz-${{ github.event.pull_request.number || github.ref }}
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  pull-request:
-    name: Fuzz pull request
-    if: github.event_name == 'pull_request'
+  fuzz:
+    # Pull requests: code-change mode, 5 minutes. Otherwise: batch mode, 1 hour.
+    name: Fuzz (${{ github.event_name == 'pull_request' && 'code change' || 'batch' }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: ${{ github.event_name == 'pull_request' && 45 || 90 }}
     permissions:
       contents: read
       actions: read # corpus and builds of earlier runs
@@ -46,29 +48,6 @@ jobs:
         uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
-          fuzz-seconds: 300
-          mode: code-change
-          sanitizer: address
-
-  batch:
-    name: Fuzz main
-    if: github.event_name != 'pull_request'
-    runs-on: ubuntu-24.04
-    timeout-minutes: 90
-    permissions:
-      contents: read
-      actions: read # corpus of earlier runs
-    steps:
-      - name: Build fuzz targets
-        uses: google/clusterfuzzlite/actions/build_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
-        with:
-          language: rust
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          sanitizer: address
-      - name: Run fuzz targets
-        uses: google/clusterfuzzlite/actions/run_fuzzers@884713a6c30a92e5e8544c39945cd7cb630abcd1 # v1
-        with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
-          fuzz-seconds: 3600
-          mode: batch
+          fuzz-seconds: ${{ github.event_name == 'pull_request' && 300 || 3600 }}
+          mode: ${{ github.event_name == 'pull_request' && 'code-change' || 'batch' }}
           sanitizer: address

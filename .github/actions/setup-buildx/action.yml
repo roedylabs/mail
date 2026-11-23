@@ -1,0 +1,23 @@
+name: Set up Docker Buildx
+description: >-
+  Buildx with the BuildKit image pinned by digest in .github/buildkit/Dockerfile
+  instead of the moby/buildkit tag that setup-buildx-action would pull;
+  Dependabot maintains the FROM line. Needs the repository checked out.
+
+runs:
+  using: composite
+  steps:
+    - name: Read BuildKit image
+      id: buildkit
+      shell: bash
+      run: |
+        image=$(sed -n 's/^FROM //p' .github/buildkit/Dockerfile)
+        if ! printf '%s\n' "$image" | grep -Eqx 'moby/buildkit:[^@ ]+@sha256:[0-9a-f]{64}'; then
+          echo "::error::.github/buildkit/Dockerfile has no FROM moby/buildkit:<tag>@sha256:<digest> (found '$image')"
+          exit 1
+        fi
+        echo "image=$image" >>"$GITHUB_OUTPUT"
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      with:
+        driver-opts: image=${{ steps.buildkit.outputs.image }}

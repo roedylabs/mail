@@ -40,7 +40,8 @@ updates:
         update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
-    directory: /
+    # Workflows and the composite actions in .github/actions/.
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: weekly
     # Room for separate major-update PRs next to the grouped minor/patch PR.
