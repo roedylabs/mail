@@ -373,7 +373,8 @@ fn icon(svg: &str, ink: &str) -> Option<String> {
     const SIZE: f32 = 44.8;
     let scale = SIZE / 24.0;
     let tree = usvg::Tree::from_str(svg, &options()).ok()?;
-    let ink_box = tree.root().abs_stroke_bounding_box();
+    // usvg 0.50: an empty group has no box; such an icon draws nothing.
+    let ink_box = tree.root().abs_stroke_bounding_box()?;
     let center = (ink_box.top() + ink_box.bottom()) / 2.0;
     let x = (80.0 - SIZE) / 2.0;
     let y = 40.0 - center * scale;
