@@ -67,29 +67,78 @@ async function type(label: string | RegExp, value: string) {
 }
 
 describe('page sign-in', () => {
-  it('shows title and text of the branding, "Stay signed in" preselected', () => {
+  it('shows title and text of the branding, "Stay signed in" preselected, no footer', () => {
     const view = show({ kind: 'login' }, { branding: { ...BRAND0, loginTitle: 'Hello team', loginText: '' } });
     expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Hello team');
     expect(view.queryByText('Sign in with your account.')).toBeNull();
     expect(view.getByRole('checkbox', { name: 'Stay signed in' })).toHaveAttribute('aria-checked', 'true');
-    expect(view.getByText(`© ${new Date().getFullYear()} Roedy Mail`)).toBeInTheDocument();
+    expect(view.queryByText(`© ${new Date().getFullYear()} Roedy Mail`)).toBeNull();
     expect(view.queryByRole('link', { name: 'Privacy policy' })).toBeNull();
+    expect(ui.authTitle).toBe('Sign in · Roedy Mail');
   });
 
-  it('shows maintenance mode with a custom hint or the default text', () => {
+  it('shows maintenance mode above the fields with a custom hint or the default text', () => {
     const view = show({ kind: 'login' }, { maintenance: { on: true, message: null } });
-    expect(view.getByRole('status')).toHaveTextContent(
-      'We’re performing maintenance right now. Please try again in an hour.',
-    );
+    const maint = view.container.querySelector('#ln-maint');
+    expect(maint).toHaveAttribute('role', 'status');
+    expect(maint).toHaveTextContent('Maintenance');
+    expect(maint).toHaveTextContent('We’re performing maintenance right now. Please try again in an hour.');
+    expect(
+      maint!.compareDocumentPosition(view.getByLabelText('Email or username')) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     view.unmount();
     const custom = show({ kind: 'login' }, { maintenance: { on: true, message: 'Until 2 pm' } });
-    expect(custom.getByRole('status')).toHaveTextContent('Until 2 pm');
+    expect(custom.container.querySelector('#ln-maint')).toHaveTextContent('Until 2 pm');
   });
 
-  it('shows the organization links in the footer when they are set', () => {
-    const view = show({ kind: 'login' }, { org: { ...CONFIG.org, privacy: 'https://example.com/privacy' } });
-    expect(view.getByRole('link', { name: 'Privacy policy' })).toHaveAttribute('href', 'https://example.com/privacy');
-    expect(view.queryByRole('link', { name: 'Legal notice' })).toBeNull();
+  it('fills the account preview live from the identifier and "Stay signed in"', async () => {
+    const view = show();
+    const preview = () => view.container.querySelector('.acct')!;
+    expect(preview()).toHaveAttribute('aria-hidden', 'true');
+    expect(preview()).toHaveTextContent('Your account');
+    expect(preview()).toHaveTextContent('Stays signed in');
+    expect(preview()).toHaveTextContent('You stay signed in on this device until you sign out.');
+    await type('Email or username', '  ändrea@example.com ');
+    expect(preview().querySelector('.avatar')).toHaveTextContent('Ä');
+    expect(preview()).toHaveTextContent('ändrea@example.com');
+    expect(preview()).toHaveTextContent('Roedy Mail');
+    await fireEvent.click(view.getByRole('checkbox', { name: 'Stay signed in' }));
+    expect(view.getByRole('checkbox', { name: 'Stay signed in' })).toHaveAttribute('aria-checked', 'false');
+    expect(preview()).toHaveTextContent('This session only');
+    expect(preview()).toHaveTextContent('You’re signed out when you close the browser.');
+  });
+
+  it('keeps the Tab order identifier, "Forgot password?", password, "Stay signed in", the eye out of it', () => {
+    const view = show();
+    const order = [
+      view.getByLabelText('Email or username'),
+      view.getByRole('link', { name: 'Forgot password?' }),
+      view.getByLabelText('Password'),
+      view.getByRole('checkbox', { name: 'Stay signed in' }),
+    ];
+    for (const [a, b] of order.slice(0, -1).map((el, i) => [el, order[i + 1]!] as const)) {
+      expect(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+    expect(view.getByRole('button', { name: 'Show password' })).toHaveAttribute('tabindex', '-1');
+    expect(view.getByLabelText('Email or username')).toHaveAttribute('maxlength', '254');
+    expect(view.getByLabelText('Email or username')).toHaveAttribute('autocomplete', 'username');
+    expect(view.getByLabelText('Password')).toHaveAttribute('autocomplete', 'current-password');
+  });
+
+  it('focuses the identifier when entering, on mobile the heading (the keyboard stays closed)', async () => {
+    const desktop = show();
+    await vi.waitFor(() => expect(document.activeElement).toBe(desktop.getByLabelText('Email or username')));
+    desktop.unmount();
+    const width = window.innerWidth;
+    Object.defineProperty(window, 'innerWidth', { value: 393, configurable: true });
+    window.dispatchEvent(new Event('resize'));
+    try {
+      const view = show();
+      await vi.waitFor(() => expect(document.activeElement).toBe(view.getByRole('heading', { level: 1 })));
+    } finally {
+      Object.defineProperty(window, 'innerWidth', { value: width, configurable: true });
+      window.dispatchEvent(new Event('resize'));
+    }
   });
 
   it('switches the theme only in the browser', async () => {
@@ -101,12 +150,14 @@ describe('page sign-in', () => {
     expect(calls).toHaveLength(0);
   });
 
-  it('reports missing input and wrong credentials', async () => {
+  it('reports missing input and wrong credentials under the password field', async () => {
     mockApi({ 'POST auth/login': [{ status: 422, body: { error: 'invalid_credentials' } }] });
     const view = show();
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
     expect(view.getByText('Please enter your email address or username.')).toBeInTheDocument();
-    expect(view.container.querySelector('#ln-id-err')).not.toHaveClass('wrap');
+    expect(view.getByText('Please enter your password.')).toBeInTheDocument();
+    expect(view.getByLabelText('Email or username')).toHaveAttribute('aria-describedby', 'ln-id-err');
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Email or username')));
     await type('Email or username', 'max');
     await type('Password', 'wrong');
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
@@ -117,6 +168,51 @@ describe('page sign-in', () => {
       view.getByLabelText('Password').compareDocumentPosition(failed) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(view.getByLabelText('Password')).toHaveValue('');
+    expect(view.getByLabelText('Email or username')).toHaveValue('max');
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Password')));
+  });
+
+  it('greys out "Sign in" while locked, the time left only in the message', async () => {
+    mockApi({ 'POST auth/login': [{ status: 429, body: { error: 'rate_limited', retry_after: 300 } }] });
+    const view = show();
+    await type('Email or username', 'max');
+    await type('Password', 'wrong');
+    await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
+    const lock = await view.findByRole('alert');
+    expect(lock).toHaveTextContent('Too many attempts. Try again in 5 minutes.');
+    expect(lock.querySelector('.time')).toHaveTextContent('5:00');
+    expect(lock.querySelector('.lock')).toHaveAttribute('aria-hidden', 'true');
+    const button = view.getByRole('button', { name: 'Sign in' });
+    expect(button).toHaveAttribute('aria-disabled', 'true');
+    expect(button).toHaveClass('off');
+    // Both fields stay editable.
+    expect(view.getByLabelText('Password')).not.toBeDisabled();
+    expect(view.getByLabelText('Email or username')).not.toBeDisabled();
+  });
+
+  it('shows "No connection" when the sign-in gets no answer, the input stays', async () => {
+    mockApi({});
+    const view = show();
+    await type('Email or username', 'max');
+    await type('Password', 'secret');
+    await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
+    expect(await view.findByRole('alertdialog')).toHaveTextContent(m.net_title());
+    expect(view.getByLabelText('Email or username')).toHaveValue('max');
+    expect(view.getByLabelText('Password')).toHaveValue('secret');
+    expect(ui.toast).toBeNull();
+  });
+
+  it('makes "Forgot password?" inert while the sign-in runs', async () => {
+    mockApi({ 'POST auth/login': [() => new Promise(() => undefined)] });
+    const view = show();
+    await type('Email or username', 'max');
+    await type('Password', 'secret');
+    await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
+    const busy = view.getByRole('button', { name: 'Signing in …' });
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    const link = view.container.querySelector('a[href="/password/forgot"]');
+    expect(link).toHaveAttribute('aria-disabled', 'true');
+    expect((link as HTMLElement).inert).toBe(true);
   });
 
   it('reports an unexpected error as an error toast', async () => {
@@ -146,7 +242,7 @@ describe('page sign-in', () => {
     await type('Password', 'Secure-enough1');
     await fireEvent.click(view.getByRole('checkbox', { name: 'Stay signed in' }));
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
-    expect(await view.findByRole('heading', { name: 'Multi-factor authentication' })).toBeInTheDocument();
+    expect(await view.findByRole('heading', { name: m.login_otp_title() })).toBeInTheDocument();
     expect(calls[0]?.body).toEqual({ login: 'max@example.net', password: 'Secure-enough1', remember: false });
     expect(view.getByText('max@example.net')).toBeInTheDocument();
     await type('Verification code', '123456');
@@ -160,6 +256,27 @@ describe('page sign-in', () => {
       'GET settings',
       'GET auth/me',
     ]);
+  });
+
+  it('greets on "Hello" with the stay-signed-in chip; "Back to sign-in" ends the new session', async () => {
+    const { calls } = mockApi({
+      'POST auth/login': [{ body: { status: 'ok', user: { ...ME, display_name: '' } } }],
+      'POST auth/logout': [{ status: 204 }],
+    });
+    const view = show();
+    await type('Email or username', 'anna@example.com');
+    await type('Password', 'Secure-enough1');
+    await fireEvent.click(view.getByRole('checkbox', { name: 'Stay signed in' }));
+    await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
+    const heading = await view.findByRole('heading', { name: 'Hello, Anna' });
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    expect(ui.authTitle).toBe('Signed in · Roedy Mail');
+    expect(view.getByRole('status')).toHaveTextContent('Signed in for this session only.');
+    expect(view.getByText('Redirecting you to Roedy Mail …')).toBeInTheDocument();
+    await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
+    expect(view.getByLabelText('Email or username')).toHaveValue('anna@example.com');
+    expect(view.getByLabelText('Password')).toHaveValue('');
+    await vi.waitFor(() => expect(calls.map((c) => c.path)).toContain('auth/logout'));
   });
 
   it('switches to the recovery code and shows the lock', async () => {
@@ -184,7 +301,7 @@ describe('page sign-in', () => {
     expect(view.getByRole('button', { name: /Confirm in 15:00/ })).toBeDisabled();
     expect(view.getByLabelText('Recovery code')).toBeDisabled();
     await fireEvent.click(view.getByRole('button', { name: 'Use a code from the app' }));
-    expect(view.getByRole('heading', { name: 'Multi-factor authentication' })).toBeInTheDocument();
+    expect(view.getByRole('heading', { name: m.login_otp_title() })).toBeInTheDocument();
     await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
     expect(view.getByLabelText('Email or username')).toHaveValue('max');
     expect(view.getByLabelText('Password')).toHaveValue('');
@@ -261,7 +378,7 @@ describe('page sign-in', () => {
     await type('Email or username', 'max');
     await type('Password', 'Secure-enough1');
     await fireEvent.click(view.getByRole('button', { name: 'Sign in' }));
-    await view.findByRole('heading', { name: 'Multi-factor authentication' });
+    await view.findByRole('heading', { name: m.login_otp_title() });
     expect(view.getByLabelText('Verification code')).not.toHaveAttribute('maxlength');
     await type('Verification code', '123 456');
     await vi.waitFor(() => expect(calls.at(-1)?.body).toEqual({ code: '123456' }));

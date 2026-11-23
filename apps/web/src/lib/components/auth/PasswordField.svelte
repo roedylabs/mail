@@ -37,8 +37,8 @@
     /** Names of the eye ("Show password" / "Hide password"). */
     showLabel?: string | undefined;
     hideLabel?: string | undefined;
-    /** Link on the right of the label row. */
-    link?: { label: string; href: string; onclick?: (e: MouseEvent) => void } | undefined;
+    /** Link on the right of the label row; `disabled` makes it inert (a request runs). */
+    link?: { label: string; href: string; onclick?: (e: MouseEvent) => void; disabled?: boolean } | undefined;
     /** Text of the Caps Lock hint. */
     capsText?: string | undefined;
     input?: HTMLInputElement | undefined;
@@ -100,8 +100,15 @@
   {#if link}
     <div class="label-row">
       <label for={id}>{label}</label>
-      <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- the page passes a resolve() result -->
-      <a class="link" href={link.href} onclick={link.onclick}>{link.label}</a>
+      <!-- eslint-disable svelte/no-navigation-without-resolve -- the page passes a resolve() result -->
+      <a
+        class="link"
+        href={link.href}
+        onclick={link.onclick}
+        aria-disabled={link.disabled ? 'true' : undefined}
+        inert={link.disabled}>{link.label}</a
+      >
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
     </div>
   {:else}
     <label for={id}>{label}</label>
