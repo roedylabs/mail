@@ -36,6 +36,8 @@ export interface SlideBack {
 export interface Back {
   label: string;
   ariaLabel?: string;
+  /** Faded to 55 % while the primary button is busy (the sign-in's code screens); otherwise only inert. */
+  fadeBusy?: boolean;
   onback: () => void;
 }
 

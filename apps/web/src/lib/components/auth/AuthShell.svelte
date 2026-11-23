@@ -227,6 +227,7 @@
   <button
     type="button"
     class="back {cls}"
+    class:fade={!!b.fadeBusy && busy}
     data-g-back={mobile ? '' : undefined}
     aria-label={b.ariaLabel}
     aria-disabled={busy ? 'true' : undefined}
@@ -680,7 +681,13 @@
     box-shadow: var(--sh-edge), var(--sh1);
     transition:
       transform 260ms cubic-bezier(0.3, 1.5, 0.5, 1),
-      background-color 300ms;
+      background-color 300ms,
+      opacity 220ms;
+  }
+
+  .back.fade {
+    opacity: 0.55;
+    pointer-events: none;
   }
 
   .primary {
