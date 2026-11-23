@@ -717,6 +717,8 @@ describe('step multi-factor', () => {
     expect(flow.maint).toBeNull();
     await vi.waitFor(() => expect(flow.showExpired).toBe(true));
     expect(flow.info?.expired).toBe(true);
+    // Passwords, key and code are wiped.
+    expect([flow.pw, flow.pw2, flow.secret, flow.uri, flow.otp]).toEqual(['', '', '', '', '']);
   });
 
   it('asks for a new key on the next Continue when the server holds none any more', async () => {
@@ -861,11 +863,118 @@ describe('step recovery codes', () => {
 });
 
 describe('expired', () => {
+  const EXPIRED = { ...INFO, expired: true };
+
   it('requests a new invitation', async () => {
-    const { flow, calls } = await opened({ [request]: [{ status: 202 }] }, { ...INFO, expired: true });
+    const { flow, calls } = await opened({ [request]: [{ status: 202 }] }, EXPIRED);
     await flow.request();
     expect(calls.at(-1)).toMatchObject({ method: 'POST', path: `invites/${TOKEN}/request` });
     expect(flow.showRequested).toBe(true);
+    expect(flow.showExpired).toBe(false);
+  });
+
+  it('is busy while the request runs and takes no second press', async () => {
+    let answer: (value: { status: number }) => void = () => {};
+    const { flow, calls } = await opened(
+      { [request]: [() => new Promise<{ status: number }>((resolve) => (answer = resolve))] },
+      EXPIRED,
+    );
+    const done = flow.request();
+    expect(flow.reqLoading).toBe(true);
+    expect(flow.busy).toBe(true);
+    void flow.request();
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+    answer({ status: 202 });
+    await done;
+    expect(flow.reqLoading).toBe(false);
+    expect(flow.showRequested).toBe(true);
+  });
+
+  it('names the inviter, or the administrator without one', async () => {
+    const { flow } = await opened({}, EXPIRED);
+    expect([flow.inviteFrom, flow.inviteFromSubject]).toEqual(['Alice Baker', 'Alice Baker']);
+    const none = await opened({}, { ...EXPIRED, inviter: null });
+    expect([none.flow.inviteFrom, none.flow.inviteFromSubject]).toEqual(['your administrator', 'Your administrator']);
+  });
+
+  it('locks the request after 429 until `retry_after` has run out (fallback 30 s), shared with step 2', async () => {
+    vi.useFakeTimers();
+    const h = hooks();
+    const { flow, calls } = await opened(
+      {
+        [request]: [
+          { status: 429, body: { error: 'rate_limited', retry_after: 60 } },
+          { status: 429, body: { error: 'rate_limited' } },
+        ],
+      },
+      EXPIRED,
+      h,
+    );
+    await flow.request();
+    expect(flow.linkLocked).toBe(true);
+    expect(flow.linkLockText).toBe('Try again in 1 minute.');
+    expect(flow.linkLock).toEqual({ left: 60, total: 60 });
+    expect(h.fail).toHaveBeenCalledExactlyOnceWith();
+    expect(flow.showExpired).toBe(true);
+    // Locked: a press sends nothing.
+    await flow.request();
+    expect(calls.filter((c) => c.method === 'POST')).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(20_000);
+    expect(flow.linkLock).toEqual({ left: 40, total: 60 });
+    await vi.advanceTimersByTimeAsync(40_000);
+    expect(flow.linkLocked).toBe(false);
+    expect(flow.linkLock).toBeNull();
+    await flow.request();
+    expect(flow.linkLock).toEqual({ left: 30, total: 30 });
+    flow.dispose();
+  });
+
+  it('shows the error page for 404, “No connection” without an answer and the toast otherwise', async () => {
+    const h = hooks();
+    const { flow } = await opened(
+      {
+        [request]: [
+          { status: 500, body: { error: 'internal' } },
+          () => Promise.reject(new TypeError('Failed to fetch')),
+          { status: 404, body: { error: 'not_found' } },
+        ],
+      },
+      EXPIRED,
+      h,
+    );
+    await flow.request();
+    expect(h.error).toHaveBeenCalledExactlyOnceWith('That didn’t work. Please try again.');
+    expect(flow.showExpired).toBe(true);
+    await flow.request();
+    expect(h.offline).toHaveBeenCalledTimes(1);
+    expect(h.error).toHaveBeenCalledTimes(1);
+    expect(flow.showExpired).toBe(true);
+    expect(flow.reqLoading).toBe(false);
+    await flow.request();
+    expect(flow.status).toBe('missing');
+  });
+
+  it('gives up after STEP_REQUEST_MS and reports “No connection”', async () => {
+    const ctrl = new AbortController();
+    const timeout = vi.spyOn(AbortSignal, 'timeout').mockReturnValue(ctrl.signal);
+    const h = hooks();
+    let sent: AbortSignal | null | undefined;
+    const hang = () => {
+      sent = vi.mocked(fetch).mock.calls.at(-1)?.[1]?.signal;
+      return new Promise<never>((_, reject) =>
+        sent?.addEventListener('abort', () => reject(new DOMException('No answer', 'TimeoutError'))),
+      );
+    };
+    const { flow } = await opened({ [request]: [hang] }, EXPIRED, h);
+    const done = flow.request();
+    expect(timeout).toHaveBeenCalledWith(STEP_REQUEST_MS);
+    expect(sent).toBe(ctrl.signal);
+    ctrl.abort(new DOMException('No answer', 'TimeoutError'));
+    await done;
+    expect(h.offline).toHaveBeenCalledTimes(1);
+    expect(flow.reqLoading).toBe(false);
+    expect(flow.showExpired).toBe(true);
+    timeout.mockRestore();
   });
 
   it('reloads if the invitation applies again meanwhile, and reports locks', async () => {
@@ -882,7 +991,6 @@ describe('expired', () => {
     await flow.request();
     expect(flow.linkLocked).toBe(true);
     expect(flow.linkLockText).toBe('Try again in 1 minute.');
-    expect(flow.reqLockBtn).toBe('Request a new invitation in 1:00');
     flow.locks.clear('link');
     await flow.request();
     await vi.waitFor(() => expect(flow.showS1).toBe(true));

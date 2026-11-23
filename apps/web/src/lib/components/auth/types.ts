@@ -74,11 +74,20 @@ export interface ResultPrimary {
   icon: IconName;
   /** The icon before the label (back-type actions). */
   iconLeft?: boolean;
+  /** Request running: spinner and `busyLabel`, takes no clicks. */
+  busy?: boolean | undefined;
+  busyLabel?: string | undefined;
+  /** Greyed out (a lock runs; the screen says why): takes no clicks. */
+  disabled?: boolean | undefined;
+  /** Own padding on desktop and in the mobile bottom bar (default: 0 18px and 0 22px). */
+  pad?: { desk: string; mob: string } | undefined;
   onclick: () => void;
 }
 
 export interface ResultQuiet {
   label: string;
   icon?: IconName;
+  /** `button`: a full-width secondary button (desktop on `--surface2`, the mobile bar on `--surface`); default a text button. */
+  look?: 'text' | 'button' | undefined;
   onclick: () => void;
 }
