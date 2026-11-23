@@ -592,11 +592,12 @@ export class LoginFlow {
     }
     this.npLoading = true;
     const req = ++this.req;
+    const sent = this.np;
     try {
       const res = await api<{ status: 'ok'; sessions_ended: number }>(
         'POST',
         `auth/password/reset/${encodeURIComponent(this.token)}`,
-        { password: this.np },
+        { password: sent },
       );
       // Even if the page is elsewhere by now: the sessions have ended.
       this.hooks.passwordReset?.();
@@ -618,7 +619,8 @@ export class LoginFlow {
         this.locks.start('np', this.npLockTotal);
         this.hooks.fail?.();
       } else if (isApiError(error, 422, 'invalid') && fieldsOf(error).password) {
-        this.npPolicy(fieldsOf(error).password ?? { code: 'policy' });
+        // The verdict is about the password sent; one edited meanwhile is checked again on its own save.
+        if (this.np === sent) this.npPolicy(fieldsOf(error).password ?? { code: 'policy' });
       } else {
         this.failed(error);
       }

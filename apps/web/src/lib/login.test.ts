@@ -822,6 +822,22 @@ describe('set a new password', () => {
     expect(flow.view).toBe('newpw');
   });
 
+  it('ignores a policy verdict when the password was edited while saving', async () => {
+    let answer: (value: { status: number; body: unknown }) => void = () => undefined;
+    mockApi({ [`POST auth/password/reset/${TOKEN}`]: [() => new Promise((resolve) => (answer = resolve))] });
+    const { flow, h } = ready();
+    const pending = flow.submitNp();
+    flow.editNp('New-password12');
+    flow.editNp2('New-password12');
+    answer({ status: 422, body: { error: 'invalid', fields: { password: { code: 'policy', rules: ['num'] } } } });
+    await pending;
+    expect(flow.npLoading).toBe(false);
+    expect(flow.npMsg).toBeNull();
+    expect(flow.npBad).toEqual([]);
+    expect(flow.npReady).toBe(true);
+    expect(h.fail).not.toHaveBeenCalled();
+  });
+
   it('falls back to the length rule for a policy without known rules', async () => {
     mockApi({
       [`POST auth/password/reset/${TOKEN}`]: [
