@@ -199,9 +199,14 @@ describe('step name and password', () => {
     expect(flow.pw).toBe('Safe-enough1');
     expect(flow.pw2).toBe('Safe-enough1');
     flow.editName(' ');
+    // Continue on the empty name, then Back: the prefilled name leaves no stale message.
+    await flow.submitName();
+    expect(flow.nameMsg).toBe('Please enter your name.');
     flow.back();
     flow.accept();
     expect(flow.name).toBe('Jordan Hale');
+    expect(flow.nameMsg).toBeNull();
+    expect(flow.s2Ready).toBe(true);
     // Without a name in the invitation the field stays empty.
     const other = await opened({}, { ...INFO, name: null });
     other.flow.accept();

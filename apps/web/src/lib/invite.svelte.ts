@@ -313,7 +313,8 @@ export class InviteFlow {
 
   /** "Accept invitation": step 2, the name from the invitation while the field is empty. */
   accept(): void {
-    if (!normalizeName(this.name) && this.info?.name) this.name = this.info.name;
+    // As an edit: a message left from the empty name (Continue, then Back) goes with it.
+    if (!normalizeName(this.name) && this.info?.name) this.editName(this.info.name);
     this.step = 2;
     this.hooks.focus?.('name');
   }
