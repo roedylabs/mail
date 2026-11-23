@@ -152,6 +152,8 @@ Administrators reach the administration area with the shield icon in the header.
 
 ![User administration](screenshots/admin.png)
 
+The invited person opens the link and goes through four steps: the invitation with who sent it, their address, their role and how long it is valid (**Accept invitation**); their name and a password, entered twice; the authenticator app, by scanning the QR code or typing the key and entering the code it shows, which creates the account; and ten recovery codes to copy or download, confirmed with **Activate account**. They are then signed in and land on the start page. If the link has expired, **Request a new invitation** notifies the administrators, who can send a new one.
+
 ### Mail servers
 
 Only servers on this list can be used for mail accounts; the list also feeds the app's Content Security Policy. Each entry shows its domains and the result of the last **Test connection**, with **Show diagnostics** for details. **Add server** registers the OAuth client automatically, as described in [Connect the mail server](#3-connect-the-mail-server). Troubleshooting the diagnostics: [Preparing Stalwart › Diagnostic reasons](setup/stalwart.md#diagnostic-reasons).

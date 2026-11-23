@@ -6,20 +6,23 @@
 // system mails via the administration API → the administrator signs in again
 // with a code from the setup's app → invitations to two addresses,
 // links from the system mails →
-// accept both (with mandatory MFA) → connect an account via the mail server's
+// accept both through the four steps (details; name and password; the
+// authenticator app with a wrong and the right code; the recovery codes) up to
+// the welcome, the second on a phone → connect an account via the mail server's
 // sign-in page and /oauth/callback. The tests build on each other (serial) and
 // share the file's instance (fixtures.ts).
 import { readFile } from 'node:fs/promises';
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { expect, test, type MailUser } from './fixtures.ts';
 import {
+  Authenticator,
   axeViolations,
   closeAll,
   need,
   newPage,
   password,
   settled,
-  totp,
+  under,
   waitForMails,
   type Session,
 } from './helpers.ts';
@@ -27,17 +30,27 @@ import { connectAccount, connectServer } from './setup.ts';
 
 test.describe.configure({ mode: 'serial' });
 
-const admin: { name: string; password: string; secret?: string; state?: Session } = {
+/** The administrator; `app` is the authenticator app linked in the setup (its codes are valid once). */
+const admin: { name: string; password: string; app?: Authenticator; state?: Session } = {
   name: 'Alex Admin',
   password: password(),
 };
 /**
  * Invitees: the address of the Stalwart user and a sub-address of it (`tag`);
- * link from the mail and session from the previous tests.
+ * address and link from the mail and session from the previous tests. The
+ * second accepts on a phone (`mobile`).
  */
-const invitees: { name: string; first: string; tag?: string; link?: string; state?: Session }[] = [
+const invitees: {
+  name: string;
+  first: string;
+  tag?: string;
+  mobile?: boolean;
+  email?: string;
+  link?: string;
+  state?: Session;
+}[] = [
   { name: 'Kim User', first: 'Kim' },
-  { name: 'Sam Second', first: 'Sam', tag: 'two' },
+  { name: 'Sam Second', first: 'Sam', tag: 'two', mobile: true },
 ];
 
 /** Second address via sub-addressing: lands in the mailbox of `user`. */
@@ -64,27 +77,6 @@ async function step(page: Page, heading: string | RegExp, first?: string): Promi
 /** Heading of the authenticator app step (with its soft hyphen). */
 const MFA = /^Multi-factor authen\u00ad?tication$/;
 
-/** Time step of a TOTP code in ms. */
-const TOTP_STEP = 30_000;
-/** Time step of the last code the administrator's app got accepted (setup or sign-in). */
-let adminStep = 0;
-
-/**
- * Next code of the administrator's app. Every code is valid once: its time step must be newer than the last accepted
- * one. The server accepts one step before and after the current one, so this takes the step before while enough of
- * the current one is left for the request, and waits for a code two steps ahead until it is one ahead.
- */
-async function nextCode(secret: string): Promise<string> {
-  const t = Date.now();
-  const now = Math.floor(t / TOTP_STEP);
-  const at = Math.max(t % TOTP_STEP < TOTP_STEP - 5_000 ? now - 1 : now, adminStep + 1);
-  // Valid from step `at - 1` on, with a second's margin for the server's clock.
-  const wait = (at - 1) * TOTP_STEP + 1_000 - Date.now();
-  if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-  adminStep = at;
-  return totp(secret, at * TOTP_STEP);
-}
-
 /** The key of the authenticator app step, without the spaces between its groups. */
 async function keyOf(page: Page): Promise<string> {
   return (await page.locator('.key-value').innerText()).replace(/\s/g, '');
@@ -97,6 +89,30 @@ function next(page: Page) {
 /** Checkbox of the recovery codes step. */
 function savedBox(page: Page) {
   return page.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' });
+}
+
+/** `text` as a literal part of a regular expression. */
+function escape(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Invitation step: heading present, the focus where the page puts it on entering (`'heading'` or a field; none on step
+ * 1), the layout (desktop: the step overview, no bottom bar; phone: the primary button in the bottom bar, no overview)
+ * and axe without findings.
+ */
+async function inviteStep(
+  page: Page,
+  heading: string | RegExp,
+  mobile: boolean,
+  focused?: 'heading' | Locator,
+): Promise<void> {
+  const head = page.getByRole('heading', { name: heading });
+  await expect(head).toBeVisible();
+  if (focused) await expect(focused === 'heading' ? head : focused).toBeFocused();
+  await expect(page.getByRole('list', { name: 'Invitation steps' })).toHaveCount(mobile ? 0 : 1);
+  await expect(page.locator('.bottom button.primary')).toHaveCount(mobile ? 1 : 0);
+  expect(await axeViolations(page), `axe: ${String(heading)}${mobile ? ' (phone)' : ''}`).toEqual([]);
 }
 
 test('setup: all steps, then mail server and system mails', async ({ browser, instance, stalwart }) => {
@@ -256,6 +272,8 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   const secret = await keyOf(page);
   expect(secret).toMatch(/^[A-Z2-7]{32}$/);
   expect(await page.evaluate(() => JSON.stringify(sessionStorage))).not.toContain(secret);
+  // No code of this key accepted yet.
+  const app = new Authenticator(secret, 0);
   const code = page.getByLabel('Verification code');
   const confirm = page.getByRole('button', { name: 'Confirm', exact: true });
   // Too short: Confirm says so (it is never greyed out for an incomplete code).
@@ -265,8 +283,7 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   await expect(alert).toContainText('Please enter all 6 digits.');
   await expect(code).toBeFocused();
   // A wrong code: cleared, "Invalid code.", focus back in the field.
-  const right = totp(secret);
-  await code.fill(`${(Number(right[0]) + 5) % 10}${right.slice(1)}`);
+  await code.fill(app.wrong());
   await expect(alert).toContainText('Invalid code.');
   await expect(code).toHaveValue('');
   await expect(code).toHaveAttribute('aria-invalid', 'true');
@@ -278,7 +295,7 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   await next(page).click();
   await step(page, MFA, 'Verification code');
   expect(await keyOf(page)).toBe(secret);
-  await code.fill(await nextCode(secret));
+  await code.fill(await app.next());
 
   // 6 Recovery codes: the ten codes of the confirmed code, in memory only; reading them comes first (the heading)
   await step(page, 'Recovery codes');
@@ -378,7 +395,7 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   // The same key again; the code must be newer than the confirmed one (the next one of the app).
   await step(page, MFA, 'Verification code');
   expect(await keyOf(page)).toBe(secret);
-  await code.fill(await nextCode(secret));
+  await code.fill(await app.next());
   // The same codes, the box still ticked.
   await step(page, 'Recovery codes');
   await expect(codeItems).toHaveText(recovery.map((c, i) => new RegExp(`^${String(i + 1)}\\s*${c}$`)));
@@ -390,13 +407,13 @@ test('setup: all steps, then mail server and system mails', async ({ browser, in
   await step(page, MFA, 'Verification code');
   expect(await keyOf(page)).toBe(secret);
   await expect(code).toHaveValue('');
-  await code.fill(await nextCode(secret));
+  await code.fill(await app.next());
   await step(page, 'Recovery codes');
   await expect(codeItems).toHaveText(recovery.map((c, i) => new RegExp(`^${String(i + 1)}\\s*${c}$`)));
   await expect(saved).toHaveAttribute('aria-checked', 'true');
   await next(page).click();
   await step(page, 'All set?');
-  admin.secret = secret;
+  admin.app = app;
 
   // A second tab gets to the password as well, but goes on too late (below): its authenticator app would replace this
   // tab's key, so it waits before that step.
@@ -457,7 +474,7 @@ test('administrator signs in again with a code from the setup', async ({ browser
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   // The setup's authenticator app asks for its code; the sixth digit confirms by itself.
   await expect(page.getByRole('heading', { name: 'Multi-factor authentication' })).toBeVisible();
-  await page.getByLabel('Verification code').fill(await nextCode(need(admin.secret, 'key of the setup')));
+  await page.getByLabel('Verification code').fill(await need(admin.app, 'app of the setup').next());
   await expect(page).toHaveURL(/\/no-account$/);
   await settled(page);
   await expect(page.getByRole('button', { name: 'Add email account' })).toBeVisible();
@@ -489,74 +506,132 @@ test('invitations to two addresses via system mail', async ({ browser, instance,
     const mail = mails.find((m) => m.to.includes(to));
     const link = mail && /https?:\/\/\S+\/invite\/[0-9a-f]{64}/.exec(mail.text)?.[0];
     expect(link?.startsWith(`${instance.url}/invite/`), `link in the invitation to ${to}`).toBe(true);
+    invitee.email = to;
     if (link) invitee.link = link;
   }
 });
 
 test('accept invitations with MFA', async ({ browser }) => {
   for (const invitee of invitees) {
-    const context = await browser.newContext();
+    const mobile = invitee.mobile === true;
+    const email = need(invitee.email, `address of ${invitee.name}`);
+    const context = await browser.newContext(
+      mobile ? { viewport: { width: 393, height: 877 }, isMobile: true, hasTouch: true } : {},
+    );
     const page = await newPage(context);
     await page.goto(need(invitee.link, `link for ${invitee.name}`));
     await settled(page);
 
-    // 1 Welcome
-    await expect(page.getByRole('heading', { name: 'Welcome to Roedy Mail' })).toBeVisible();
+    // 1 Invitation: who invited, the invited address, the role and how long it is valid; nothing focused on opening
+    await inviteStep(page, 'Welcome to Roedy Mail', mobile);
+    await expect(page).toHaveTitle('Welcome to Roedy Mail');
+    await expect(page.getByRole('img', { name: 'Step 1 of 4' })).toBeVisible();
+    await expect(page.getByText(`Invitation from ${admin.name}`)).toBeVisible();
+    await expect(page.getByRole('list', { name: 'Invitation details' }).getByRole('listitem')).toHaveText([
+      new RegExp(`^Email address\\s*${escape(email)}$`),
+      /^Role\s*User\b/,
+      /^Invitation valid until\s*\S/,
+    ]);
+    await expect(page.getByRole('link', { name: 'Sign in' })).toHaveAttribute('href', '/login');
     await page.getByRole('button', { name: 'Accept invitation' }).click();
 
-    // 2 Account
-    await expect(page.getByRole('heading', { name: 'Set up your account' })).toBeVisible();
-    await page.getByLabel('Your name').fill(invitee.name);
-    // Continue is greyed out until the confirmation matches
-    const pw = password();
-    await page.getByLabel('Choose a password', { exact: true }).fill(pw);
+    // 2 Name and password: Continue greyed out until the name is there and both passwords match
+    const name = page.getByLabel('Your name');
+    const pw1 = page.getByLabel('Choose a password', { exact: true });
+    const pw2 = page.getByLabel('Confirm password', { exact: true });
+    await inviteStep(page, 'Set up your account', mobile, mobile ? 'heading' : name);
+    await expect(page).toHaveTitle('Set up your account · Invitation');
+    await expect(page.getByRole('img', { name: 'Step 2 of 4' })).toBeVisible();
     await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
-    await page.getByLabel('Confirm password', { exact: true }).fill(pw);
+    await name.fill(invitee.name);
+    const pw = password();
+    await pw1.fill(pw);
+    await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+    await pw2.fill(`${pw}x`);
+    await expect(next(page)).toHaveAttribute('aria-disabled', 'true');
+    await pw2.fill(pw);
     await expect(next(page)).toHaveAttribute('aria-disabled', 'false');
     await next(page).click();
 
-    // 3 MFA with the displayed key; six digits submit on their own
-    await step(page, MFA, 'Verification code');
+    // 3 Authenticator app: QR code and key; six digits submit on their own
+    const code = page.getByLabel('Verification code');
+    const confirm = page.getByRole('button', { name: 'Confirm', exact: true });
+    await expect(page.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible();
+    await inviteStep(page, MFA, mobile, mobile ? 'heading' : code);
     await expect(page).toHaveTitle('Authenticator app · Invitation');
     await expect(page.getByRole('img', { name: 'Step 3 of 4' })).toBeVisible();
-    await expect(page.getByRole('img', { name: 'QR code for the authenticator app' })).toBeVisible();
     const secret = await keyOf(page);
     expect(secret).toMatch(/^[A-Z2-7]{32}$/);
-    // Too short: Confirm says so (it is never greyed out for an incomplete code).
-    const code = page.getByLabel('Verification code');
+    const app = new Authenticator(secret, 0);
+    // A wrong code: cleared, "Invalid code." under the code boxes; on desktop the focus back in the field (on a phone
+    // the on-screen keyboard stays as it is).
+    await code.fill(app.wrong());
+    const invalid = page.locator('#in-code-alert');
+    await expect(invalid).toContainText('Invalid code.');
+    await under(page.locator('.boxes'), invalid);
+    await expect(code).toHaveValue('');
+    await expect(code).toHaveAttribute('aria-invalid', 'true');
+    if (!mobile) await expect(code).toBeFocused();
+    expect(await axeViolations(page), `axe: invalid code${mobile ? ' (phone)' : ''}`).toEqual([]);
+    // Too short: Confirm says so (it is never greyed out for an incomplete code); the edit cleared "Invalid code.".
     await code.fill('12');
-    await page.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(invalid).toHaveCount(0);
+    await expect(confirm).toHaveAttribute('aria-disabled', 'false');
+    await confirm.click();
     await expect(page.locator('#in-otp-err')).toHaveText('Please enter all 6 digits.');
-    // Back keeps the key: Continue shows the same one again, the typed code is gone.
+    // Back keeps the key: Continue shows the same one again (no new scan), the typed code is gone.
     await page.getByRole('button', { name: 'Back', exact: true }).click();
-    await expect(page.getByLabel('Confirm password', { exact: true })).toHaveValue(pw);
+    await expect(page.getByRole('heading', { name: 'Set up your account' })).toBeVisible();
+    await expect(pw2).toHaveValue(pw);
     await next(page).click();
     await expect(page.getByRole('heading', { name: MFA })).toBeVisible();
     expect(await keyOf(page)).toBe(secret);
     await expect(code).toHaveValue('');
-    await code.fill(totp(secret));
+    // The right code of the displayed key creates the account.
+    await code.fill(await app.next());
 
     // 4 Recovery codes: the heading has the focus, ten codes, no Back; unticked, "Activate account" asks first
-    const codesHeading = page.getByRole('heading', { name: 'Recovery codes' });
-    await expect(codesHeading).toBeFocused();
+    await inviteStep(page, 'Recovery codes', mobile, 'heading');
     await expect(page).toHaveTitle('Recovery codes · Invitation');
     await expect(page.getByRole('img', { name: 'Step 4 of 4' })).toBeVisible();
     await expect(page.getByRole('list', { name: 'Recovery codes' }).getByRole('listitem')).toHaveCount(10);
     await expect(page.getByRole('button', { name: 'Back', exact: true })).toHaveCount(0);
-    const saved = page.getByRole('checkbox', { name: 'I’ve saved the codes in a safe place' });
-    await page.getByRole('button', { name: 'Activate account' }).click();
+    const saved = savedBox(page);
+    const activate = page.getByRole('button', { name: 'Activate account' });
+    await activate.click();
     await expect(page.locator('#in-saved-err')).toHaveText('Confirm that you’ve saved the codes.');
     await expect(saved).toBeFocused();
+    await expect(saved).toHaveAttribute('aria-invalid', 'true');
+    expect(await axeViolations(page), `axe: codes not saved${mobile ? ' (phone)' : ''}`).toEqual([]);
     await saved.click();
     await expect(page.locator('#in-saved-err')).toHaveCount(0);
-    await page.getByRole('button', { name: 'Activate account' }).click();
 
-    // Welcome with what was set up, then the start page
-    await expect(page.getByRole('heading', { name: `Welcome, ${invitee.first}` })).toBeVisible();
+    // Welcome with what was set up, then the start page. Loading the new account's settings waits until axe is done:
+    // otherwise the page would move on after 2.7 s, in the middle of the check.
+    let release = () => {};
+    const held = new Promise<void>((resolve) => (release = resolve));
+    await page.route(/\/api\/v1\/settings$/, async (route) => {
+      await held;
+      await route.fallback();
+    });
+    await activate.click();
+    const welcome = page.getByRole('heading', { name: `Welcome, ${invitee.first}` });
+    await expect(welcome).toBeFocused();
     await expect(page).toHaveTitle('Welcome to Roedy Mail');
     await expect(page.getByText('Your account is set up.')).toBeVisible();
+    if (!mobile) {
+      await expect(page.getByRole('list', { name: 'Done' }).getByRole('listitem')).toHaveText([
+        'Account created',
+        'Authenticator app linked',
+        'Recovery codes saved',
+      ]);
+    }
     await expect(page.getByText('Redirecting you to Roedy Mail …')).toBeVisible();
+    await expect(page.getByRole('img', { name: /^Step \d of 4$/ })).toHaveCount(0);
+    expect(await axeViolations(page), `axe: welcome${mobile ? ' (phone)' : ''}`).toEqual([]);
+    release();
     await expect(page).toHaveURL(/\/no-account$/);
+    await page.unrouteAll({ behavior: 'wait' });
     invitee.state = await context.storageState();
     await context.close();
   }

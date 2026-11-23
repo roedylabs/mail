@@ -528,6 +528,13 @@ export async function axeViolations(page: Page): Promise<string[]> {
   }, AXE_TAGS);
 }
 
+/** `below` starts under `above` on the page. */
+export async function under(above: Locator, below: Locator): Promise<void> {
+  const a = need((await above.boundingBox()) ?? undefined, 'box of the upper element');
+  const b = need((await below.boundingBox()) ?? undefined, 'box of the lower element');
+  expect(b.y).toBeGreaterThanOrEqual(a.y + a.height);
+}
+
 /** Waits until `check` returns true (polling every 500 ms), otherwise fails with `what`. */
 export async function eventually(check: () => Promise<boolean>, what: string, timeout = 30_000): Promise<void> {
   const deadline = Date.now() + timeout;

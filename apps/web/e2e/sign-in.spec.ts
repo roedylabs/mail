@@ -6,7 +6,7 @@
 // axe checks every screen.
 import type { BrowserContext, Locator, Page } from '@playwright/test';
 import { expect, test, type Instance } from './fixtures.ts';
-import { Authenticator, axeViolations, closeAll, need, newPage, password, settled } from './helpers.ts';
+import { Authenticator, axeViolations, closeAll, need, newPage, password, settled, under } from './helpers.ts';
 import { setupByApi } from './setup.ts';
 
 test.describe.configure({ mode: 'serial' });
@@ -47,13 +47,6 @@ async function toCode(page: Page): Promise<void> {
   await pw.fill(admin.password);
   await submit.click();
   await expect(page.getByRole('heading', { name: MFA })).toBeVisible();
-}
-
-/** `below` starts under `above` on the page. */
-async function under(above: Locator, below: Locator): Promise<void> {
-  const a = need((await above.boundingBox()) ?? undefined, 'box of the upper element');
-  const b = need((await below.boundingBox()) ?? undefined, 'box of the lower element');
-  expect(b.y).toBeGreaterThanOrEqual(a.y + a.height);
 }
 
 /**
