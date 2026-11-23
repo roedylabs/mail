@@ -50,10 +50,8 @@
 
   const address = $derived(flow.ident.trim());
   const err = $derived(flow.fgErr ?? '');
-  /** Messages under the field. */
-  const described = $derived(
-    [err ? 'ln-fg-err' : '', flow.fgLocked ? 'ln-fg-lock' : ''].filter(Boolean).join(' ') || undefined,
-  );
+  /** Messages under the field: while locked always both (the lock is there), otherwise the error line once shown. */
+  const described = $derived(flow.fgLocked ? 'ln-fg-err ln-fg-lock' : err ? 'ln-fg-err' : undefined);
 </script>
 
 <AuthShell

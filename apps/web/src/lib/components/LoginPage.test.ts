@@ -741,7 +741,7 @@ describe('page reset password', () => {
     expect(lock).toHaveTextContent('Try again in 6 minutes.');
     expect(lock).toHaveTextContent('6:00');
     expect(field.compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(field).toHaveAttribute('aria-describedby', 'ln-fg-lock');
+    expect(field).toHaveAttribute('aria-describedby', 'ln-fg-err ln-fg-lock');
     expect(field).not.toBeDisabled();
     expect(field).toHaveValue('max@example.net');
     // The normal label, greyed out: the time left is only in the lock message.
@@ -752,7 +752,7 @@ describe('page reset password', () => {
     await type('Email address', '');
     await fireEvent.submit(field.closest('form')!);
     expect(view.container.querySelector('#ln-fg-err')).toBeNull();
-    expect(field).toHaveAttribute('aria-describedby', 'ln-fg-lock');
+    expect(field).toHaveAttribute('aria-describedby', 'ln-fg-err ln-fg-lock');
     await type('Email address', 'max');
     vi.advanceTimersByTime(360_000);
     await vi.waitFor(() => expect(view.container.querySelector('#ln-fg-lock')).toBeNull());
