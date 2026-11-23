@@ -100,6 +100,37 @@ describe('AuthShell', () => {
     expect(within(actions as HTMLElement).getAllByRole('button')).toHaveLength(1);
   });
 
+  it('gives the primary button its own padding and a label on one line only when asked', () => {
+    desktop();
+    const plain = shell();
+    const btn = () => plain.getByRole('button', { name: 'Continue' });
+    expect(btn().style.padding).toBe('');
+    expect(btn().querySelector('.nowrap')).toBeNull();
+    plain.unmount();
+    const view = shell({
+      primary: { label: 'Continue', icon: 'ti-arrow-right', pad: { desk: '0 14px', mob: '0 18px' }, nowrap: true },
+    });
+    const own = view.getByRole('button', { name: 'Continue' });
+    expect(own.style.padding).toBe('0px 14px');
+    expect(own.querySelector('.nowrap')).toHaveTextContent('Continue');
+  });
+
+  it('uses the mobile padding in the bottom bar and keeps the busy label on one line', () => {
+    const view = shell({
+      primary: {
+        label: 'Continue',
+        icon: 'ti-arrow-right',
+        busy: true,
+        busyLabel: 'Saving …',
+        pad: { desk: '0 14px', mob: '0 18px' },
+        nowrap: true,
+      },
+    });
+    const btn = view.getByRole('button', { name: 'Saving …' });
+    expect(btn.style.padding).toBe('0px 18px');
+    expect(btn.querySelector('.nowrap')).toHaveTextContent('Saving …');
+  });
+
   it('submits on Enter in a field and sets the document title', async () => {
     const onsubmit = vi.fn();
     const view = shell({ onsubmit });

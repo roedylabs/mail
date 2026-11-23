@@ -45,6 +45,9 @@
   const npErr = $derived(flow.npMsg ?? '');
   const np2Err = $derived(flow.np2Msg ?? '');
   const match = $derived(flow.npMatch && !np2Err);
+
+  /** The primary button's own padding (desktop, mobile bottom bar); its label stays on one line. */
+  const PRIMARY_PAD = { desk: '0 14px', mob: '0 18px' };
 </script>
 
 <AuthShell
@@ -62,6 +65,8 @@
     icon: 'ti-check',
     busy: flow.npLoading,
     busyLabel: m.login_saving(),
+    pad: PRIMARY_PAD,
+    nowrap: true,
     disabled: !flow.npReady,
   }}
   onsubmit={() => void flow.submitNp()}

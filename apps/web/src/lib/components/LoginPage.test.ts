@@ -616,6 +616,8 @@ describe('page reset password', () => {
     // Back sits left of "Send link".
     const send = view.getByRole('button', { name: 'Send link' });
     expect(back.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(send.style.padding).toBe('0px 18px');
+    expect(send.querySelector('.nowrap')).toHaveTextContent('Send link');
     // Entering on desktop: the field.
     await vi.waitFor(() => expect(document.activeElement).toBe(field));
   });
@@ -835,6 +837,9 @@ describe('page set a new password', () => {
     expect(back).toHaveTextContent('Back');
     expect(back.compareDocumentPosition(save()) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(save()).toHaveAttribute('aria-disabled', 'true');
+    // Its own padding (here the mobile bottom bar's) and a label on one line.
+    expect(save().style.padding).toBe('0px 18px');
+    expect(save().querySelector('.nowrap')).toHaveTextContent('Save password');
     // Entering on desktop: the new password.
     await vi.waitFor(() => expect(document.activeElement).toBe(pw));
   });
