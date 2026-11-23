@@ -39,6 +39,8 @@
     swipeBack?: (() => void) | undefined;
     /** Content after the actions. */
     extra?: Snippet | undefined;
+    /** Space above the desktop actions: the level's button gap (default) or its section gap (`gap`). */
+    actionsTop?: 'btn' | 'gap' | undefined;
     /** The heading gets the focus on entering (desktop without scrolling). */
     focusHeading?: boolean | undefined;
   }
@@ -61,6 +63,7 @@
     quiet,
     swipeBack,
     extra,
+    actionsTop = 'btn',
     focusHeading = true,
   }: Props = $props();
 
@@ -151,7 +154,7 @@
     {/if}
   </div>
   {#if !look.mobile && actions}
-    <div class="actions" style:margin-top={look.btnTop} style:--r-ctl={look.ctl}>
+    <div class="actions" style:margin-top={actionsTop === 'gap' ? look.gapL : look.btnTop} style:--r-ctl={look.ctl}>
       {#if primary}{@render primaryBtn(primary, 'lift-sh press')}{/if}
       {#if quiet}{@render quietBtn(quiet, 'hov')}{/if}
     </div>

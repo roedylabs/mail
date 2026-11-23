@@ -161,9 +161,12 @@ export class LoginFlow {
   // Reset password and email sent
   fgErr = $state<string | null>(null);
   fgLoading = $state(false);
+  /** Length of the running request lock in seconds (the lock bar is full at the answer). */
+  fgLockTotal = $state(0);
   /** Countdown of "Resend" runs after 429 until `retry_after` (`rsLimit`). */
   rsLimit = $state(false);
-  private resending = false;
+  /** "Resend" is running: disabled with a spinner. */
+  resending = $state(false);
 
   // Set a new password
   token = $state('');
@@ -233,11 +236,11 @@ export class LoginFlow {
 
   fgLocked = $derived(this.fgLeft > 0);
   fgLockText = $derived(this.fgLeft ? m.limit_text({ wait: waitText(this.fgLeft) }) : '');
-  fgLockBtn = $derived(this.fgLeft ? m.login_send_locked({ time: clockText(this.fgLeft) }) : '');
-  fgReady = $derived(!this.fgLoading && !this.fgLocked);
-  fgDis = $derived(this.fgLoading || this.fgLocked);
+  /** The lock bar under the address field: seconds left of the lock's length. */
+  fgLock = $derived(this.fgLeft ? { left: this.fgLeft, total: Math.max(this.fgLockTotal, this.fgLeft) } : null);
 
-  resendBlocked = $derived(this.coolLeft > 0);
+  /** "Resend" is disabled: counting down or running. */
+  resendBlocked = $derived(this.coolLeft > 0 || this.resending);
   resendLabel = $derived(
     this.coolLeft > 0 ? m.login_resend_wait({ time: clockText(this.coolLeft) }) : m.login_resend(),
   );
@@ -518,7 +521,8 @@ export class LoginFlow {
       this.fgLoading = false;
       if (isApiError(error, 429)) {
         // Only the limit per IP address answers like this; the one per address acts silently.
-        this.locks.start('fg', retryAfter(error));
+        this.fgLockTotal = retryAfter(error);
+        this.locks.start('fg', this.fgLockTotal);
         this.hooks.fail?.();
       } else if (isApiError(error, 422, 'invalid')) {
         this.fgErr = m.login_fg_invalid();
@@ -531,7 +535,7 @@ export class LoginFlow {
 
   /** "Resend": 30 seconds again, after 429 until `retry_after` with a notice. */
   async resend(): Promise<void> {
-    if (this.resendBlocked || this.resending) return;
+    if (this.resendBlocked) return;
     this.resending = true;
     const req = this.req;
     try {

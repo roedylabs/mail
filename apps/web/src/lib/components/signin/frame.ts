@@ -1,7 +1,7 @@
 /**
  * What every form screen of the sign-in page passes to `AuthShell`: the
  * light/dark button (no step bars), the heads of all screens (the space kept
- * above the overview) and the overview of the sign-in.
+ * above the overview) and the overview of the sign-in or of the reset.
  */
 import type { Overview } from '#lib/components/auth/types.ts';
 import type { StepHead } from '#lib/auth-layout.ts';
@@ -25,6 +25,24 @@ export function signInFrame(current: number, second: string = m.login_flow_code(
     overview: {
       label: m.login_flow_label(),
       items: [m.login_flow_password(), second, m.login_flow_done()],
+      current,
+    },
+  };
+}
+
+/** The screens of "Forgot password": the overview of the reset; `current` its item (from 1). */
+export function resetFrame(current: number): SignInFrame {
+  return {
+    themeToggle: true,
+    heads: signInHeads(),
+    overview: {
+      label: m.login_reset_flow_label(),
+      items: [
+        m.login_reset_flow_request(),
+        m.login_reset_flow_mail(),
+        m.login_reset_flow_new(),
+        m.login_reset_flow_signin(),
+      ],
       current,
     },
   };

@@ -310,14 +310,14 @@ describe('page sign-in', () => {
 
   it('hides the old card behind "No connection" as well', async () => {
     mockApi({});
-    const view = show({ kind: 'forgot' });
-    await type('Email address', 'max@example.net');
-    await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+    const view = show({ kind: 'newpw', token: TOKEN });
+    await type('New password', 'New-password-1');
+    await fireEvent.click(view.getByRole('button', { name: 'Save password' }));
     expect(await view.findByRole('alertdialog')).toBeInTheDocument();
     const card = view.container.querySelector('.login') as HTMLElement;
     expect(card).toHaveAttribute('aria-hidden', 'true');
     expect(card.inert).toBe(true);
-    expect(view.getByLabelText('Email address', { selector: 'input' })).toHaveValue('max@example.net');
+    expect(view.getByLabelText('New password', { selector: 'input' })).toHaveValue('New-password-1');
   });
 
   it('opens "Reset password" with the identifier and reports the route', async () => {
@@ -339,10 +339,18 @@ describe('page sign-in', () => {
 
   it('shows /password/forgot signed in with "Back to ‹app name›"', async () => {
     session.user = { ...ME, role: 'user' };
+    mockApi({ 'POST auth/password/forgot': [{ status: 202 }] });
     const view = show({ kind: 'forgot' });
     expect(view.getByLabelText('Email address')).toHaveValue('');
-    await fireEvent.click(view.getByRole('button', { name: 'Back to Roedy Mail' }));
+    const back = view.getByRole('button', { name: 'Back to Roedy Mail' });
+    expect(back).toHaveTextContent('Back');
+    await fireEvent.click(back);
     expect(view.home).toHaveBeenCalledOnce();
+    await type('Email address', 'max@example.net');
+    await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+    await view.findByRole('heading', { name: 'Check your inbox' });
+    await fireEvent.click(view.getByRole('button', { name: 'Back to Roedy Mail' }));
+    expect(view.home).toHaveBeenCalledTimes(2);
   });
 
   it('sets a new password via the link; signed in, this session ends too', async () => {
@@ -629,5 +637,216 @@ describe('page code steps', () => {
     expect(await view.findByText(m.login_expired_title())).toBeInTheDocument();
     expect(view.getByLabelText('Password')).toHaveValue('');
     await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Password')));
+  });
+});
+
+/** Opens `/password/forgot` directly. */
+function atForgot(routes: Parameters<typeof mockApi>[0] = {}) {
+  const { calls } = mockApi(routes);
+  const view = show({ kind: 'forgot' });
+  return { ...view, calls };
+}
+
+/** Sends the link from `/password/forgot` up to "Check your inbox". */
+async function atSent(routes: Parameters<typeof mockApi>[0] = {}) {
+  const view = atForgot({ 'POST auth/password/forgot': [{ status: 202 }], ...routes });
+  await type('Email address', 'max@example.net');
+  await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+  await view.findByRole('heading', { name: 'Check your inbox' });
+  return view;
+}
+
+describe('page reset password', () => {
+  it('shows the field, the mail preview, Back and "Send link" on the shared shell', async () => {
+    const view = atForgot();
+    expect(view.getByRole('heading', { level: 1 })).toHaveTextContent('Reset password');
+    expect(view.getByText(m.login_forgot_intro())).toBeInTheDocument();
+    expect(ui.authTitle).toBe('Reset password · Roedy Mail');
+    expect(view.container.querySelector('.login')).toBeNull();
+    const field = view.getByLabelText('Email address');
+    expect(field).toHaveAttribute('id', 'ln-fg');
+    expect(field).toHaveAttribute('type', 'email');
+    expect(field).toHaveAttribute('name', 'email');
+    expect(field).toHaveAttribute('autocomplete', 'email');
+    expect(field).toHaveAttribute('inputmode', 'email');
+    expect(field).toHaveAttribute('autocapitalize', 'none');
+    expect(field).toHaveAttribute('spellcheck', 'false');
+    expect(field).toHaveAttribute('maxlength', '254');
+    expect(field).toHaveAttribute('placeholder', 'name@example.com');
+    const back = view.getByRole('button', { name: 'Back to sign-in' });
+    expect(back).toHaveTextContent('Back');
+    // Back sits left of "Send link".
+    const send = view.getByRole('button', { name: 'Send link' });
+    expect(back.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Entering on desktop: the field.
+    await vi.waitFor(() => expect(document.activeElement).toBe(field));
+  });
+
+  it('fills the mail preview live from the field, without saying whether an account exists', async () => {
+    const view = atForgot();
+    const preview = () => view.container.querySelector('.acct')!;
+    expect(preview()).toHaveAttribute('aria-hidden', 'true');
+    expect(preview()).toHaveTextContent('Reset your password');
+    expect(preview().querySelector('.who-email')).toHaveTextContent('To: name@example.com');
+    expect(preview().querySelector('.who-email')).toHaveClass('empty');
+    expect(preview()).toHaveTextContent('Reset link');
+    expect(preview()).toHaveTextContent('Valid for 60 minutes');
+    expect(preview()).toHaveTextContent('Works only once');
+    await type('Email address', ' max@example.net ');
+    expect(preview().querySelector('.who-email')).toHaveTextContent('To: max@example.net');
+    expect(preview().querySelector('.who-email')).not.toHaveClass('empty');
+  });
+
+  it('focuses the heading when entering on mobile', async () => {
+    await onPhone(async () => {
+      const view = atForgot();
+      await vi.waitFor(() => expect(document.activeElement).toBe(view.getByRole('heading', { level: 1 })));
+    });
+  });
+
+  it('shows what is missing under the field and moves the focus there, on mobile too', async () => {
+    await onPhone(async () => {
+      const view = atForgot();
+      const field = view.getByLabelText('Email address');
+      await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+      const err = view.container.querySelector('#ln-fg-err');
+      expect(err).toHaveTextContent('Please enter your email address.');
+      expect(err).toHaveAttribute('role', 'alert');
+      expect(field).toHaveAttribute('aria-invalid', 'true');
+      expect(field).toHaveAttribute('aria-describedby', 'ln-fg-err');
+      await vi.waitFor(() => expect(document.activeElement).toBe(field));
+      await type('Email address', 'max@example');
+      expect(view.container.querySelector('#ln-fg-err')).toBeNull();
+      await fireEvent.submit(field.closest('form')!);
+      expect(view.container.querySelector('#ln-fg-err')).toHaveTextContent('Please enter a valid email address.');
+      expect(view.calls).toHaveLength(0);
+    });
+  });
+
+  it('shows the request lock under the field; the field stays editable, "Send link" greyed out', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = atForgot({
+      'POST auth/password/forgot': [{ status: 429, body: { error: 'rate_limited', retry_after: 360 } }],
+    });
+    const field = view.getByLabelText('Email address');
+    await type('Email address', 'max@example.net');
+    await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+    const lock = await vi.waitFor(() => {
+      const el = view.container.querySelector('#ln-fg-lock');
+      expect(el).not.toBeNull();
+      return el!;
+    });
+    expect(lock).toHaveAttribute('role', 'alert');
+    expect(lock).toHaveTextContent('Too many requests.');
+    expect(lock).toHaveTextContent('Try again in 6 minutes.');
+    expect(lock).toHaveTextContent('6:00');
+    expect(field.compareDocumentPosition(lock) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(field).toHaveAttribute('aria-describedby', 'ln-fg-lock');
+    expect(field).not.toBeDisabled();
+    expect(field).toHaveValue('max@example.net');
+    // The normal label, greyed out: the time left is only in the lock message.
+    const send = view.getByRole('button', { name: 'Send link' });
+    expect(send).toHaveAttribute('aria-disabled', 'true');
+    expect(view.queryByText(/Send link in/)).toBeNull();
+    // Enter while locked checks nothing (no error line under the lock).
+    await type('Email address', '');
+    await fireEvent.submit(field.closest('form')!);
+    expect(view.container.querySelector('#ln-fg-err')).toBeNull();
+    expect(field).toHaveAttribute('aria-describedby', 'ln-fg-lock');
+    await type('Email address', 'max');
+    vi.advanceTimersByTime(360_000);
+    await vi.waitFor(() => expect(view.container.querySelector('#ln-fg-lock')).toBeNull());
+    expect(view.getByRole('button', { name: 'Send link' })).toHaveAttribute('aria-disabled', 'false');
+    await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+    expect(field).toHaveAttribute('aria-describedby', 'ln-fg-err');
+  });
+
+  it('sends with a spinner and shows "No connection" without an answer, the address kept', async () => {
+    const view = atForgot();
+    await type('Email address', 'max@example.net');
+    await fireEvent.click(view.getByRole('button', { name: 'Send link' }));
+    expect(await view.findByRole('alertdialog')).toBeInTheDocument();
+    expect(view.getByLabelText('Email address', { selector: 'input' })).toHaveValue('max@example.net');
+  });
+
+  it('takes the typed address back to sign-in, the focus in the password', async () => {
+    const view = atForgot();
+    await type('Email address', 'max@example.net');
+    await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
+    expect(view.navigate).toHaveBeenLastCalledWith('login');
+    expect(view.getByLabelText('Email or username')).toHaveValue('max@example.net');
+    await vi.waitFor(() => expect(document.activeElement).toBe(view.getByLabelText('Password')));
+  });
+});
+
+describe('page check your inbox', () => {
+  it('shows the address, the link chips and "Back to sign-in"; the focus on the heading', async () => {
+    const view = await atSent();
+    const heading = view.getByRole('heading', { level: 1 });
+    expect(ui.authTitle).toBe('Check your inbox · Roedy Mail');
+    await vi.waitFor(() => expect(document.activeElement).toBe(heading));
+    const status = view.getByRole('status');
+    expect(status).toHaveTextContent(
+      'If an account exists for max@example.net, you’ll receive an email with a reset link shortly.',
+    );
+    expect(status.querySelector('strong')).toHaveTextContent('max@example.net');
+    const chips = view.getByRole('list', { name: 'About the link' });
+    expect(chips).toHaveTextContent('Valid for 60 minutes');
+    expect(chips).toHaveTextContent('Works only once');
+    expect(view.getByText('Didn’t get an email?')).toBeInTheDocument();
+    await fireEvent.click(view.getByRole('button', { name: 'Back to sign-in' }));
+    expect(view.navigate).toHaveBeenLastCalledWith('login');
+    expect(view.getByLabelText('Email or username')).toHaveValue('max@example.net');
+  });
+
+  it('counts "Resend" down for 30 s, sends the same address with a spinner and counts again', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let answer: () => void = () => undefined;
+    const view = await atSent({
+      'POST auth/password/forgot': [
+        { status: 202 },
+        () => new Promise<{ status: number }>((resolve) => (answer = () => resolve({ status: 202 }))),
+      ],
+    });
+    const resend = view.getByRole('button', { name: 'Resend in 0:30' });
+    expect(resend).toBeDisabled();
+    vi.advanceTimersByTime(30_000);
+    await vi.waitFor(() => expect(view.getByRole('button', { name: 'Resend' })).not.toBeDisabled());
+    await fireEvent.click(view.getByRole('button', { name: 'Resend' }));
+    const busy = view.getByRole('button', { name: 'Resend' });
+    expect(busy).toBeDisabled();
+    expect(busy).toHaveAttribute('aria-busy', 'true');
+    expect(busy.querySelector('.spin')).not.toBeNull();
+    answer();
+    expect(await view.findByRole('button', { name: 'Resend in 0:30' })).toHaveAttribute('aria-busy', 'false');
+    expect(view.calls.map((c) => c.body)).toEqual([{ email: 'max@example.net' }, { email: 'max@example.net' }]);
+    expect(view.queryByRole('alert')).toBeNull();
+  });
+
+  it('counts down to retry_after after a 429 with a red line under "Resend"', async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const view = await atSent({
+      'POST auth/password/forgot': [
+        { status: 202 },
+        { status: 429, body: { error: 'rate_limited', retry_after: 360 } },
+      ],
+    });
+    vi.advanceTimersByTime(30_000);
+    await fireEvent.click(await view.findByRole('button', { name: 'Resend' }));
+    expect(await view.findByRole('button', { name: 'Resend in 6:00' })).toBeDisabled();
+    const line = view.getByRole('alert');
+    expect(line).toHaveTextContent('Too many requests. Try again in 6 minutes.');
+    expect(line.querySelector('strong')).toHaveTextContent('Too many requests.');
+    vi.advanceTimersByTime(360_000);
+    await vi.waitFor(() => expect(view.queryByRole('alert')).toBeNull());
+    expect(view.getByRole('button', { name: 'Resend' })).not.toBeDisabled();
+  });
+
+  it('puts "Back to sign-in" into the bottom bar on mobile', async () => {
+    await onPhone(async () => {
+      const view = await atSent();
+      const back = view.getByRole('button', { name: 'Back to sign-in' });
+      expect(back.closest('.bottom')).not.toBeNull();
+    });
   });
 });
