@@ -56,6 +56,16 @@ async function under(above: Locator, below: Locator): Promise<void> {
   expect(b.y).toBeGreaterThanOrEqual(a.y + a.height);
 }
 
+/**
+ * axe on the authenticator code screen: its 30-second ring starts a new 1 s transition every second, so axe would
+ * wait for it forever; without motion the ring stands still.
+ */
+async function stillAxe(page: Page, what: string): Promise<void> {
+  await page.emulateMedia({ reducedMotion: 'reduce' });
+  expect(await axeViolations(page), `axe: ${what}`).toEqual([]);
+  await page.emulateMedia({ reducedMotion: null });
+}
+
 /** The sign-in ends on "Hello, Alex" (focused), then the start page (no mail account yet). */
 async function hello(page: Page): Promise<void> {
   const heading = page.getByRole('heading', { name: 'Hello, Alex' });
@@ -110,7 +120,7 @@ test('authenticator app: wrong code, the right one, Hello, start page', async ({
   await expect(page).toHaveTitle(/^Multi-factor authentication · /);
   const code = page.getByLabel('Verification code');
   await expect(code).toBeFocused();
-  expect(await axeViolations(page), 'axe: code').toEqual([]);
+  await stillAxe(page, 'code');
 
   // The sixth digit confirms by itself; the message sits under the boxes.
   await code.fill(codes.wrong());
@@ -120,7 +130,7 @@ test('authenticator app: wrong code, the right one, Hello, start page', async ({
   await expect(code).toHaveValue('');
   await expect(code).toBeFocused();
   await under(code, invalid);
-  expect(await axeViolations(page), 'axe: invalid code').toEqual([]);
+  await stillAxe(page, 'invalid code');
 
   await code.fill(await codes.next());
   await hello(page);
