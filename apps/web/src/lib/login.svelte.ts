@@ -12,7 +12,7 @@ import { ApiError, NetworkError, api, fieldsOf, isApiError, maintenanceMessage, 
 import { Countdown } from '#lib/countdown.svelte.ts';
 import { isEmail } from '#lib/email.ts';
 import { failText } from '#lib/errors.ts';
-import { PW_RULES, tooLong, type PasswordRuleId } from '#lib/password.ts';
+import { PW_RULES, meetsPolicy, tooLong, type PasswordRuleId } from '#lib/password.ts';
 import { m } from '#lib/paraglide/messages.js';
 import { session } from '#lib/state/session.svelte.ts';
 import { clockText, waitText } from '#lib/wait.ts';
@@ -27,7 +27,7 @@ export const RESEND_S = 30;
 export type View = 'login' | 'otp' | 'backup' | 'forgot' | 'sent' | 'newpw' | 'pwdone' | 'linkbad';
 /** Route of the page: `/login`, `/password/forgot` or `/password/reset/[token]`. */
 export type LoginRoute = { kind: 'login' } | { kind: 'forgot' } | { kind: 'newpw'; token: string };
-export type Field = 'id' | 'pw' | 'otp' | 'bc' | 'fg' | 'np';
+export type Field = 'id' | 'pw' | 'otp' | 'bc' | 'fg' | 'np' | 'np2';
 /** Icon of the tile in the background (`PHASE_ICON`); `idle` shows the logo. */
 export type Phase =
   | 'idle'
@@ -52,17 +52,15 @@ const LINK_VIEWS: readonly View[] = ['newpw', 'pwdone', 'linkbad'];
 
 /**
  * Values of the page that are not part of the flow (branding, maintenance,
- * theme button, back button).
+ * back button).
  */
 export interface LoginPageValues {
   fgAuthed: boolean;
   fgBackLabel: string;
-  loginArt: boolean;
   loginMaint: boolean;
   loginText: string;
   loginTitle: string;
   maintMsg: string;
-  themeDark: boolean;
 }
 
 /** User from the sign-in response (`api::auth::user_json`). */
@@ -74,20 +72,13 @@ export interface SignedInUser {
   role: 'admin' | 'user';
 }
 
-/** Rule chip below "New password" (`npRules`). */
-export interface NpRule {
-  id: PasswordRuleId;
-  label: string;
-  ok: boolean;
-  /** Red after an error. */
-  bad: boolean;
-}
-
 export interface LoginHooks {
   /** Input rejected: shake the card, focus the field. */
   fail?: (field?: Field) => void;
   /** New step: focus the field. */
   focus?: (field: Field) => void;
+  /** "Save password" on an incomplete "Set a new password": the field that is missing something gets the focus. */
+  missing?: (field: Field) => void;
   /** A lock of the step ran out: the field may take the focus again (desktop). */
   unlocked?: (field: Field) => void;
   /** The step belongs to another route (`onFgView`, `onPwNewLeave`). */
@@ -171,10 +162,17 @@ export class LoginFlow {
   // Set a new password
   token = $state('');
   np = $state('');
-  npErr = $state<string | null>(null);
+  /** "Confirm password". */
+  np2 = $state('');
+  /** From the server: `policy` (the rules in `npBad`) or `too_long`; until the new password is edited. */
+  npErr = $state<'policy' | 'too_long' | null>(null);
   /** Rules named by the server (422 `policy`). */
   npBad = $state<PasswordRuleId[]>([]);
+  /** "Save password" with a filled confirmation that differs: "The passwords don’t match." until either is edited. */
+  np2Err = $state(false);
   npLoading = $state(false);
+  /** Length of the running save lock in seconds (the lock bar is full at the answer). */
+  npLockTotal = $state(0);
   /** `sessions_ended` of the response. */
   ended = $state(0);
 
@@ -218,21 +216,29 @@ export class LoginFlow {
     this.codeLeft ? { left: this.codeLeft, total: Math.max(this.codeLockTotal, this.codeLeft) } : null,
   );
 
-  showNewPw = $derived(this.view === 'newpw');
-  showPwDone = $derived(this.view === 'pwdone');
-  showLinkBad = $derived(this.view === 'linkbad');
+  /** "You’ve been signed out on all devices." after "Password changed". */
   pwDoneEnded = $derived(this.ended > 0);
-  npRules = $derived(
-    PW_RULES.map((rule): NpRule => {
-      const ok = rule.test(this.np) && !this.npBad.includes(rule.id);
-      return { id: rule.id, label: rule.label(), ok, bad: !ok && !!this.npErr };
-    }),
-  );
+  /** Over 1024 bytes (while typing) or too long according to the server. */
+  npTooLong = $derived(this.npErr === 'too_long' || tooLong(this.np));
+  /** Under the new password: "too long", or the first rule the server named. */
+  npMsg = $derived.by(() => {
+    if (this.npTooLong) return m.password_too_long();
+    if (this.npErr !== 'policy') return null;
+    const rule = PW_RULES.find((r) => this.npBad.includes(r.id)) ?? PW_RULES[0];
+    return rule?.error() ?? null;
+  });
+  /** The new password meets the rules (the server's too) and fits. */
+  npOk = $derived(meetsPolicy(this.np) && !this.npErr && !this.npTooLong);
+  /** Both passwords match ("Passwords match"). */
+  npMatch = $derived(!!this.np2 && this.np2 === this.np);
+  /** "The passwords don’t match." under the confirmation. */
+  np2Msg = $derived(this.np2Err ? m.setup_pw2_mismatch() : null);
   npLocked = $derived(this.npLeft > 0);
   npLockText = $derived(this.npLeft ? m.limit_text({ wait: waitText(this.npLeft) }) : '');
-  npLockBtn = $derived(this.npLeft ? m.login_save_locked({ time: clockText(this.npLeft) }) : '');
-  npReady = $derived(!this.npLoading && !this.npLocked);
-  npDis = $derived(this.npLoading || this.npLocked);
+  /** The lock bar under the password fields: seconds left of the lock's length. */
+  npLock = $derived(this.npLeft ? { left: this.npLeft, total: Math.max(this.npLockTotal, this.npLeft) } : null);
+  /** "Save password" is greyed out until all four chips are met, the password fits and no lock runs. */
+  npReady = $derived(this.npOk && this.npMatch && !this.npLocked);
 
   fgLocked = $derived(this.fgLeft > 0);
   fgLockText = $derived(this.fgLeft ? m.limit_text({ wait: waitText(this.fgLeft) }) : '');
@@ -275,7 +281,7 @@ export class LoginFlow {
     if (v === 'newpw') {
       if (this.npLoading) return 'loading';
       if (this.npLocked) return 'locked';
-      if (this.npErr) return 'error';
+      if (this.npMsg) return 'error';
       return focus === 'np' && showPw ? 'peek' : 'newpw';
     }
     if (v === 'forgot') return this.fgLoading ? 'loading' : this.fgLocked ? 'locked' : 'forgot';
@@ -553,28 +559,38 @@ export class LoginFlow {
 
   // ---- Set a new password ----
 
+  /** A new password discards the server's verdict on the old one and the mismatch. */
   editNp(value: string): void {
     this.np = value;
     this.npErr = null;
     this.npBad = [];
+    this.np2Err = false;
+  }
+
+  editNp2(value: string): void {
+    this.np2 = value;
+    this.np2Err = false;
   }
 
   /**
-   * "Save password" (`POST auth/password/reset/:token`). Only saving
-   * checks the link; afterwards nobody is signed in.
+   * "Save password" (`POST auth/password/reset/:token`), Enter too while it is
+   * greyed out. Incomplete: a filled confirmation that differs shows the
+   * mismatch (shake, focus there); otherwise the focus moves to the field that
+   * is missing something. Only saving checks the link; afterwards nobody is
+   * signed in.
    */
   async submitNp(): Promise<void> {
     if (this.npLoading || this.npLocked) return;
-    const bad = PW_RULES.find((rule) => !rule.test(this.np));
-    if (bad || tooLong(this.np)) {
-      this.npErr = bad ? bad.error() : m.password_too_long();
-      this.npBad = [];
-      this.hooks.fail?.('np');
+    if (!this.npReady) {
+      if (this.npOk && this.np2) {
+        this.np2Err = true;
+        this.hooks.fail?.('np2');
+      } else {
+        this.hooks.missing?.(this.npOk ? 'np2' : 'np');
+      }
       return;
     }
     this.npLoading = true;
-    this.npErr = null;
-    this.npBad = [];
     const req = ++this.req;
     try {
       const res = await api<{ status: 'ok'; sessions_ended: number }>(
@@ -587,17 +603,19 @@ export class LoginFlow {
       if (req !== this.req) return;
       this.npLoading = false;
       this.view = 'pwdone';
-      this.np = '';
+      this.clearNp();
       this.ended = res.sessions_ended;
     } catch (error) {
       if (req !== this.req) return;
       this.npLoading = false;
       if (isApiError(error, 422, 'invalid_token')) {
-        // Expired, used or replaced, without a difference; the password is discarded.
+        // Expired, used or replaced, without a difference; the passwords are discarded.
         this.view = 'linkbad';
-        this.np = '';
+        this.clearNp();
       } else if (isApiError(error, 429)) {
-        this.locks.start('np', retryAfter(error));
+        // The passwords stay; "Save password" is greyed out until the lock has run out.
+        this.npLockTotal = retryAfter(error);
+        this.locks.start('np', this.npLockTotal);
         this.hooks.fail?.();
       } else if (isApiError(error, 422, 'invalid') && fieldsOf(error).password) {
         this.npPolicy(fieldsOf(error).password ?? { code: 'policy' });
@@ -625,9 +643,7 @@ export class LoginFlow {
     this.req++;
     this.view = 'forgot';
     this.ident = '';
-    this.np = '';
-    this.npErr = null;
-    this.npBad = [];
+    this.clearNp();
     this.fgErr = null;
     this.fgLoading = false;
     this.hooks.focus?.('fg');
@@ -783,9 +799,7 @@ export class LoginFlow {
     this.view = 'login';
     this.fgLoading = false;
     this.fgErr = null;
-    this.np = '';
-    this.npErr = null;
-    this.npBad = [];
+    this.clearNp();
     this.npLoading = false;
     this.hooks.focus?.(this.ident.trim() ? 'pw' : 'id');
   }
@@ -810,23 +824,32 @@ export class LoginFlow {
     this.req++;
     this.token = token;
     this.view = 'newpw';
-    this.np = '';
-    this.npErr = null;
-    this.npBad = [];
+    this.clearNp();
     this.npLoading = false;
     this.done = false;
     this.hooks.focus?.('np');
   }
 
-  /** 422 `invalid` when saving: first named rule (`policy` with `rules`) or "too long". */
+  /** Both passwords and what was said about them (they live in memory only). */
+  private clearNp(): void {
+    this.np = '';
+    this.np2 = '';
+    this.npErr = null;
+    this.npBad = [];
+    this.np2Err = false;
+  }
+
+  /**
+   * 422 `invalid` when saving: "too long", or `policy` with `rules` (the first
+   * named rule's error, the named chips red). The passwords stay.
+   */
   private npPolicy(detail: { code: string; rules?: unknown }): void {
     const ids = Array.isArray(detail.rules) ? detail.rules.filter((r): r is string => typeof r === 'string') : [];
     if (detail.code === 'too_long') {
-      this.npErr = m.password_too_long();
+      this.npErr = 'too_long';
       this.npBad = [];
     } else {
-      const bad = PW_RULES.find((rule) => ids.includes(rule.id)) ?? PW_RULES[0];
-      this.npErr = bad?.error() ?? null;
+      this.npErr = 'policy';
       this.npBad = PW_RULES.filter((rule) => ids.includes(rule.id)).map((rule) => rule.id);
     }
     this.hooks.fail?.('np');

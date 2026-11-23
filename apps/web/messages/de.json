@@ -801,7 +801,6 @@
   "login_newpw_label": "Neues Passwort",
   "login_save": "Passwort speichern",
   "login_saving": "Wird gespeichert …",
-  "login_save_locked": "Passwort speichern in {time}",
   "login_done_title": "Passwort geändert",
   "login_done_text": "Ihr neues Passwort gilt ab sofort. Melden Sie sich jetzt damit an.",
   "login_done_ended": "Alle Geräte, auf denen Sie angemeldet waren, wurden abgemeldet.",
